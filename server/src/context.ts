@@ -1,0 +1,61 @@
+import { userInfo } from 'node:os'
+import { join } from 'node:path'
+import { anthropicModel, type CreateMessage } from './agent/model.ts'
+import type { Config } from './config.ts'
+import { openDatabase, type Database } from './db/database.ts'
+import { getSettings } from './db/settings.ts'
+import { ArgusError } from './errors.ts'
+import { IssueService } from './issues/issues.ts'
+import { Learner } from './memory/learn.ts'
+import { MemoryStore } from './memory/store.ts'
+import type { PlatformAccess } from './platform/credentials.ts'
+import { Platform } from './platform/platform.ts'
+import { EventBus } from './runs/bus.ts'
+import { RunManager } from './runs/manager.ts'
+
+/** Sunucunun bütün servisleri. Testte platform erişimi ve model dışarıdan verilir. */
+export interface AppContext {
+  config: Config
+  db: Database
+  bus: EventBus
+  memory: MemoryStore
+  issues: IssueService
+  platform: Platform
+  learner: Learner
+  runs: RunManager
+  model: () => CreateMessage
+  author: () => string
+}
+
+export function createContext(
+  config: Config,
+  overrides: { access?: PlatformAccess; model?: CreateMessage; headless?: boolean; dbFile?: string } = {},
+): AppContext {
+  const db = openDatabase(overrides.dbFile ?? join(config.dataDir, 'argus.db'))
+  const bus = new EventBus(db)
+  const memory = new MemoryStore(config.memoryDir)
+  const issues = new IssueService(db, memory)
+  const platform = new Platform(config, overrides.access)
+  let real: CreateMessage | null = null
+  const model = (): CreateMessage => {
+    if (overrides.model) return overrides.model
+    if (!config.anthropicApiKey)
+      throw new ArgusError('NO_KEY', 'Yapay zekâ anahtarı yok: .env dosyasına ANTHROPIC_API_KEY ekleyin.')
+    real ??= anthropicModel(config.anthropicApiKey)
+    return real
+  }
+  const author = () => getSettings(db).author || userInfo().username || 'Argus kullanıcısı'
+  const learner = new Learner({ db, memory, issues, model, settings: () => getSettings(db) })
+  const runs = new RunManager({
+    db,
+    bus,
+    platform,
+    memory,
+    issues,
+    learner,
+    dataDir: config.dataDir,
+    model,
+    headless: overrides.headless ?? true,
+  })
+  return { config, db, bus, memory, issues, platform, learner, runs, model, author }
+}

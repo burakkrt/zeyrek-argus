@@ -1,0 +1,34 @@
+{
+  "name": "zeyrek-argus",
+  "private": true,
+  "type": "module",
+  "description": "Zeyrek Argus — Zeyrek uygulamalarına özel yetişen yapay zekâ kalite kontrolcüsü",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @argus/server --filter @argus/ui dev",
+    "build": "pnpm --filter @argus/ui build",
+    "start": "pnpm build && pnpm --filter @argus/server start",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && pnpm --filter @argus/ui check",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "format": "prettier --write .",
+    "browsers:install": "pnpm --filter @argus/server exec playwright install chromium"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.6.6",
+    "eslint": "10.14.0",
+    "globals": "17.14.0",
+    "prettier": "3.10.1",
+    "prettier-plugin-svelte": "3.4.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
+  }
+}

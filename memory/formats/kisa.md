@@ -1,0 +1,1 @@
+- **{{baslik}}** ({{tur}}, {{durum}}) — {{sayfalar}}. Gözlenen: {{gozlenen}}
