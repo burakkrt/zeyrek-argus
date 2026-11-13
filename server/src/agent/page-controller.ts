@@ -1,11 +1,11 @@
 import type { Box, FindingKind, RunEventBody, Settings } from '@argus/shared'
 import type { Locator } from 'playwright'
-import { captureEvidence, captureStep } from '../browser/evidence.ts'
+import { captureEvidence } from '../browser/evidence.ts'
 import { describeHit, runEyes, type EyeHit, type PatternRule } from '../browser/eyes.ts'
 import { isUnsafeLabel } from '../browser/guard.ts'
 import { ariaTree, harvestTooltips, visibleText } from '../browser/research.ts'
 import type { BrowserSession, Problem } from '../browser/session.ts'
-import { compressSnapshot } from '../browser/snapshot.ts'
+import { compressSnapshot, diffSnapshot } from '../browser/snapshot.ts'
 import type { RecordResult } from '../issues/issues.ts'
 import {
   describeModelError,
@@ -96,6 +96,7 @@ export class PageController {
   private readonly seenKeys = new Set<string>()
   private readonly reported = new Set<string>()
   private readonly eyeFindings: Array<{ key: string; title: string }> = []
+  private lastTree: string | null = null
 
   constructor(private readonly input: PageInput) {}
 
@@ -103,15 +104,9 @@ export class PageController {
     return this.input.session.page
   }
 
-  private async step(tool: string, reason: string | null, outcome: string, withShot = true): Promise<void> {
-    let shot: string | null = null
-    if (withShot) {
-      const file = this.input.hooks.file('adim')
-      await captureStep(this.page, file.abs)
-        .then(() => (shot = file.rel))
-        .catch(() => undefined)
-    }
-    this.input.hooks.emit({ type: 'adim', tool, reason, outcome, shot })
+  /** Adım akışa yazılır; ekran görüntüsü alınmaz (görüntü yalnız bulgu kanıtı için). */
+  private async step(tool: string, reason: string | null, outcome: string): Promise<void> {
+    this.input.hooks.emit({ type: 'adim', tool, reason, outcome, shot: null })
     const requests = this.input.session.drainNetwork()
     if (requests.length) this.input.hooks.emit({ type: 'ag', requests: requests.slice(0, 40) })
   }
@@ -194,8 +189,15 @@ export class PageController {
   }
 
   /** Ekranın modele giden hâli: ağaç (sıkıştırılmış), yeni sorunlar ve istenirse görüntü. */
-  private async screen(withImage: boolean, fresh: string[] = []): Promise<ContentBlock[]> {
-    const tree = compressSnapshot(await ariaTree(this.page))
+  private async screen(
+    withImage: boolean,
+    fresh: string[] = [],
+    onlyChanges = false,
+  ): Promise<ContentBlock[]> {
+    const full = compressSnapshot(await ariaTree(this.page))
+    // Etkileşimden sonra ağacın tamamı değil yalnız değişen kısmı gider (en büyük token kalemi buydu).
+    const tree = onlyChanges && this.lastTree !== null ? diffSnapshot(this.lastTree, full).text : full
+    this.lastTree = full
     const blocked = this.input.session.drainBlocked()
     const header = [`Adres: ${this.page.url()}`]
     if (fresh.length)
@@ -203,7 +205,7 @@ export class PageController {
     if (blocked.length) header.push(`Engellenen yazma istekleri (bulgu değil): ${blocked.join(', ')}`)
     const blocks: ContentBlock[] = [text(`${header.join('\n')}\n\nSayfa ağacı:\n${tree}`)]
     if (withImage) {
-      const image = await this.page.screenshot({ type: 'jpeg', quality: 70 }).catch(() => null)
+      const image = await this.input.session.modelScreenshot().catch(() => null)
       if (image)
         blocks.push({
           type: 'image',
@@ -252,8 +254,6 @@ export class PageController {
     const hits = await runEyes(this.page, this.input.patterns)
     const network = this.input.session.drainNetwork()
     const problems = this.input.session.drainProblems()
-    const shotFile = hooks.file('adim')
-    await captureStep(this.page, shotFile.abs).catch(() => undefined)
     await this.recordDeterministic(hits, problems, 'acilis')
     // Bu açılışta görülen her anahtar (göz + konsol + istek) açık kalır; yalnız görülmeyenler "düzeldi" olur.
     const closed = hooks.closeVanishedEyeIssues(new Set(this.seenKeys))
@@ -269,7 +269,7 @@ export class PageController {
       tooltips: tooltips.length,
       eyeFindings: this.eyeFindings.length,
       requests: network.length,
-      shot: shotFile.rel,
+      shot: null,
       rules: this.input.ruleStats,
     })
     if (network.length) hooks.emit({ type: 'ag', requests: network.slice(0, 40) })
@@ -286,7 +286,19 @@ export class PageController {
 
     // 2. Plan: tek çağrı, yapılandırılmış çıktı.
     if (hooks.stopped()) return 'Durduruldu.'
-    const planned = await this.plan(facts)
+    // Tek görevde ayrı plan çağrısı yapılmaz: görev sayfanın tamamını kapsar, planı kendisi yapar.
+    const planned =
+      this.input.maxTasks === 1
+        ? {
+            summary: '',
+            tasks: [
+              {
+                baslik: 'Sayfanın tamamı',
+                amac: 'Açık sorunları yeniden doğrula; listeleri, filtreleri, sıralamayı, "Yeni"/"Ekle" formlarını (kaydetmeden), pencereleri, sekmeleri ve sayfa genelinde tutarlılığı dene.',
+              },
+            ],
+          }
+        : await this.plan(facts)
     const summary = planned.summary
     const tasks = planned.tasks.length
       ? planned.tasks
@@ -461,13 +473,13 @@ export class PageController {
           .catch(() => null)
         if (!target) return `'${ref}' bulunamadı; ekran değişmiş olabilir, ekrana_bak ile yeniden bak.`
         if (isUnsafeLabel(target.label) || target.submit) {
-          await this.step(name, reason, `Salt okuma: "${target.label}" basılmadı.`, false)
+          await this.step(name, reason, `Salt okuma: "${target.label}" basılmadı.`)
           return `Salt okuma: "${target.label}" yazma işi yapabilir, basılmadı. Başka bir şey dene.`
         }
         await this.locate(ref).click({ timeout: 5_000 })
         const fresh = await this.afterAction()
         await this.step(name, reason, `Tıklandı: "${target.label}"`)
-        return [text(`Tıklandı: "${target.label}".`), ...(await this.screen(false, fresh))]
+        return [text(`Tıklandı: "${target.label}".`), ...(await this.screen(false, fresh, true))]
       }
       case 'uzerine_gel': {
         await this.locate(ref).hover({ timeout: 5_000 })
@@ -486,7 +498,10 @@ export class PageController {
           .catch(() => '')
         const fresh = await this.afterAction()
         await this.step(name, reason, tip ? `İpucu: ${tip.slice(0, 120)}` : 'Üstüne gelindi')
-        return [text(tip ? `Açılan ipucu: ${tip}` : 'İpucu açılmadı.'), ...(await this.screen(false, fresh))]
+        return [
+          text(tip ? `Açılan ipucu: ${tip}` : 'İpucu açılmadı.'),
+          ...(await this.screen(false, fresh, true)),
+        ]
       }
       case 'yaz': {
         const value = field(input, 'metin')
@@ -494,14 +509,14 @@ export class PageController {
         await this.locate(ref).fill(value, { timeout: 5_000 })
         const fresh = await this.afterAction()
         await this.step(name, reason, `Yazıldı: "${value.slice(0, 60)}"`)
-        return [text(`Yazıldı.`), ...(await this.screen(false, fresh))]
+        return [text(`Yazıldı.`), ...(await this.screen(false, fresh, true))]
       }
       case 'tus': {
         const key = field(input, 'tus')
         await this.page.keyboard.press(key)
         const fresh = await this.afterAction()
         await this.step(name, reason, `Tuş: ${key}`)
-        return [text(`${key} basıldı.`), ...(await this.screen(false, fresh))]
+        return [text(`${key} basıldı.`), ...(await this.screen(false, fresh, true))]
       }
       case 'kaydir': {
         await this.page.mouse.wheel(0, field(input, 'yon') === 'yukari' ? -600 : 600)
@@ -511,13 +526,14 @@ export class PageController {
           reason,
           field(input, 'yon') === 'yukari' ? 'Yukarı kaydırıldı' : 'Aşağı kaydırıldı',
         )
-        return [text('Kaydırıldı.'), ...(await this.screen(false, fresh))]
+        return [text('Kaydırıldı.'), ...(await this.screen(false, fresh, true))]
       }
       case 'ekrana_bak': {
         const withImage = (input as { goruntu?: unknown } | null)?.goruntu === true
         await this.input.session.settle(3_000)
         await this.step(name, reason, withImage ? 'Ekrana bakıldı (görüntüyle)' : 'Ekrana bakıldı')
-        return this.screen(withImage)
+        // Ağaç zaten her adımda geliyor; görüntüsüz bakışta yalnız fark gider.
+        return this.screen(withImage, [], !withImage)
       }
       case 'bastan_ac': {
         await this.input.session.open(this.input.url)
@@ -527,7 +543,7 @@ export class PageController {
           'gorev',
         )
         await this.step(name, reason, 'Sayfa baştan açıldı')
-        return this.screen(false, fresh)
+        return this.screen(false, fresh, true)
       }
       default:
         return `Bilinmeyen araç: ${name}`

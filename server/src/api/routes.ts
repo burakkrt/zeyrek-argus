@@ -202,7 +202,10 @@ export function createApi(ctx: AppContext): Hono {
     const base = resolve(ctx.config.dataDir, 'runs', id)
     const file = resolve(base, rel)
     if (!file.startsWith(base + sep) || !existsSync(file)) return c.json({ hata: 'Dosya yok.' }, 404)
-    return c.body(readFileSync(file), 200, { 'content-type': 'image/jpeg', 'cache-control': 'max-age=86400' })
+    return c.body(readFileSync(file), 200, {
+      'content-type': file.endsWith('.png') ? 'image/png' : 'image/jpeg',
+      'cache-control': 'max-age=86400',
+    })
   })
 
   // --- canlı akış ---

@@ -174,6 +174,14 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
     ).toBe(true)
     // Desenli kural isteme girmedi (göz olarak koştu), tarayıcı Türkçe açıldı.
     expect(JSON.stringify(h.calls[0]!.system)).toContain('gözler bakıyor')
+
+    // Token: etkileşimden sonra ağacın tamamı değil yalnız değişen kısım gider; adım görüntüsü alınmaz.
+    const afterDialog = h.calls.find((c) => JSON.stringify(c.messages.at(-1)).includes('Tıklandı: \\"Ayrıntılar\\"'))!
+    const lastTurn = JSON.stringify(afterDialog.messages.at(-1))
+    expect(lastTurn).toContain('Yalnız değişen kısım')
+    expect(lastTurn).toContain('Eğitim ayrıntısı')
+    expect(lastTurn).not.toContain('Yangın eğitimi')
+    expect(events.filter((e) => e.type === 'adim').every((e) => e.shot === null)).toBe(true)
   })
 
   it('karar Git dosyasına yazılır; "bulgu değil" sonraki koşuda bastırılır, düzelen göz sorunu kendiliğinden kapanır, yeniden bozulunca açılır', async () => {

@@ -214,7 +214,7 @@ export class RunManager {
             closeVanishedEyeIssues: (keys) => issues.closeVanishedEyeIssues(app, page, keys),
             file: (kind) => {
               counters[kind] += 1
-              const rel = `${kind}/${String(counters[kind]).padStart(4, '0')}.jpg`
+              const rel = `${kind}/${String(counters[kind]).padStart(4, '0')}.${kind === 'kanit' ? 'png' : 'jpg'}`
               return { abs: join(runDir, rel), rel }
             },
             drainSteering: () => active.steering.splice(0),

@@ -67,9 +67,12 @@ düğme. Bu yüzden yalnız development ve dallarda koşulur; production listele
 
 ## Maliyet
 
-Model ayarlardan seçilir (varsayılan `claude-opus-5-5`). Sabit talimat önbelleğe alınır; ekran görüntüsü isteğe
-bağlıdır; ağaçtaki tekrar eden satırlar özetlenir; gözler token harcamaz. Her koşunun maliyeti ve token kullanımı
-monitörde ve Koşular'da görünür. 1. sürüm ölçümü: sayfa başına yaklaşık $0,3–1,3.
+Model ayarlardan seçilir (varsayılan `claude-opus-5-5`). Maliyetin çoğu modele giden yeni içerikten (önbelleğe
+yazma) gelir; bu yüzden: görevin başında ağacın tamamı, her etkileşimden sonra yalnız değişen kısmı gider; ağaçta tekrar
+eden satırlar ve içi boş sarmalayıcılar atılır; ekran görüntüsü yalnız istenince ve %60 ölçekte gider; görev sayısı 1
+ise ayrı plan çağrısı yapılmaz; sabit talimat önbelleğe alınır; gözler token harcamaz. Kanıt görüntüleri (PNG, kutulu)
+modele gitmez. Her koşunun maliyeti monitörde ve Koşular'da görünür. Ölçüm (2026-11-14, eniyileme öncesi): 12 sayfa
+11 dk $4,44, maliyetin %68'i önbelleğe yazma.
 
 ## Takımla kullanım
 

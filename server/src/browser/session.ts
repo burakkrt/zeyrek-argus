@@ -120,8 +120,23 @@ export class BrowserSession {
     })
   }
 
+  /**
+   * Modele giden ekran görüntüsü: %60 ölçekte (768×480), JPEG. Görüntü tokenı piksel sayısıyla büyür; tam boyuta
+   * göre yaklaşık üçte bir maliyet, metin hâlâ okunur. Kanıt görüntüleri tam boyutta alınır, modele gitmez.
+   */
+  async modelScreenshot(): Promise<Buffer> {
+    this.cdp ??= await this.context.newCDPSession(this.page)
+    const viewport = this.page.viewportSize() ?? { width: 1280, height: 800 }
+    const shot = (await this.cdp.send('Page.captureScreenshot', {
+      format: 'jpeg',
+      quality: 70,
+      clip: { x: 0, y: 0, width: viewport.width, height: viewport.height, scale: 0.6 },
+    })) as { data: string }
+    return Buffer.from(shot.data, 'base64')
+  }
+
   private async startScreencast(onFrame: (data: string) => void): Promise<void> {
-    this.cdp = await this.context.newCDPSession(this.page)
+    this.cdp ??= await this.context.newCDPSession(this.page)
     this.cdp.on('Page.screencastFrame', (frame: { data: string; sessionId: number }) => {
       void this.cdp?.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => undefined)
       const at = Date.now()

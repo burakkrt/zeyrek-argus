@@ -44,7 +44,7 @@ export const TASK_TOOLS: Tool[] = [
   }),
   tool(
     'ekrana_bak',
-    'Ekranın güncel ağacını döner; goruntu=true ise ekran görüntüsü de (görsel sorunlar için).',
+    'Ekran görüntüsü alır (goruntu=true): hiza, taşma, renk, kesilme gibi görsel sorunlar için. Ağaç zaten her adımdan sonra gelir; yalnız ağaç için çağırma.',
     {
       goruntu: { type: 'boolean' },
       neden: reason,

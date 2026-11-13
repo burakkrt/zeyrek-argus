@@ -36,7 +36,7 @@
           >
         </div>
         {#if event.shot}<div class="shot">
-            <Shot src={fileUrl(event.runId, event.shot)} width={240} height={150} />
+            <Shot src={fileUrl(event.runId, event.shot)} width={320} height={200} />
           </div>{/if}
       {:else if event.type === 'plan'}
         <strong>Plan</strong> <span class="muted">{event.summary}</span>
@@ -95,7 +95,7 @@
           {#if event.reason}<div class="muted small">{event.reason}</div>{/if}
         </a>
         {#if event.shot}<div class="shot">
-            <Shot src={fileUrl(event.runId, event.shot)} width={240} height={150} />
+            <Shot src={fileUrl(event.runId, event.shot)} width={320} height={200} />
           </div>{/if}
       {:else if event.type === 'sorun-durumu'}
         <span class={`badge ${event.state === 'yok' ? 'ok' : 'warn'}`}

@@ -67,7 +67,7 @@ export function markdownZip(issues: IssueDetail[], template: string, dataDir: st
     if (shot?.shot) {
       const source = join(dataDir, 'runs', shot.runId, shot.shot)
       if (existsSync(source)) {
-        shotPath = `kanit/${issue.id.slice(0, 8)}.jpg`
+        shotPath = `kanit/${issue.id.slice(0, 8)}.${source.endsWith('.png') ? 'png' : 'jpg'}`
         files[shotPath] = readFileSync(source)
       }
     }

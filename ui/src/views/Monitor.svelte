@@ -28,7 +28,7 @@
   )
   const visibleFindings = $derived(findings.filter((f) => f.outcome !== 'bastirildi'))
   const lastShot = $derived(
-    [...events].reverse().find((e) => (e.type === 'adim' || e.type === 'arastirma') && e.shot) as
+    [...events].reverse().find((e) => e.type === 'bulgu' && e.shot && e.outcome !== 'bastirildi') as
       { shot: string | null } | undefined,
   )
   const currentTask = $derived(
@@ -181,7 +181,7 @@
   <aside class="side">
     <section class="card">
       <div class="row">
-        <h2>{running ? 'Canlı görüntü' : 'Son ekran'}</h2>
+        <h2>{running ? 'Canlı görüntü' : 'Son bulgunun kanıtı'}</h2>
         {#if running && frame}<span class="badge fail"><span class="pulse"></span> canlı</span>{/if}
       </div>
       {#if running && frame}
