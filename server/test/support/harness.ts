@@ -21,6 +21,15 @@ export interface Script {
   /** Görev turu: konuşmanın bütün metni (ağaçlar dahil), görev başlığı ve bu görevdeki tur sırası. */
   task: (conversation: string, task: string, turn: number) => Move | Move[]
   learn?: (prompt: string) => unknown
+  /** Yargıç kararı; verilmezse aday olduğu gibi kabul edilir. */
+  judge?: (candidate: Record<string, string>, prompt: string) => unknown
+  /** Gözün bir ekran durumunda bulduğu; verilmezse bulgu yok. */
+  inspect?: (prompt: string) => unknown
+}
+
+function judgeCandidate(prompt: string): Record<string, string> {
+  const body = /Aday bulgu:\n([\s\S]*?)\n\nEkranın ağacı:/.exec(prompt)?.[1] ?? '{}'
+  return JSON.parse(body) as Record<string, string>
 }
 
 function textOfParams(params: MessageParams): string {
@@ -70,6 +79,21 @@ export function scriptedModel(script: Script): { model: CreateMessage; calls: Me
         usage,
       }) as unknown as Message
     const prompt = textOfParams(params)
+    if (params.output_config?.format && prompt.includes('GÖZ GÖREVİ')) {
+      const value = script.inspect?.(prompt) ?? { bulgular: [], notlar: [] }
+      return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
+    }
+    if (params.output_config?.format && prompt.includes('YARGIÇ GÖREVİ')) {
+      const candidate = judgeCandidate(prompt)
+      const value = script.judge?.(candidate, prompt) ?? {
+        karar: 'kabul',
+        tur: candidate.tur,
+        anahtar: candidate.anahtar,
+        baslik: candidate.baslik,
+        gerekce: 'Ekranda görülüyor.',
+      }
+      return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
+    }
     if (params.output_config?.format) {
       const isTeacher = typeof params.system === 'string' && params.system.includes('öğretmenisin')
       const value = isTeacher ? (script.learn?.(prompt) ?? { oneriler: [] }) : script.plan(prompt)

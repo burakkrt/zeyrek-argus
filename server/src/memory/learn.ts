@@ -103,13 +103,13 @@ export class Learner {
   private async ask<T>(prompt: string, schema: object, meter?: UsageMeter): Promise<T> {
     const settings = this.deps.settings()
     const message = await this.deps.model()({
-      model: settings.model,
+      model: settings.models.teacher,
       max_tokens: 16_000,
       system: TEACHER,
       messages: [{ role: 'user', content: prompt }],
       output_config: { effort: 'low', format: { type: 'json_schema', schema: schema as Record<string, unknown> } },
     })
-    meter?.add(settings.model, message)
+    meter?.add(settings.models.teacher, message, 'teacher')
     const parsed = jsonOf<T>(message)
     if (!parsed) throw new ArgusError('LEARN', 'Ders çıkarıcının yanıtı okunamadı.')
     return parsed

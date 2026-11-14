@@ -54,6 +54,22 @@ export interface Usage {
   output: number
   requests: number
   costUsd: number | null
+  /** Rol başına istek ve maliyet (planlayıcı, gezgin, yargıç, öğretmen). */
+  roles?: Partial<Record<ModelRole, { requests: number; costUsd: number | null; model: string }>>
+}
+
+/**
+ * Modelin işi: planlayıcı görev çıkarır, gezgin ekranı gezer, göz ulaşılan ekranı inceler, yargıç gezginin adayını
+ * denetler, öğretmen ders çıkarır.
+ */
+export const MODEL_ROLES = ['planner', 'explorer', 'inspector', 'judge', 'teacher'] as const
+export type ModelRole = (typeof MODEL_ROLES)[number]
+export const MODEL_ROLE_LABELS: Record<ModelRole, string> = {
+  planner: 'Planlayıcı',
+  explorer: 'Gezgin',
+  inspector: 'Göz',
+  judge: 'Yargıç',
+  teacher: 'Öğretmen',
 }
 
 export const RUN_STATUSES = ['sirada', 'calisiyor', 'bitti', 'hata', 'durduruldu'] as const
@@ -246,7 +262,15 @@ export interface MemoryBudget {
 }
 
 export interface Settings {
-  model: string
+  /**
+   * Rol başına model. Ucuz model son kararı vermez: gezginin bildirdiğini yargıç onaylar, ekranın içeriğini göz
+   * (Opus) inceler.
+   */
+  models: Record<ModelRole, string>
+  /** Gezgin takılınca ya da görevi eksik bırakınca bir üst modele geçsin (Haiku → Sonnet → Opus). */
+  escalate: boolean
+  /** Gezginin ulaştığı her yeni ekran durumunu Göz modeli ayrıca incelesin. */
+  inspector: boolean
   effort: 'low' | 'medium' | 'high'
   /** Kurallara ayrılan token bütçesi (sayfa başına istemde). */
   ruleBudget: number

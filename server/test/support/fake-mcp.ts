@@ -53,6 +53,19 @@ server.registerTool(
   },
   async () => json({ pages: PAGES }),
 )
+server.registerTool(
+  'page_schema_get',
+  {
+    description: 'sahte',
+    inputSchema: {
+      project: z.string().optional(),
+      environment: z.string().optional(),
+      applicationId: z.string(),
+      pageId: z.string(),
+    },
+  },
+  async ({ pageId }) => json({ pageId, version: 7, schema: { root: { type: 'stack', children: [pageId] } } }),
+)
 server.registerTool('page_schema_patch', { description: 'sahte yazan araç' }, async () => json({ ok: true }))
 
 await server.connect(new StdioServerTransport())

@@ -29,7 +29,7 @@ export const BASE_INSTRUCTIONS = `Sen Zeyrek low-code platformunda kurulmuş bir
 - Tahmin bulgu değildir. Yeni özellik isteği bulgu değildir.
 - alinti: sorunun ekranda birebir görünen kısa metni (ör. "01917edf-bf08" ya da "En çc"). Sistem bunu ekranda arar; bulamazsa bulgu "doğrulanamadı" olur. Ekranda metin yoksa boş bırak.
 - ref: sorunlu öğenin ref'i; ekran görüntüsünde kutuyla işaretlenir. Bildirmeden önce sorunun ekranda göründüğü anda ol.
-- anahtar: sorunun kök nedeni, küçük harf ve tire (ör. kisi-listesi-guid, tarih-filtresi-bicim). Aynı kök neden başka yerde görülse de aynı anahtar. Verilen "bilinen sorunlar" listesindeki bir soruna denk gelirsen onun anahtarını kullan.
+- anahtar: sorunun kök nedeni, küçük harf ve tire (ör. kisi-listesi-guid, tarih-filtresi-bicim). Aynı kök neden başka yerde görülse de aynı anahtar. Bilinen sorunlarla eşleştirmeyi yargıç yapar.
 - Senaryo: tekrar etmek için adımlar. Beklenen ve gözlenen: kısa, somut, Türkçe.
 - Yanlış bildirdiğini anlarsan bulgu_geri_al ile geri al.
 
@@ -37,7 +37,7 @@ export const BASE_INSTRUCTIONS = `Sen Zeyrek low-code platformunda kurulmuş bir
 - Sana verilen kurallar, insanın kararlarından ve müşteri bulgularından öğrenildi. Dayandığın kuralın kimliğini kurallar alanına yaz.
 - "SORUN SAYMA" kuralına uyan bir şey görürsen yine bulgu_bildir ile bildir ama bastiran_kural alanına kuralın kimliğini yaz: kayda girer, açık bulgu sayılmaz.
 - Kurala rağmen güçlü kanıt görürsen bastiran_kural'ı boş bırak, gozlenen alanında hangi kurala neden uymadığını yaz.
-- "Bulgu değil" denmiş sorunları yeniden getirme.
+- Her aday bulguyu bir yargıç denetler: bilinen bir sorunsa anahtarını eşler, insanın "bulgu değil" dediğiyse reddeder, kanıtı zayıfsa nota indirir. Sen gördüğünü dürüstçe bildir; dikkat çeken ama emin olmadığın şeyi not olarak bildir, yutma.
 
 ## Bitiş
 Görev bitince gorevi_bitir ile 1-2 cümlelik özet yaz: ne denedin, ne buldun.`
@@ -68,14 +68,55 @@ export interface PageFacts {
 const list = (items: string[], empty = '(yok)') =>
   items.length ? items.map((i) => `- ${i}`).join('\n') : empty
 
-export function pageFacts(facts: PageFacts): string {
-  return [
+/**
+ * Sayfa bilgisi. Gezgin ve planlayıcı modüldeki bilinen ve reddedilen sorun listesini görmez (eşleştirmeyi ve
+ * reddi yargıç yapar); bu, her görevin başında tekrar eden en uzun bölümdü.
+ */
+export function pageFacts(facts: PageFacts, audience: 'gezgin' | 'yargic' = 'gezgin'): string {
+  const parts = [
     `Sayfa: ${facts.page}\nAdres: ${facts.url}`,
     `"?" ipuçları (tanımlar):\n${list(facts.tooltips.map((t) => `${t.label}: ${t.text}`))}`,
     `Gözlerin zaten bulduğu (yeniden bildirme):\n${list(facts.eyeFindings.map((e) => `${e.key} — ${e.title}`))}`,
     `Açılışta görülen konsol/ağ sorunları:\n${list(facts.problems.slice(0, 10))}`,
-    `Bu sayfada daha önce bulunan açık sorunlar (hâlâ var mı bak, sorun_durumu ile bildir):\n${list(facts.openIssues.map((i) => `${i.key} — ${i.title}`))}`,
-    `Bu modülde bilinen sorunlar (aynısına denk gelirsen anahtarını kullan):\n${list(facts.known.map((k) => `${k.key} — ${k.title} (${k.status})`))}`,
-    `İnsanın "bulgu değil" dediği sorunlar (getirme):\n${list(facts.rejected.map((r) => `${r.key} — ${r.title}`))}`,
-  ].join('\n\n')
+    audience === 'yargic'
+      ? `Bu sayfada açık sorunlar:\n${list(facts.openIssues.map((i) => `${i.key} — ${i.title}`))}`
+      : `Bu sayfada daha önce bulunan, etkileşimle yeniden bakılması gereken açık sorunlar (hâlâ var mı bak, sorun_durumu ile bildir):\n${list(facts.openIssues.map((i) => `${i.key} — ${i.title}`))}`,
+  ]
+  if (audience === 'yargic')
+    parts.push(
+      `Bu modülde bilinen sorunlar (aynı kök nedense bu anahtarı ver):\n${list(facts.known.map((k) => `${k.key} — ${k.title} (${k.status})`))}`,
+      `İnsanın "bulgu değil" dediği sorunlar (aynısıysa reddet):\n${list(facts.rejected.map((r) => `${r.key} — ${r.title}`))}`,
+    )
+  return parts.join('\n\n')
 }
+
+/**
+ * Gözün görevi: gezginin ulaştığı bir ekran durumunu tek başına, dikkatle incelemek. Gezgin tıklar ve gezer; neyin
+ * yanlış olduğunu görmek bu rolün işidir (içerik tutarlılığı ucuz modelin kaçırdığı sınıftı).
+ */
+export const INSPECT_TASK = `GÖZ GÖREVİ: Sen bu ekranın titiz incelemecisisin. Gezgin ekranı aşağıdaki hâle getirdi; sen yalnız ekranda görüleni incele ve müşterinin bulgu olarak bildireceği her sorunu bul.
+Bak:
+- Veri tutarlılığı: adlar, kodlar, yıllar ve tarih aralıkları birbirini tutuyor mu; toplamlar, sayaçlar, rozetler ve sayfalama satırlarla uyuşuyor mu; durum ve aşama etiketleri çelişiyor mu.
+- Sayfa başlığı ve açıklaması ekranın gösterdiğiyle uyuşuyor mu; tarayıcı sekme başlığı bu sayfanın adı mı.
+- Aynı kavramın farklı adla geçmesi, aynı sayfada farklı tarih/sayı biçimi, eksik yer tutucu ya da etiket, yazım, çeviri, ham değer, hata mesajı.
+- Görsel: hiza, taşma, kesilme, üst üste binme (görüntüye bak).
+Kurallar:
+- alinti: ekranda birebir görünen kısa metin; sistem onu ekranda arar ve kutuyla işaretler.
+- Tahmin ve özellik isteği bulgu değildir. "?" tanımı durumu açıklıyorsa bulgu değildir. Boş liste çoğunlukla veri eksikliğidir.
+- Engellenen yazma isteklerinden doğmuş olabilecek hata (ör. "seçenekler yüklenemedi") not olarak bildirilir.
+- Bilinen bir sorunun aynısıysa onun anahtarını kullan; insanın "bulgu değil" dediğini bildirme; bu sayfada zaten bildirileni yeniden bildirme.
+- Test amaçlı kayıt adları ("test", "silinecek", anlamsız harfler) bulgu değildir. Filtreye yazılmış ama listeye henüz yansımamış değer (Enter'a basılmamış olabilir) bulgu değildir.
+- tur: kesin (açık hata), tutarsizlik (neyle çeliştiğini gozlenen'de yaz), not (zayıf kanıt, görüş).
+- Önceki ekranların notları verildiyse bu ekranı onlarla da karşılaştır: aynı durum için farklı ad, aynı sayının farklı değeri, bir ekranda "kısmi" ya da "eksik" denen verinin başka ekranda tam sayılması.
+- Sorun yoksa bulgular boş liste.
+- notlar: bu ekranda başka ekranlarla karşılaştırılabilecek kısa gözlemler, en çok 12 madde, her biri tek satır ve alıntılı: durum ve etiket adları ("Hedefe yakın"), sayaç ve toplamlar ("Onaylı ölçüm 118 / 120"), dönem ve tarih etiketleri, kısmi/eksik veri işaretleri, ipucu tanımları. Yorum değil, ekranda görüleni yaz.`
+
+/** Yargıcın görevi: gezginin aday bulgusunu kayda girmeden önce denetlemek. Son kararı ucuz model vermez. */
+export const JUDGE_TASK = `YARGIÇ GÖREVİ: Gezgin aşağıdaki aday bulguyu bildirdi. Kayda girmeden önce sen karar ver.
+- kabul: ekranda gerçekten görülen, müşterinin bulgu sayacağı bir sorun. tur: kesin ya da tutarsizlik.
+- not: dikkat çekici ama kanıtı zayıf, görüş ya da test edilemeyen durum.
+- ret: sorun değil (tanım açıklıyor, yükleniyordu, tahmin, özellik isteği), insanın "bulgu değil" dediği sorunun aynısı ya da ekranda görülmüyor.
+- anahtar: kök neden; bilinen bir sorunun aynısıysa onun anahtarı, değilse küçük harf ve tireyle yeni anahtar.
+- baslik: kısa ve somut; gerekirse gezginin başlığını düzelt.
+- gerekce: tek cümle.
+Ekranın ağacı ve görüntüsü aday bildirildiği andaki hâlidir.`

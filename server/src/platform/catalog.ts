@@ -123,6 +123,25 @@ export class Catalog {
     const applicationId = await this.applicationId(project, application)
     return parsePages(await (await this.mcp()).call('page_list', { project, environment, applicationId }))
   }
+
+  /** Sayfanın Studio şeması (değişiklik izi için). Yalnız okur; production'a gitmez. */
+  async pageSchema(
+    project: string,
+    application: string,
+    environment: string,
+    slug: string,
+  ): Promise<unknown> {
+    assertNotProduction(environment)
+    const applicationId = await this.applicationId(project, application)
+    const page = (await this.pages(project, application, environment)).find((p) => p.slug === slug)
+    if (!page) throw new ArgusError('PAGE_NOT_FOUND', `'${slug}' sayfası bulunamadı.`)
+    return (await this.mcp()).call('page_schema_get', {
+      project,
+      environment,
+      applicationId,
+      pageId: page.id,
+    })
+  }
 }
 
 /** Studio'daki çalışma adresi: development `/dev/…`, dal `/branch/<slug>/…`. */

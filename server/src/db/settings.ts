@@ -1,8 +1,22 @@
 import type { AppRef, AppUserSetting, Settings } from '@argus/shared'
 import { json, type Database } from './database.ts'
 
+/**
+ * Varsayılan: Sonnet gezer, Opus göz ulaşılan her ekranı ekran notlarıyla inceler. 2026-11-14 temiz hafızalı
+ * ölçümde (3 sayfa, 15 koşu) tek Opus koşusuna göre gerçek sorunların %68'ini buldu (Opus %41), Opus'un her koşuda
+ * yakaladıklarını da yakaladı; süre −%14, sayfa başı maliyet +%15, gerçek bulgu başı −%31. Göz kapalıyken Haiku ya da
+ * Sonnet gezgin içerik çelişkilerini kaçırıyordu: göz kapatılırsa gezgin Opus seçilmeli.
+ */
 export const DEFAULT_SETTINGS: Settings = {
-  model: 'claude-opus-5-5',
+  models: {
+    planner: 'claude-opus-5-5',
+    explorer: 'claude-sonnet-5-5',
+    inspector: 'claude-opus-5-5',
+    judge: 'claude-opus-5-5',
+    teacher: 'claude-opus-5-5',
+  },
+  escalate: true,
+  inspector: true,
   effort: 'medium',
   ruleBudget: 1500,
   autoApproveFindingRules: true,
@@ -14,10 +28,12 @@ export const DEFAULT_SETTINGS: Settings = {
 export function getSettings(db: Database): Settings {
   const row = db.prepare(`select value from settings where key = 'settings'`).get() as
     { value: string } | undefined
-  const saved = json<Partial<Settings>>(row?.value, {})
+  // Eski kayıtta tek 'model' alanı olabilir; rol modelleri varsayılandan gelir.
+  const { model: _legacy, ...saved } = json<Partial<Settings> & { model?: string }>(row?.value, {})
   return {
     ...DEFAULT_SETTINGS,
     ...saved,
+    models: { ...DEFAULT_SETTINGS.models, ...(saved.models ?? {}) },
     defaultOptions: { ...DEFAULT_SETTINGS.defaultOptions, ...(saved.defaultOptions ?? {}) },
   }
 }

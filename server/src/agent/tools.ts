@@ -77,6 +77,10 @@ export const TASK_TOOLS: Tool[] = [
   }),
   tool('gorevi_bitir', 'Görevi bitirir.', {
     ozet: { type: 'string', description: '1-2 cümle: ne denendi, ne bulundu.' },
+    eksik: {
+      type: 'string',
+      description: 'Görevde olup ulaşamadığın ya da deneyemediğin maddeler; hepsini yaptıysan boş.',
+    },
   }),
 ]
 
@@ -95,5 +99,51 @@ export const PLAN_SCHEMA = {
     },
   },
   required: ['ozet', 'gorevler'],
+  additionalProperties: false,
+} as const
+
+/** Yargıcın kararı: aday bulgu kabul, nota indirme ya da ret. */
+export const JUDGE_SCHEMA = {
+  type: 'object',
+  properties: {
+    karar: { type: 'string', enum: ['kabul', 'not', 'ret'] },
+    tur: { type: 'string', enum: ['kesin', 'tutarsizlik', 'not'] },
+    anahtar: { type: 'string' },
+    baslik: { type: 'string' },
+    gerekce: { type: 'string' },
+  },
+  required: ['karar', 'tur', 'anahtar', 'baslik', 'gerekce'],
+  additionalProperties: false,
+} as const
+
+const FINDINGS = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      tur: { type: 'string', enum: ['kesin', 'tutarsizlik', 'not'] },
+      anahtar: { type: 'string' },
+      baslik: { type: 'string' },
+      senaryo: { type: 'string' },
+      beklenen: { type: 'string' },
+      gozlenen: { type: 'string' },
+      alinti: { type: 'string' },
+    },
+    required: ['tur', 'anahtar', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'alinti'],
+    additionalProperties: false,
+  },
+} as const
+
+/**
+ * Gözün çıktısı: bu ekran durumunda görülen bulgular (yoksa boş) ve başka ekranlarla karşılaştırılacak kısa notlar
+ * (etiket ve durum adları, sayaçlar, toplamlar, dönem etiketleri). Notlar sonraki incelemelere gider: ekranlar arası tutarsızlık tek ekrana bakarak görülmüyordu (ölçüldü).
+ */
+export const INSPECT_SCHEMA = {
+  type: 'object',
+  properties: {
+    bulgular: FINDINGS,
+    notlar: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['bulgular', 'notlar'],
   additionalProperties: false,
 } as const

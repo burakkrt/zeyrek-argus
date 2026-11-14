@@ -40,11 +40,18 @@ Sayfa başına:
    kurallar, konsol hataları, başarısız istekler. Her biri kutulu kanıtla, kesin olarak kaydedilir.
 2. **Plan (1 çağrı):** sıkıştırılmış sayfa ağacı + ekran + ipuçları + göz bulguları + ilgili kurallar + bu sayfadaki
    açık sorunlar → en çok N görev.
-3. **Görevler:** her görev ayrı ve kısa bir konuşma (bağlam büyümez). Kontrolcü tıklar, üzerine gelir, filtre ve
-   arama alanlarına yazar, kaydırır, gerektiğinde ekran görüntüsü ister; her etkileşimden sonra gözler yeniden bakar.
-4. **Doğrulama:** bildirilen bulgunun alıntısı ekranda aranır; yoksa "doğrulanamadı" notuna iner. Sorunlu öğe
-   kutuyla işaretlenip ekran görüntüsü alınır.
-5. **Gruplama:** aynı kök neden (anahtar) uygulama genelinde tek sorundur; başka sayfada görülünce görünüm eklenir.
+3. **Görevler (gezgin):** her görev ayrı ve kısa bir konuşma (bağlam büyümez). Gezgin tıklar, üzerine gelir, filtre
+   ve arama alanlarına yazar, kaydırır; her etkileşimden sonra belirlenimci gözler yeniden bakar. Gezginin işi görevin
+   her maddesine ulaşmak ve davranış sorunlarını (tepki vermeyen düğme, açılmayan pencere, çalışmayan filtre)
+   bildirmektir; ulaşamadığı madde olursa bir üst modele geçer.
+4. **Göz:** gezginin ulaştığı her yeni ekranın (ağaç belirgin biçimde değiştiyse, sayfa başına en çok 14) o anki hâli
+   yakalanır ve Opus onu gezgini bekletmeden inceler: veri tutarlılığı, adlar, sayaçlar, başlık ve açıklama, görsel
+   sorunlar. Her incelemenin kısa **ekran notları** (durum adları, sayaçlar, "kısmi" işaretleri) sonraki incelemeye
+   taşınır; böylece ekranlar arası tutarsızlık da görülür. Bulgu, yakalanan görüntünün üstüne kutuyla çizilir.
+5. **Doğrulama:** bildirilen bulgunun alıntısı ekranda aranır; yoksa "doğrulanamadı" notuna iner. Gezginin bildirdiği
+   aday kayda girmeden **yargıca** (Opus) gider: kabul eder, nota indirir ya da reddeder; bilinen bir sorunsa
+   anahtarını eşler.
+6. **Gruplama:** aynı kök neden (anahtar) uygulama genelinde tek sorundur; başka sayfada görülünce görünüm eklenir.
 
 **Salt okur.** Yazma işi anlatan düğmeye ("Kaydet", "Sil", "Onaya gönder", "Oluştur"…) basmaz; veriyi değiştiren
 istekler (PUT/PATCH/DELETE, satır yazan POST) ağdan geçmez; kontrolcü bir alana yazdıktan sonra sayfa açılışında
@@ -67,12 +74,26 @@ düğme. Bu yüzden yalnız development ve dallarda koşulur; production listele
 
 ## Maliyet
 
-Model ayarlardan seçilir (varsayılan `claude-opus-5-5`). Maliyetin çoğu modele giden yeni içerikten (önbelleğe
-yazma) gelir; bu yüzden: görevin başında ağacın tamamı, her etkileşimden sonra yalnız değişen kısmı gider; ağaçta tekrar
-eden satırlar ve içi boş sarmalayıcılar atılır; ekran görüntüsü yalnız istenince ve %60 ölçekte gider; görev sayısı 1
-ise ayrı plan çağrısı yapılmaz; sabit talimat önbelleğe alınır; gözler token harcamaz. Kanıt görüntüleri (PNG, kutulu)
-modele gitmez. Her koşunun maliyeti monitörde ve Koşular'da görünür. Ölçüm (2026-11-14, eniyileme öncesi): 12 sayfa
-11 dk $4,44, maliyetin %68'i önbelleğe yazma.
+Model rol başına seçilir (Ayarlar): planlayıcı, göz, yargıç ve öğretmen `claude-opus-5-5`, gezgin `claude-sonnet-5-5`.
+Gezgin takılırsa (iki tur ilerleyemezse, yanıt reddedilirse) ya da görevin bir maddesine ulaşamazsa bir üst modele
+geçer; göz açıkken en çok Sonnet'e (içeriği zaten Opus inceliyor), kapalıyken Opus'a. Ucuz model son kararı vermez.
+
+**Ölçüm (2026-11-14, temiz hafıza, 3 sayfa, 15 koşu):** göz + Sonnet gezgin, tek Opus koşusuna göre gerçek sorunların
+%68'ini buldu (Opus %41) ve Opus'un her koşuda bulduklarını da buldu; sayfa başı süre −%14, maliyet +%15, gerçek bulgu
+başı maliyet −%31. Göz kapalıyken Haiku ya da Sonnet gezgin içerik çelişkilerini kaçırıyordu: göz kapatılırsa gezgin
+Opus seçilmeli. Ekran notları olmadan göz ekranlar arası tutarsızlığı göremiyordu; sayfa sonunda ayrı bir sentez
+çağrısı denendi, katkısı olmadığı için kaldırıldı.
+
+Maliyetin çoğu modele giden yeni içerikten (önbelleğe yazma) gelir; bu yüzden: görevin başında ağacın tamamı, her
+etkileşimden ve ekrana bakıştan sonra yalnız değişen kısmı gider; ağaçta tekrar eden satırlar ve içi boş sarmalayıcılar
+atılır; ekran görüntüsü yalnız istenince ve %60 ölçekte gider; planlayıcı görev sayısını sayfaya göre seçer (2..N),
+görevler örtüşmez; modüldeki bilinen ve reddedilen sorun listesi her görevin başında değil yalnız yargıca gider; açık
+sorunun alıntısı açılışta ekrandaysa model çağrılmadan doğrulanır; yargıcın ve gözün tek seferlik içeriği önbelleğe
+yazılmaz; göz yalnız belirgin biçimde değişen ekrana bakar; belirlenimci gözler token harcamaz. Kanıt görüntüleri (PNG, kutulu) modele gitmez. Koşunun maliyeti rol başına kaydedilir.
+
+**Değişiklik izi (yalnız gözlem):** her sayfa açılışında arayüz yapısı (maskeli ağaç), çağrılan veri uçları ve Studio
+sayfa şeması (`page_schema_get`) özetlenip önceki koşuyla karşılaştırılır ve akışa yazılır. Doğruluğu birkaç koşuda
+ölçülmeden hiçbir alan "değişmedi" diye atlanmaz.
 
 ## Takımla kullanım
 

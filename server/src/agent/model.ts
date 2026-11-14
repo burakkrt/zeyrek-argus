@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { Usage } from '@argus/shared'
+import type { ModelRole, Usage } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 
 export type MessageParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming
@@ -11,16 +11,24 @@ export type Tool = Anthropic.Beta.BetaTool
 /** Modele tek istek. Gerçekte Anthropic API'si; testte senaryolu sahte model. */
 export type CreateMessage = (params: MessageParams) => Promise<Message>
 
-/** Reddedilen istek, uygun modele sunucu tarafında devredilir (Opus 5.5 için önerilen varsayılan). */
+/**
+ * Reddedilen istek, uygun modele sunucu tarafında devredilir (Opus/Sonnet 5.5 için önerilen varsayılan).
+ * Haiku 5.5'te sunucu tarafı devretme yoktur; ona gönderilmez.
+ */
 export function anthropicModel(apiKey: string): CreateMessage {
   const client = new Anthropic({ apiKey })
   return (params) =>
-    client.beta.messages.create({
-      ...params,
-      betas: [...(params.betas ?? []), 'server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-    })
+    String(params.model).includes('haiku')
+      ? client.beta.messages.create(params)
+      : client.beta.messages.create({
+          ...params,
+          betas: [...(params.betas ?? []), 'server-side-fallback-2026-07-01'],
+          fallbacks: 'default',
+        })
 }
+
+/** Takılan gezginin çıkacağı merdiven: ucuzdan pahalıya. */
+export const ESCALATION_LADDER = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']
 
 /** Milyon token başına dolar (2026-11 liste fiyatı). Listede olmayan modelin maliyeti gösterilmez. */
 const PRICES: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
@@ -35,7 +43,7 @@ export const KNOWN_MODELS = Object.keys(PRICES)
 export class UsageMeter {
   readonly usage: Usage = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, requests: 0, costUsd: 0 }
 
-  add(model: string, message: Message): void {
+  add(model: string, message: Message, role?: ModelRole): void {
     const u = message.usage
     const input = u.input_tokens
     const cacheWrite = u.cache_creation_input_tokens ?? 0
@@ -47,16 +55,25 @@ export class UsageMeter {
     this.usage.output += output
     this.usage.requests += 1
     const price = PRICES[model]
-    if (!price || this.usage.costUsd === null) {
+    const cost = price
+      ? (input * price.input +
+          cacheWrite * price.cacheWrite +
+          cacheRead * price.cacheRead +
+          output * price.output) /
+        1_000_000
+      : null
+    if (role) {
+      const roles = (this.usage.roles ??= {})
+      const entry = (roles[role] ??= { requests: 0, costUsd: 0, model })
+      entry.requests += 1
+      if (!entry.model.split('+').includes(model)) entry.model = `${entry.model}+${model}`
+      entry.costUsd =
+        cost === null || entry.costUsd === null ? null : Math.round((entry.costUsd + cost) * 10_000) / 10_000
+    }
+    if (cost === null || this.usage.costUsd === null) {
       this.usage.costUsd = null
       return
     }
-    const cost =
-      (input * price.input +
-        cacheWrite * price.cacheWrite +
-        cacheRead * price.cacheRead +
-        output * price.output) /
-      1_000_000
     this.usage.costUsd = Math.round((this.usage.costUsd + cost) * 10_000) / 10_000
   }
 }

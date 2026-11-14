@@ -131,6 +131,20 @@ const MIGRATIONS: string[] = [
     primary key (project, application)
   );
   `,
+  `
+  create table page_prints (
+    project text not null,
+    application text not null,
+    environment text not null,
+    page text not null,
+    run_id text not null,
+    ui text not null,
+    api text not null,
+    studio text,
+    at text not null
+  );
+  create index page_prints_page on page_prints (project, application, environment, page, at);
+  `,
 ]
 
 export function openDatabase(file: string): Database {

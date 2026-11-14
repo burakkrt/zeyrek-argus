@@ -26,6 +26,7 @@ import { assertNotProduction, pageUrl } from '../platform/catalog.ts'
 import type { Platform } from '../platform/platform.ts'
 import { fetchAccessToken } from '../platform/token.ts'
 import type { EventBus } from './bus.ts'
+import { comparePrints, describeChange, lastPrint, savePrint, studioPrint } from './prints.ts'
 
 export interface RunManagerDeps {
   db: Database
@@ -212,6 +213,17 @@ export class RunManager {
             retract: (key) => issues.retract(app, run.id, page, key),
             markFixed: (key, note) => issues.markFixed(app, key, note),
             closeVanishedEyeIssues: (keys) => issues.closeVanishedEyeIssues(app, page, keys),
+            lastSighting: (issue) => issues.lastSighting(issue.id, page),
+            print: async (ui, api) => {
+              const studio = await platform.catalog
+                .pageSchema(run.project, run.application, run.environment, page)
+                .then(studioPrint)
+                .catch(() => null)
+              const print = { ui, api, studio }
+              const change = comparePrints(lastPrint(db, app, run.environment, page), print)
+              savePrint(db, { ...app, environment: run.environment, page, runId: run.id, print })
+              bus.publish(run.id, page, { type: 'bilgi', message: describeChange(change) })
+            },
             file: (kind) => {
               counters[kind] += 1
               const rel = `${kind}/${String(counters[kind]).padStart(4, '0')}.${kind === 'kanit' ? 'png' : 'jpg'}`

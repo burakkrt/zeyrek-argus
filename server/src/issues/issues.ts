@@ -427,6 +427,22 @@ export class IssueService {
     return rows.map((r) => this.toIssue(r))
   }
 
+  /** Sorunun bu sayfadaki son doğrulanmış görünümü: alıntısı ekranda hâlâ varsa model çağırmadan doğrulanır. */
+  lastSighting(
+    issueId: string,
+    page: string,
+  ): { quote: string; scenario: string; expected: string; observed: string } | null {
+    const row = this.db
+      .prepare(
+        `select quote, scenario, expected, observed from occurrences
+         where issue_id = ? and page = ? and quote is not null and quote <> '' and outcome <> 'dogrulanamadi'
+         order by at desc limit 1`,
+      )
+      .get(issueId, page) as
+      { quote: string; scenario: string; expected: string; observed: string } | undefined
+    return row ?? null
+  }
+
   /** Modülde bilinen sorun anahtarları: aynı sorun başka sayfada görülürse aynı anahtarla bildirilsin. */
   knownInModule(
     app: AppRef,

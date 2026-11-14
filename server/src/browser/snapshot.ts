@@ -85,6 +85,22 @@ export function compressSnapshot(snapshot: string, limit = 9_000): string {
 
 const indentOf = (line: string) => line.length - line.trimStart().length
 
+/** Ref'ler atılmış ağaç: aynı ekranın yeniden çizilmesi ref'leri değiştirse de aynı sayılsın. */
+export const stripRefs = (tree: string) => tree.replace(/\s*\[ref=[^\]]*\]/g, '')
+
+/** İki ağaç arasında eklenen ya da kalkan satır sayısı. */
+export function changeSize(previous: string, next: string): number {
+  const before = new Map<string, number>()
+  for (const line of previous.split('\n')) before.set(line, (before.get(line) ?? 0) + 1)
+  let added = 0
+  for (const line of next.split('\n')) {
+    const left = before.get(line) ?? 0
+    if (left > 0) before.set(line, left - 1)
+    else added += 1
+  }
+  return added + [...before.values()].reduce((sum, n) => sum + n, 0)
+}
+
 /**
  * İki (sıkıştırılmış) ağacın farkı: yeni ya da değişen satırlar, üst satırlarıyla birlikte (nerede olduğu belli
  * olsun). Değişiklik ağacın büyük kısmıysa (sayfa değişti) ağacın tamamı döner.

@@ -7,6 +7,7 @@
     ProbeLine,
     Settings,
   } from '@argus/shared'
+  import { MODEL_ROLE_LABELS, MODEL_ROLES } from '@argus/shared'
   import { onMount } from 'svelte'
   import { api, del, post, put, qs } from '../lib/api'
 
@@ -202,13 +203,31 @@
   {#if settings}
     <section class="card stack">
       <h2>Yapay zekâ ve öğrenme</h2>
+      <p class="muted">
+        Planlayıcı görevleri çıkarır, gezgin ekranı gezer, göz gezginin ulaştığı her yeni ekranı inceler,
+        yargıç gezginin bildirdiği adayı kayda girmeden denetler, öğretmen kararlardan ders çıkarır. Ucuz
+        model son kararı vermez.
+      </p>
       <div class="row">
-        <label class="field"
-          >Model
-          <select bind:value={settings.model}
-            >{#each status?.models ?? [settings.model] as m (m)}<option value={m}>{m}</option>{/each}</select
-          >
-        </label>
+        {#each MODEL_ROLES as role (role)}
+          <label class="field"
+            >{MODEL_ROLE_LABELS[role]}
+            <select bind:value={settings.models[role]}
+              >{#each status?.models ?? [settings.models[role]] as m (m)}<option value={m}>{m}</option
+                >{/each}</select
+            >
+          </label>
+        {/each}
+      </div>
+      <label class="row small"
+        ><input type="checkbox" bind:checked={settings.inspector} /> Göz açık: gezginin ulaştığı her yeni ekranı
+        Göz modeli ayrıca incelesin</label
+      >
+      <label class="row small"
+        ><input type="checkbox" bind:checked={settings.escalate} /> Gezgin takılınca ya da görevi eksik bırakınca
+        bir üst modele geçsin (Haiku → Sonnet → Opus)</label
+      >
+      <div class="row">
         <label class="field"
           >Efor
           <select bind:value={settings.effort}

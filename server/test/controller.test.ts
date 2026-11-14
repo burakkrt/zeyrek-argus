@@ -175,8 +175,11 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
     // Desenli kural isteme girmedi (göz olarak koştu), tarayıcı Türkçe açıldı.
     expect(JSON.stringify(h.calls[0]!.system)).toContain('gözler bakıyor')
 
-    // Token: etkileşimden sonra ağacın tamamı değil yalnız değişen kısım gider; adım görüntüsü alınmaz.
-    const afterDialog = h.calls.find((c) => JSON.stringify(c.messages.at(-1)).includes('Tıklandı: \\"Ayrıntılar\\"'))!
+    // Token: etkileşimden sonra gezgine ağacın tamamı değil yalnız değişen kısım gider; adım görüntüsü alınmaz.
+    // (Gözün çağrısı da aynı adımı anar ama araç taşımaz; burada gezginin konuşmasına bakılır.)
+    const afterDialog = h.calls.find(
+      (c) => c.tools && JSON.stringify(c.messages.at(-1)).includes('Tıklandı: \\"Ayrıntılar\\"'),
+    )!
     const lastTurn = JSON.stringify(afterDialog.messages.at(-1))
     expect(lastTurn).toContain('Yalnız değişen kısım')
     expect(lastTurn).toContain('Eğitim ayrıntısı')

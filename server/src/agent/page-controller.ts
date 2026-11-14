@@ -1,14 +1,22 @@
-import type { Box, FindingKind, RunEventBody, Settings } from '@argus/shared'
+import type { Box, FindingKind, Issue, ModelRole, RunEventBody, Settings } from '@argus/shared'
 import type { Locator } from 'playwright'
-import { captureEvidence } from '../browser/evidence.ts'
+import {
+  annotateShot,
+  boxOfQuote,
+  captureEvidence,
+  captureState,
+  type StateShot,
+} from '../browser/evidence.ts'
 import { describeHit, runEyes, type EyeHit, type PatternRule } from '../browser/eyes.ts'
 import { isUnsafeLabel } from '../browser/guard.ts'
 import { ariaTree, harvestTooltips, visibleText } from '../browser/research.ts'
 import type { BrowserSession, Problem } from '../browser/session.ts'
-import { compressSnapshot, diffSnapshot } from '../browser/snapshot.ts'
+import { changeSize, compressSnapshot, diffSnapshot, stripRefs } from '../browser/snapshot.ts'
 import type { RecordResult } from '../issues/issues.ts'
+import { apiPrint, uiPrint } from '../runs/prints.ts'
 import {
   describeModelError,
+  ESCALATION_LADDER,
   jsonOf,
   textOf,
   type ContentBlock,
@@ -17,8 +25,8 @@ import {
   type MessageParams,
   type UsageMeter,
 } from './model.ts'
-import { pageFacts, type PageFacts } from './prompts.ts'
-import { PLAN_SCHEMA, TASK_TOOLS } from './tools.ts'
+import { INSPECT_TASK, JUDGE_TASK, pageFacts, type PageFacts } from './prompts.ts'
+import { INSPECT_SCHEMA, JUDGE_SCHEMA, PLAN_SCHEMA, TASK_TOOLS } from './tools.ts'
 
 export interface FindingDraft {
   key: string
@@ -44,6 +52,10 @@ export interface PageHooks {
   retract(key: string): boolean
   markFixed(key: string, note: string): boolean
   closeVanishedEyeIssues(foundKeys: Set<string>): string[]
+  /** Açık sorunun bu sayfadaki son görünümü (alıntılı); modelsiz doğrulama için. */
+  lastSighting(issue: Issue): { quote: string; scenario: string; expected: string; observed: string } | null
+  /** Sayfanın arayüz ve veri izi (değişiklik algılama; yalnız gözlem). */
+  print(ui: string, api: string): Promise<void>
   /** Koşu klasöründe yeni bir dosya yolu: `abs` yazmak, `rel` saklamak için. */
   file(kind: 'adim' | 'kanit'): { abs: string; rel: string }
   drainSteering(): string[]
@@ -60,7 +72,7 @@ export interface PageInput {
   system: MessageParams['system']
   createMessage: CreateMessage
   meter: UsageMeter
-  settings: Pick<Settings, 'model' | 'effort'>
+  settings: Pick<Settings, 'models' | 'effort' | 'escalate' | 'inspector'>
   maxTasks: number
   maxSteps: number
   ruleStats: { used: number; dropped: number; tokens: number }
@@ -94,11 +106,223 @@ function problemKey(problem: Problem): { key: string; title: string } {
  */
 export class PageController {
   private readonly seenKeys = new Set<string>()
-  private readonly reported = new Set<string>()
   private readonly eyeFindings: Array<{ key: string; title: string }> = []
   private lastTree: string | null = null
+  private judgeFacts: () => string = () => ''
+  /** Yargıcın bu sayfadaki kararları (gezginin anahtarıyla): aynı aday yeniden bildirilirse yeniden sorulmaz. */
+  private readonly verdicts = new Map<string, Verdict>()
+  /** Bu ekrana nasıl gelindi: son adımların sonuçları (gözün senaryosu için). */
+  private trail: string[] = []
+  /** Bu sayfada kaydedilen yapay zekâ bulguları (anahtar — başlık): göz aynısını yeniden bildirmesin. */
+  private readonly pageTitles: string[] = []
+  /** Gözün incelediği ekranlar (ref'siz ağaç), ekran notları ve süren incelemeler. */
+  private readonly inspectedTrees: string[] = []
+  private readonly screens: Array<{ label: string; notes: string[] }> = []
+  private readonly pending: Array<Promise<void>> = []
+  private inspectQueue: Promise<void> = Promise.resolve()
+  /** Kanıt çizimi için ağ kullanmayan ayrı sekme; çizimler sırayla yapılır. */
+  private overlay: Promise<import('playwright').Page> | null = null
+  private overlayQueue: Promise<unknown> = Promise.resolve()
+
+  /**
+   * Göz: gezginin ulaştığı ekran öncekilerden belirgin biçimde farklıysa (en az 4 satır, ipucu gibi küçük değişimler
+   * sayılmaz) ekranın o anki hâli yakalanır ve Göz modeli onu paralel inceler; gezgin beklemez.
+   */
+  private async maybeInspect(full: string, blocked: string[]): Promise<void> {
+    if (!this.input.settings.inspector) return
+    const tree = stripRefs(full)
+    if (this.inspectedTrees.some((seen) => changeSize(seen, tree) < 4)) return
+    if (this.inspectedTrees.length >= MAX_INSPECTIONS) {
+      if (this.inspectedTrees.length === MAX_INSPECTIONS) {
+        this.inspectedTrees.push(tree)
+        this.input.hooks.emit({
+          type: 'bilgi',
+          message: `Göz bu sayfada ${MAX_INSPECTIONS} ekran inceledi; sınır doldu, sonraki ekranlara yalnız gezgin bakıyor.`,
+        })
+      }
+      return
+    }
+    this.inspectedTrees.push(tree)
+    // Sırayla: CDP'nin ölçekli görüntüsü sayfaya geçici ölçek uygular; aynı anda alınan PNG bozulur (ölçüldü).
+    const shot = await captureState(this.page).catch(() => null)
+    const jpeg = await this.input.session.modelScreenshot().catch(() => null)
+    if (!shot) return
+    const trail = [...this.trail]
+    // İncelemeler sırayla koşar (gezgini beklemeden): her biri öncekinin bulgusunu görür, aynı sorun iki kez gelmez.
+    const job = this.inspectQueue.then(() =>
+      this.inspect(full, shot, jpeg, trail, blocked).catch((error: unknown) => {
+        this.input.hooks.emit({
+          type: 'hata',
+          message: `Göz bir ekranı inceleyemedi: ${describeModelError(error)}`,
+        })
+      }),
+    )
+    this.inspectQueue = job
+    this.pending.push(job)
+  }
+
+  private async inspect(
+    tree: string,
+    shot: StateShot,
+    jpeg: Buffer | null,
+    trail: string[],
+    blocked: string[],
+  ): Promise<void> {
+    const reported = this.pageTitles.length ? this.pageTitles.map((t) => `- ${t}`).join('\n') : '(yok)'
+    const label = trail.length ? trail[trail.length - 1]! : 'Sayfa açıldı'
+    const earlier = this.screens.length
+      ? `\n\nÖnceki ekranların notları (bu ekranı onlarla da karşılaştır):\n${this.screensText()}`
+      : ''
+    const message = await this.call(
+      'inspector',
+      {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: this.judgeFacts(), cache_control: { type: 'ephemeral' } },
+              text(
+                `${INSPECT_TASK}\n\nBu ekrana nasıl gelindi:\n${trail.length ? trail.map((t) => `- ${t}`).join('\n') : '- Sayfa açıldı.'}` +
+                  `\n\nBu sayfada zaten bildirilenler:\n${reported}` +
+                  earlier +
+                  (blocked.length ? `\n\nEngellenen yazma istekleri: ${blocked.join(', ')}` : '') +
+                  `\n\nAdres: ${shot.url}\nSekme başlığı: ${shot.title}\n\nSayfa ağacı:\n${tree}`,
+              ),
+              ...(jpeg
+                ? [
+                    {
+                      type: 'image' as const,
+                      source: {
+                        type: 'base64' as const,
+                        media_type: 'image/jpeg' as const,
+                        data: jpeg.toString('base64'),
+                      },
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ],
+        output_config: {
+          format: { type: 'json_schema', schema: INSPECT_SCHEMA as unknown as Record<string, unknown> },
+        },
+      },
+      { cache: false },
+    )
+    const answer = jsonOf<{ bulgular?: Array<Record<string, string>>; notlar?: unknown[] }>(message)
+    const notes = (answer?.notlar ?? []).filter((n): n is string => typeof n === 'string').slice(0, 12)
+    this.screens.push({ label, notes })
+    for (const item of answer?.bulgular ?? [])
+      await this.recordShotFinding(item, shot, trail.length ? 'gorev' : 'acilis')
+  }
+
+  private screensText(): string {
+    return this.screens
+      .map(
+        (s, i) =>
+          `Ekran ${i + 1} (${s.label}):\n${s.notes.length ? s.notes.map((n) => `  - ${n}`).join('\n') : '  (not yok)'}`,
+      )
+      .join('\n')
+  }
+
+  /**
+   * Gözün bulgusu: alıntı yakalanan ekranın metninde aranır, görüntüsüne kutu çizilir; yoksa "doğrulanamadı" olur.
+   */
+  private async recordShotFinding(
+    item: Record<string, string>,
+    shot: StateShot,
+    phase: 'acilis' | 'gorev',
+  ): Promise<void> {
+    const { hooks } = this.input
+    const key = this.normalizeKey(item.anahtar ?? '')
+    const title = (item.baslik ?? '').trim() || key
+    const quote = (item.alinti ?? '').trim()
+    const verified = !quote || normalizeSpace(shot.text).includes(normalizeSpace(quote))
+    const box = quote && verified ? boxOfQuote(shot, quote) : null
+    const file = hooks.file('kanit')
+    await this.annotate(shot, box, title, file.abs)
+    const kind = (FINDING_KIND_SET.has(item.tur ?? '') ? item.tur : 'not') as FindingKind
+    const result = hooks.record({
+      key,
+      title,
+      kind,
+      source: 'yz',
+      phase,
+      scenario: item.senaryo ?? '',
+      expected: item.beklenen ?? '',
+      observed: item.gozlenen ?? '',
+      quote: quote || null,
+      shot: file.rel,
+      box,
+      rules: [],
+      verified,
+      suppressedByRule: null,
+    })
+    this.pageTitles.push(`${key} — ${title}`)
+    this.emitFinding(result, file.rel)
+  }
+
+  /** Kanıt, yakalanmış görüntünün üstüne ayrı bir sekmede çizilir; çizimler sırayla yapılır. */
+  private annotate(shot: StateShot, box: import('@argus/shared').Box | null, label: string, file: string) {
+    const job = this.overlayQueue.then(async () => {
+      this.overlay ??= this.page.context().newPage()
+      await annotateShot(await this.overlay, shot, box, label, file)
+    })
+    this.overlayQueue = job.catch(() => undefined)
+    return job.catch(() => undefined)
+  }
 
   constructor(private readonly input: PageInput) {}
+
+  /**
+   * Açık sorunların modelsiz doğrulaması: bu açılışta gözlerin yeniden bulduğu ya da düzeldi denen sorun
+   * atlanır; son görünümünün alıntısı açılışta ekranda olan sorun kanıtıyla yeniden kaydedilir. Geriye yalnız
+   * etkileşimle bakılması gerekenler kalır (onlar gezgine gider).
+   */
+  private async verifyOpenIssues(closed: Set<string>): Promise<Issue[]> {
+    const { hooks } = this.input
+    const remaining: Issue[] = []
+    const screenText = normalizeSpace(await visibleText(this.page))
+    for (const issue of this.input.facts.openIssues) {
+      if (this.seenKeys.has(issue.key) || closed.has(issue.key)) continue
+      const seen = hooks.lastSighting(issue)
+      if (!seen || !screenText.includes(normalizeSpace(seen.quote))) {
+        remaining.push(issue)
+        continue
+      }
+      const file = hooks.file('kanit')
+      const { box } = await captureEvidence(this.page, file.abs, {
+        locator: this.page.getByText(seen.quote).first(),
+        label: issue.title,
+      }).catch(() => ({ box: null }))
+      const result = hooks.record({
+        key: issue.key,
+        title: issue.title,
+        kind: issue.kind,
+        source: issue.source,
+        phase: 'acilis',
+        scenario: seen.scenario,
+        expected: seen.expected,
+        observed: seen.observed,
+        quote: seen.quote,
+        shot: file.rel,
+        box,
+        rules: [],
+        verified: true,
+        suppressedByRule: null,
+      })
+      this.seenKeys.add(issue.key)
+      this.pageTitles.push(`${issue.key} — ${issue.title}`)
+      this.emitFinding(result, file.rel)
+      hooks.emit({
+        type: 'sorun-durumu',
+        key: issue.key,
+        state: 'var',
+        note: `Alıntı ("${seen.quote}") açılışta ekranda; model çağrılmadan doğrulandı.`,
+      })
+    }
+    return remaining
+  }
 
   private get page() {
     return this.input.session.page
@@ -107,6 +331,8 @@ export class PageController {
   /** Adım akışa yazılır; ekran görüntüsü alınmaz (görüntü yalnız bulgu kanıtı için). */
   private async step(tool: string, reason: string | null, outcome: string): Promise<void> {
     this.input.hooks.emit({ type: 'adim', tool, reason, outcome, shot: null })
+    if (tool === 'bastan_ac') this.trail = []
+    else if (tool !== 'ekrana_bak') this.trail = [...this.trail, outcome].slice(-10)
     const requests = this.input.session.drainNetwork()
     if (requests.length) this.input.hooks.emit({ type: 'ag', requests: requests.slice(0, 40) })
   }
@@ -199,7 +425,8 @@ export class PageController {
     const tree = onlyChanges && this.lastTree !== null ? diffSnapshot(this.lastTree, full).text : full
     this.lastTree = full
     const blocked = this.input.session.drainBlocked()
-    const header = [`Adres: ${this.page.url()}`]
+    await this.maybeInspect(full, blocked)
+    const header = [`Adres: ${this.page.url()}`, `Sekme başlığı: ${await this.page.title().catch(() => '')}`]
     if (fresh.length)
       header.push(`Gözlerin yeni bulduğu (bildirme, kaydedildi):\n${fresh.map((f) => `- ${f}`).join('\n')}`)
     if (blocked.length) header.push(`Engellenen yazma istekleri (bulgu değil): ${blocked.join(', ')}`)
@@ -221,18 +448,27 @@ export class PageController {
     return this.recordDeterministic(hits, this.input.session.drainProblems(), 'gorev')
   }
 
-  private call(params: Omit<MessageParams, 'model' | 'system' | 'max_tokens'>) {
+  /**
+   * Modele istek, rolüyle. Gezgin konuşması büyüdükçe önbellekten okunur (ucuz); yargıç tek seferliktir, onun
+   * içeriği önbelleğe yazılmaz (yazma %25 pahalı ve bir daha okunmaz). Sabit talimat her durumda önbellektedir.
+   */
+  private call(
+    role: ModelRole,
+    params: Omit<MessageParams, 'model' | 'system' | 'max_tokens'>,
+    options: { model?: string; cache?: boolean } = {},
+  ) {
+    const model = options.model ?? this.input.settings.models[role]
     return this.input
       .createMessage({
-        model: this.input.settings.model,
+        model,
         max_tokens: 16_000,
         system: this.input.system,
-        cache_control: { type: 'ephemeral' },
+        ...(options.cache === false ? {} : { cache_control: { type: 'ephemeral' as const } }),
         ...params,
         output_config: { effort: this.input.settings.effort, ...(params.output_config ?? {}) },
       })
       .then((message) => {
-        this.input.meter.add(this.input.settings.model, message)
+        this.input.meter.add(model, message, role)
         this.input.hooks.usageChanged()
         return message
       })
@@ -264,6 +500,8 @@ export class PageController {
         state: 'yok',
         note: 'Açılışta artık görünmüyor; düzeldi olarak işaretlendi.',
       })
+    await hooks.print(uiPrint(compressSnapshot(await ariaTree(this.page))), apiPrint(network))
+    const toVerify = await this.verifyOpenIssues(new Set(closed))
     hooks.emit({
       type: 'arastirma',
       tooltips: tooltips.length,
@@ -274,15 +512,20 @@ export class PageController {
     })
     if (network.length) hooks.emit({ type: 'ag', requests: network.slice(0, 40) })
 
-    const facts = (): string =>
-      pageFacts({
-        ...this.input.facts,
-        page: this.input.page,
-        url: this.input.url,
-        tooltips,
-        eyeFindings: this.eyeFindings,
-        problems: problems.map((p) => p.text),
-      })
+    const facts = (audience: 'gezgin' | 'yargic' = 'gezgin'): string =>
+      pageFacts(
+        {
+          ...this.input.facts,
+          openIssues: audience === 'yargic' ? this.input.facts.openIssues : toVerify,
+          page: this.input.page,
+          url: this.input.url,
+          tooltips,
+          eyeFindings: this.eyeFindings,
+          problems: problems.map((p) => p.text),
+        },
+        audience,
+      )
+    this.judgeFacts = () => facts('yargic')
 
     // 2. Plan: tek çağrı, yapılandırılmış çıktı.
     if (hooks.stopped()) return 'Durduruldu.'
@@ -322,6 +565,10 @@ export class PageController {
       notebook.push(`${index + 1}. ${task.baslik}: ${result}`)
       hooks.emit({ type: 'gorev-bitti', index, summary: result })
     }
+    // Gözün süren incelemeleri beklenir; sonra kanıt sekmesi kapanır.
+    await Promise.allSettled(this.pending)
+    await this.overlayQueue
+    if (this.overlay) await (await this.overlay).close().catch(() => undefined)
     const pageSummary = [summary, ...notebook].filter(Boolean).join('\n')
     hooks.emit({ type: 'sayfa-bitti', summary: pageSummary })
     return pageSummary
@@ -331,14 +578,16 @@ export class PageController {
     facts: () => string,
   ): Promise<{ summary: string; tasks: Array<{ baslik: string; amac: string }> }> {
     try {
-      const message = await this.call({
+      const message = await this.call('planner', {
         messages: [
           {
             role: 'user',
             content: [
               text(
-                `${facts()}\n\nBu sayfayı test etmek için en çok ${this.input.maxTasks} görev planla. Görevler somut olsun (hangi alan, ne denenecek). ` +
-                  'Açık sorunlar varsa ilk görev onları yeniden doğrulamak olsun. Liste/filtre/sıralama/sayfalama, "Yeni"/"Ekle" ile açılan formlar (kaydetmeden), ' +
+                `${facts()}\n\nBu sayfayı test etmek için gereken kadar görev planla: en az 2, en çok ${this.input.maxTasks}. Basit sayfaya az, zengin sayfaya çok görev. ` +
+                  'Görevler birbiriyle örtüşmesin: her ekran bölgesi ya da akış tek bir görevde denensin. Görevler somut olsun (hangi alan, ne denenecek; ' +
+                  'görevi yapacak model daha küçük olabilir, amacı adım adım ve açık yaz). ' +
+                  'Etkileşimle bakılacak açık sorun varsa onları ilgili göreve kat; ayrı bir "doğrulama" görevi açma. Liste/filtre/sıralama/sayfalama, "Yeni"/"Ekle" ile açılan formlar (kaydetmeden), ' +
                   'pencereler, sekmeler, menüler ve sayfa genelinde tutarlılığı kapsa. Ekranın ağacı ve görüntüsü aşağıda.',
               ),
               ...(await this.screen(true)),
@@ -366,24 +615,48 @@ export class PageController {
     const intro =
       `${facts()}\n\n` +
       (notebook.length ? `Bu sayfada önceki görevler:\n${notebook.join('\n')}\n\n` : '') +
-      `GÖREV: ${task.baslik}\n${task.amac}\nEn çok ${this.input.maxSteps} adımın var. Ekranın şu anki hâli aşağıda.`
+      `GÖREV: ${task.baslik}\n${task.amac}\nEn çok ${this.input.maxSteps} adımın var.` +
+      (this.input.settings.inspector
+        ? " Ulaştığın her yeni ekranı ayrı bir göz inceliyor: içerik ve tutarlılık sorunlarını o bulur. Senin işin görevdeki her maddeye ulaşmak (sekme, filtre, sıralama, pencere, form, detay) ve davranış sorunlarını bildirmek: tepki vermeyen düğme, açılmayan pencere, çalışmayan filtre, hata. Ulaşamadığın maddeyi gorevi_bitir'in eksik alanına yaz."
+        : '') +
+      ' Ekranın şu anki hâli aşağıda.'
     const messages: MessageParam[] = [{ role: 'user', content: [text(intro), ...(await this.screen(false))] }]
     let steps = 0
     let finalRound = false
-    for (let round = 0; round < this.input.maxSteps + 3; round += 1) {
+    // Gezgin ucuz modelle başlar; üst üste iki tur ilerleyemezse (öğe yok, ekran değişmedi, hata) ya da yanıt
+    // reddedilirse merdivende bir üst modele geçer. Konuşma aynen sürer.
+    let model = this.input.settings.models.explorer
+    let stuck = 0
+    const escalate = (why: string): boolean => {
+      const at = ESCALATION_LADDER.indexOf(model)
+      // Göz açıkken içeriği zaten Opus inceliyor; gezgin en çok Sonnet'e çıkar (Opus'a geçiş maliyeti ikiye katlıyordu).
+      const ladder = this.input.settings.inspector ? ESCALATION_LADDER.slice(0, 2) : ESCALATION_LADDER
+      const next = this.input.settings.escalate && at >= 0 ? ladder[at + 1] : undefined
+      if (!next) return false
+      hooks.emit({ type: 'bilgi', message: `Gezgin ${why}; ${model} → ${next} ile devam ediliyor.` })
+      model = next
+      stuck = 0
+      return true
+    }
+    let bonus = 0
+    for (let round = 0; round < this.input.maxSteps + 8; round += 1) {
       if (hooks.stopped()) return 'Durduruldu.'
       const last = messages[messages.length - 1]!
       for (const message of hooks.drainSteering()) {
         ;(last.content as ContentBlock[]).push(text(`KULLANICI YÖNLENDİRMESİ: ${message}`))
         hooks.emit({ type: 'yonlendirme', message })
       }
-      const response = await this.call({ messages, tools: TASK_TOOLS })
-      if (response.stop_reason === 'refusal') return 'Model bu adımı yanıtlamadı.'
+      const response = await this.call('explorer', { messages, tools: TASK_TOOLS }, { model })
+      if (response.stop_reason === 'refusal') {
+        if (escalate('yanıt vermedi')) continue
+        return 'Model bu adımı yanıtlamadı.'
+      }
       messages.push({ role: 'assistant', content: response.content })
       const uses = response.content.filter((b) => b.type === 'tool_use')
       if (!uses.length) return textOf(response).slice(0, 400) || 'Görev bitti.'
       const results: ContentBlock[] = []
       let summary: string | null = null
+      let progressed = false
       for (const use of uses) {
         if (use.type !== 'tool_use') continue
         steps += 1
@@ -396,17 +669,31 @@ export class PageController {
           })
         try {
           if (use.name === 'gorevi_bitir') {
-            summary = field(use.input, 'ozet')
+            const missing = field(use.input, 'eksik').trim()
+            // Görevin bir kısmına ulaşılamadıysa bir kez üst modele geçilir ve 4 adım eklenir: kapsam kaçmasın.
+            if (
+              missing &&
+              !finalRound &&
+              !bonus &&
+              escalate(`"${missing.slice(0, 80)}" maddesini eksik bıraktı`)
+            ) {
+              bonus = 4
+              reply(`Daha güçlü bir modele geçildi. Eksik maddeleri tamamla: ${missing}`)
+              continue
+            }
+            summary = `${field(use.input, 'ozet')}${missing ? ` Eksik kalan: ${missing}` : ''}`
             reply('Tamam.')
             continue
           }
           if (use.name === 'bulgu_bildir') {
+            progressed = true
             reply(await this.report(use.input))
             continue
           }
           if (use.name === 'bulgu_geri_al') {
             const key = field(use.input, 'anahtar')
-            const ok = hooks.retract(this.normalizeKey(key))
+            const own = this.normalizeKey(key)
+            const ok = hooks.retract(this.normalizeKey(this.verdicts.get(own)?.anahtar || own))
             hooks.emit({
               type: 'bilgi',
               message: ok
@@ -429,13 +716,18 @@ export class PageController {
             reply('Adım sınırı doldu. Bulgularını bildir ve gorevi_bitir çağır.', true)
             continue
           }
-          reply(await this.act(use.name, use.input))
+          const outcome = await this.act(use.name, use.input)
+          // İpucu taraması çoğu öğede "değişmedi" döner; bu takılma değil, keşiftir.
+          if (use.name === 'uzerine_gel' || !isStuck(outcome)) progressed = true
+          reply(outcome)
         } catch (error) {
           reply(`Hata: ${firstLine(describeModelError(error))}`, true)
         }
       }
       if (summary !== null) return summary || 'Görev bitti.'
-      if (steps >= this.input.maxSteps && !finalRound) {
+      stuck = progressed ? 0 : stuck + 1
+      if (stuck >= 2 && !finalRound) escalate('iki turdur ilerleyemedi')
+      if (steps >= this.input.maxSteps + bonus && !finalRound) {
         finalRound = true
         results.push(
           text(
@@ -532,8 +824,8 @@ export class PageController {
         const withImage = (input as { goruntu?: unknown } | null)?.goruntu === true
         await this.input.session.settle(3_000)
         await this.step(name, reason, withImage ? 'Ekrana bakıldı (görüntüyle)' : 'Ekrana bakıldı')
-        // Ağaç zaten her adımda geliyor; görüntüsüz bakışta yalnız fark gider.
-        return this.screen(withImage, [], !withImage)
+        // Ağaç zaten her adımda geliyor; bakışta yalnız fark (ve istenirse görüntü) gider.
+        return this.screen(withImage, [], true)
       }
       case 'bastan_ac': {
         await this.input.session.open(this.input.url)
@@ -559,6 +851,61 @@ export class PageController {
     return clean.startsWith('yz:') || clean.startsWith('goz:') ? clean : `yz:${clean || 'adsiz'}`
   }
 
+  /** Yargıç: aday bulguyu ekranın o anki ağacı ve görüntüsüyle, bilinen ve reddedilen sorunlara karşı denetler. */
+  private async judge(input: unknown, key: string): Promise<Verdict | null> {
+    const candidate = {
+      anahtar: key,
+      tur: field(input, 'tur'),
+      baslik: field(input, 'baslik'),
+      senaryo: field(input, 'senaryo'),
+      beklenen: field(input, 'beklenen'),
+      gozlenen: field(input, 'gozlenen'),
+      alinti: field(input, 'alinti'),
+    }
+    const tree = compressSnapshot(await ariaTree(this.page))
+    const image = await this.input.session.modelScreenshot().catch(() => null)
+    const message = await this.call(
+      'judge',
+      {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              text(
+                `${this.judgeFacts()}\n\n${JUDGE_TASK}\n\nAday bulgu:\n${JSON.stringify(candidate, null, 1)}\n\nEkranın ağacı:\n${tree}`,
+              ),
+              ...(image
+                ? [
+                    {
+                      type: 'image' as const,
+                      source: {
+                        type: 'base64' as const,
+                        media_type: 'image/jpeg' as const,
+                        data: image.toString('base64'),
+                      },
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ],
+        output_config: {
+          format: { type: 'json_schema', schema: JUDGE_SCHEMA as unknown as Record<string, unknown> },
+        },
+      },
+      { cache: false },
+    )
+    const verdict = jsonOf<Partial<Verdict>>(message)
+    if (!verdict || !['kabul', 'not', 'ret'].includes(verdict.karar ?? '')) return null
+    return {
+      karar: verdict.karar!,
+      tur: verdict.tur ?? '',
+      anahtar: verdict.anahtar ?? '',
+      baslik: verdict.baslik ?? '',
+      gerekce: verdict.gerekce ?? '',
+    }
+  }
+
   /** Bildirilen bulgu: alıntı doğrulanır, öğe kutuyla işaretlenip kanıt alınır, sorun kaydına işlenir. */
   private async report(input: unknown): Promise<string> {
     const { hooks } = this.input
@@ -574,19 +921,51 @@ export class PageController {
       }
     }
     const ref = field(input, 'ref').trim()
-    const title = field(input, 'baslik').trim() || key
+    let title = field(input, 'baslik').trim() || key
+    let kind = (FINDING_KIND_SET.has(field(input, 'tur')) ? field(input, 'tur') : 'not') as FindingKind
+    let finalKey = key
+    const rules = Array.isArray((input as { kurallar?: unknown }).kurallar)
+      ? ((input as { kurallar: unknown[] }).kurallar.filter((r) => typeof r === 'string') as string[])
+      : []
+    const suppressedBy = field(input, 'bastiran_kural').trim() || null
+    // Bastırılan ya da alıntısı doğrulanamayan aday zaten açık bulgu sayılmaz; yargıç yalnız gerisine bakar.
+    if (verified && !suppressedBy) {
+      const verdict = this.verdicts.has(key)
+        ? this.verdicts.get(key)!
+        : await this.judge(input, key).catch((error: unknown) => {
+            hooks.emit({
+              type: 'hata',
+              message: `Yargıç çalışmadı, aday olduğu gibi kaydedildi: ${describeModelError(error)}`,
+            })
+            return null
+          })
+      // Ret saklanmaz: gezgin ekran değiştikten sonra yeniden bildirirse yargıç yeniden bakar.
+      if (verdict && verdict.karar !== 'ret') this.verdicts.set(key, verdict)
+      if (verdict?.karar === 'ret') {
+        hooks.emit({ type: 'bilgi', message: `Yargıç reddetti: ${title} — ${verdict.gerekce}` })
+        return `Yargıç kabul etmedi: ${verdict.gerekce} Kaydedilmedi; başka bir şeye geç.`
+      }
+      if (verdict) {
+        finalKey = this.normalizeKey(verdict.anahtar || key)
+        title = verdict.baslik.trim() || title
+        kind =
+          verdict.karar === 'not'
+            ? 'not'
+            : ((FINDING_KIND_SET.has(verdict.tur) ? verdict.tur : kind) as FindingKind)
+        if (verdict.karar === 'not' || finalKey !== key)
+          hooks.emit({
+            type: 'bilgi',
+            message: `Yargıç: ${verdict.karar === 'not' ? 'nota indirdi' : 'kabul'}${finalKey !== key ? `, anahtar ${finalKey}` : ''} — ${verdict.gerekce}`,
+          })
+      }
+    }
     const file = hooks.file('kanit')
     const { box } = await captureEvidence(this.page, file.abs, {
       ...(ref ? { locator: this.locate(ref) } : {}),
       label: title,
     }).catch(() => ({ box: null }))
-    const kind = (FINDING_KIND_SET.has(field(input, 'tur')) ? field(input, 'tur') : 'not') as FindingKind
-    const rules = Array.isArray((input as { kurallar?: unknown }).kurallar)
-      ? ((input as { kurallar: unknown[] }).kurallar.filter((r) => typeof r === 'string') as string[])
-      : []
-    const suppressedBy = field(input, 'bastiran_kural').trim() || null
     const result = hooks.record({
-      key,
+      key: finalKey,
       title,
       kind,
       source: 'yz',
@@ -601,7 +980,7 @@ export class PageController {
       verified,
       suppressedByRule: suppressedBy,
     })
-    this.reported.add(key)
+    this.pageTitles.push(`${finalKey} — ${title}`)
     this.emitFinding(result, file.rel)
     if (!verified)
       return `Kaydedildi ama alıntı ("${quote}") ekranda bulunamadı; not olarak işaretlendi. Ekran değiştiyse yeniden bak.`
@@ -613,3 +992,20 @@ export class PageController {
 }
 
 const FINDING_KIND_SET = new Set<string>(['kesin', 'tutarsizlik', 'not'])
+/** Sayfa başına gözün en çok kaç ekran incelediği (maliyet tavanı). */
+const MAX_INSPECTIONS = 14
+
+interface Verdict {
+  karar: 'kabul' | 'not' | 'ret'
+  tur: string
+  anahtar: string
+  baslik: string
+  gerekce: string
+}
+
+/** Etkileşim bir şey değiştirmedi mi: öğe bulunamadı, basılmadı ya da ekran aynı kaldı. */
+function isStuck(outcome: string | ContentBlock[]): boolean {
+  const body =
+    typeof outcome === 'string' ? outcome : outcome.map((b) => (b.type === 'text' ? b.text : '')).join('\n')
+  return /bulunamadı|Salt okuma|Ekranın ağacı değişmedi/.test(body)
+}

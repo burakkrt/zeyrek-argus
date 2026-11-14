@@ -4,6 +4,7 @@ import {
   FINDING_KINDS,
   groupPages,
   ISSUE_STATUSES,
+  MODEL_ROLES,
   RULE_TYPES,
   type AppRef,
   type FindingKind,
@@ -104,7 +105,16 @@ export function createApi(ctx: AppContext): Hono {
   api.put('/ayarlar', async (c) => {
     const body = (await c.req.json()) as Partial<Settings>
     const patch: Partial<Settings> = {}
-    if (typeof body.model === 'string' && body.model.trim()) patch.model = body.model.trim()
+    if (body.models && typeof body.models === 'object') {
+      const models = { ...getSettings(ctx.db).models }
+      for (const role of MODEL_ROLES) {
+        const value = (body.models as Record<string, unknown>)[role]
+        if (typeof value === 'string' && value.trim()) models[role] = value.trim()
+      }
+      patch.models = models
+    }
+    if (typeof body.escalate === 'boolean') patch.escalate = body.escalate
+    if (typeof body.inspector === 'boolean') patch.inspector = body.inspector
     if (body.effort === 'low' || body.effort === 'medium' || body.effort === 'high')
       patch.effort = body.effort
     if (Number.isFinite(body.ruleBudget))
