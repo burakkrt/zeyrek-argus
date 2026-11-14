@@ -13,12 +13,21 @@ export interface Problem {
   key: string
 }
 
+/** Sayfanın açtığı tarayıcı penceresi (alert, confirm, prompt, çıkış onayı). */
+export interface BrowserDialog {
+  type: string
+  message: string
+}
+
+/** Ekran yayını karesi en sık bu aralıkla iletilir; aradaki kareler atlanır ama son kare hep iletilir. */
+const FRAME_INTERVAL_MS = 100
+
 export interface SessionOptions {
   origin: string
   accessToken?: string
   headless?: boolean
-  /** Canlı görüntü: CDP ekran yayınının JPEG kareleri (base64). */
-  onFrame?: (data: string) => void
+  /** Canlı görüntü: CDP ekran yayınının JPEG kareleri (base64) ve alındıkları an (epoch ms). */
+  onFrame?: (data: string, at: number) => void
   /** Önceki koşudan saklanan uygulama oturumu (çerezler); varsa tarayıcı onunla açılır, yeniden giriş yapılmaz. */
   storageState?: string
 }
@@ -59,8 +68,10 @@ export class BrowserSession {
   private problems: Problem[] = []
   private blocked: string[] = []
   private started = new WeakMap<object, number>()
+  private dialogs: BrowserDialog[] = []
   private cdp: CDPSession | null = null
   private lastFrameAt = 0
+  private pendingFrame: ReturnType<typeof setTimeout> | null = null
 
   private constructor(
     readonly browser: Browser,
@@ -113,6 +124,15 @@ export class BrowserSession {
       // Bizim engellediğimiz yazma isteği ve başarısız istek (ayrıca "istek" olarak kaydediliyor) konsol bulgusu değildir.
       if (message.type() !== 'error' || /ERR_BLOCKED_BY_CLIENT|Failed to load resource/i.test(text)) return
       this.problems.push({ kind: 'konsol', text, key: text })
+    })
+    // Pencere kaydedilir ve modele söylenir (dinleyici yoksa Playwright sessizce kapatır, düğme "tepkisiz" görünür).
+    // Yalnız "Tamam"ı olan uyarı kabul edilir; onay ve çıkış onayı iptal edilir: sayfada kalınır, hiçbir şey silinmez.
+    page.on('dialog', (dialog) => {
+      this.dialogs.push({
+        type: dialog.type(),
+        message: dialog.message().replace(/\s+/g, ' ').trim().slice(0, 200),
+      })
+      void (dialog.type() === 'alert' ? dialog.accept() : dialog.dismiss()).catch(() => undefined)
     })
     page.on('request', (request) => this.started.set(request, Date.now()))
     page.on('response', (response) => {
@@ -183,18 +203,30 @@ export class BrowserSession {
     return { image: Buffer.from(shot.data, 'base64'), viewport }
   }
 
-  private async startScreencast(onFrame: (data: string) => void): Promise<void> {
+  /**
+   * Ekran yayını: kareler en çok ~10/sn iletilir. Aralık dolmadan gelen kare atılmaz, bekletilir; yeni kare gelmezse
+   * aralık sonunda iletilir — yoksa animasyonun son karesi düşer ve ekran ara bir hâlde donuk kalır.
+   */
+  private async startScreencast(onFrame: (data: string, at: number) => void): Promise<void> {
     this.cdp ??= await this.context.newCDPSession(this.page)
+    let latest: string | null = null
+    const flush = () => {
+      this.pendingFrame = null
+      if (latest === null) return
+      this.lastFrameAt = Date.now()
+      onFrame(latest, this.lastFrameAt)
+      latest = null
+    }
     this.cdp.on('Page.screencastFrame', (frame: { data: string; sessionId: number }) => {
       void this.cdp?.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => undefined)
-      const at = Date.now()
-      if (at - this.lastFrameAt < 200) return
-      this.lastFrameAt = at
-      onFrame(frame.data)
+      latest = frame.data
+      const wait = FRAME_INTERVAL_MS - (Date.now() - this.lastFrameAt)
+      if (wait <= 0) flush()
+      else this.pendingFrame ??= setTimeout(flush, wait)
     })
     await this.cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 55,
+      quality: 70,
       maxWidth: 1280,
       maxHeight: 800,
       everyNthFrame: 1,
@@ -229,6 +261,13 @@ export class BrowserSession {
   drainBlocked(): string[] {
     const out = this.blocked
     this.blocked = []
+    return out
+  }
+
+  /** Son bakıştan beri açılan tarayıcı pencereleri. */
+  drainDialogs(): BrowserDialog[] {
+    const out = this.dialogs
+    this.dialogs = []
     return out
   }
 
@@ -346,6 +385,7 @@ export class BrowserSession {
   }
 
   async close(): Promise<void> {
+    if (this.pendingFrame) clearTimeout(this.pendingFrame)
     await this.cdp?.send('Page.stopScreencast').catch(() => undefined)
     await this.browser.close().catch(() => undefined)
   }

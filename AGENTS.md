@@ -96,10 +96,17 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 - Pencere yalnız `layout/Modal` ile açılır: başlık 18/600, açıklama 14 (aralık 2), başlık bölümü 20/16/24 px dolgu,
   sağ üstte kapat, yalnız gövde kayar, alt çubuk 12/24 px dolgulu, sağa yaslı 38 px düğmeler (`footer`); genişlik
   `sm` / `md` / `lg`. Katman sırası: pencere `z-50`, açılır liste `z-[60]` (pencerede açılan liste üstte kalır).
-- Monitör (`views/Monitor.svelte`, model `lib/monitor.ts`) ek model çağrısı yapmaz: anlatı modelin verdiği "neden",
-  adım karesi ve hedef kutusu sunucunun modelsiz ölçümüdür (`PageController.frame`; kare diske yazılır, modele gitmez —
-  `controller.test.ts` kanıtlar). Monitöre yeni bilgi eklenecekse önce olaylarda var mı bakılır; model çıktısı bunun
-  için büyütülmez.
+- Monitör (`views/Monitor.svelte`; Stüdyo düzeni: `components/monitor/` Stage · PlayerBar · Tracks · FlowList; hesap
+  `lib/monitor.ts`: eylem cümlesi `actionOf`, şeritler `buildLanes`) ek model çağrısı
+  yapmaz: anlatı modelin verdiği "neden", kayıt ve hedef kutusu sunucunun modelsiz ölçümüdür. Kayıt, ekran yayınının
+  kareleridir (en çok ~10/sn, son kare hep iletilir): `runs/<id>/kare/<epoch-ms>.jpg`, giriş ve kimlik kurulurken
+  yazılmaz; canlıda aynı kare SSE ile akar. Adımın `actAt`'ı (işlem anı) kayıtla aynı saattedir; imleç, tıklama halkası
+  ve otomatik yakınlaştırma (`pointerAt`, `zoomAt`) buradan hesaplanır. Kayıtta model düşünürken geçen durgunluk
+  `buildClock` ile kısaltılır; animasyonlar oynatma saatinde, canlıda gerçek saatte koşar (yoksa kısaltılan aralıkta
+  sıçrar). Monitöre yeni bilgi eklenecekse önce olaylarda var mı bakılır; model çıktısı bunun için büyütülmez.
+- Sayfanın açtığı tarayıcı penceresi (confirm, çıkış onayı) kaydedilir, iptal edilir (alert kabul) ve adımın sonucuyla
+  modele söylenir; yargıç da son adımları görür. Dinleyicisiz Playwright pencereyi sessizce kapatır ve düğme
+  "tepkisiz" sanılır (ölçüldü 2026-11-14: Vazgeç yanlış bulgusu; `controller.test.ts` kanıtlar).
 - Yükleme: kısa işlemde gri `Spinner` (sm/md/lg; tek biçim, IMS Cortex yükleyicisi gibi), yeri belli içeriğin ilk
   yüklemesinde aynı ölçüde `Skeleton`
   (`ui/skeleton`; içerik gelince yer değişmez, zıplama olmaz — örnek `WorkspaceSwitcher`).

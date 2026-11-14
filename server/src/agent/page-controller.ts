@@ -13,7 +13,7 @@ import { describeHit, runEyes, type EyeHit, type PatternRule } from '../browser/
 import { isUnsafeLabel } from '../browser/guard.ts'
 import { landedOn } from '../platform/catalog.ts'
 import { ariaTree, harvestTooltips, visibleText } from '../browser/research.ts'
-import type { BrowserSession, Problem } from '../browser/session.ts'
+import type { BrowserDialog, BrowserSession, Problem } from '../browser/session.ts'
 import { changeSize, compressSnapshot, diffSnapshot, stripRefs } from '../browser/snapshot.ts'
 import type { RecordResult } from '../issues/issues.ts'
 import { apiPrint, uiPrint } from '../runs/prints.ts'
@@ -51,6 +51,8 @@ export interface FindingDraft {
 /** Sayfa denetleyicisinin dış dünyası: koşu yöneticisi verir (kayıt, olay, dosya yolu, yönlendirme, durdurma). */
 export interface PageHooks {
   emit(body: RunEventBody): void
+  /** Canlı imleç: etkileşimden hemen önce hedef (saklanmaz). */
+  pointer(tool: string, target: StepTarget, at: number): void
   record(draft: FindingDraft): RecordResult
   retract(key: string): boolean
   markFixed(key: string, note: string): boolean
@@ -83,6 +85,24 @@ export interface PageInput {
 }
 
 const text = (value: string): ContentBlock => ({ type: 'text', text: value })
+
+type StepFrame = { shot: string | null; target: StepTarget | null; actAt: number }
+
+const DIALOG_KIND: Record<string, string> = {
+  beforeunload: 'kaydedilmemiş değişiklik (çıkış) onayı',
+  confirm: 'onay penceresi',
+  prompt: 'giriş penceresi',
+  alert: 'uyarı penceresi',
+}
+
+/** Adımda açılan tarayıcı pencereleri, modele ve akışa tek cümle. Pencere açılması düğmenin çalıştığını gösterir. */
+function dialogNote(dialogs: BrowserDialog[]): string {
+  if (!dialogs.length) return ''
+  const shown = dialogs
+    .map((d) => `${DIALOG_KIND[d.type] ?? d.type}${d.message ? ` ("${d.message}")` : ''}`)
+    .join(', ')
+  return `Tarayıcı penceresi açıldı: ${shown}. Kontrolcü iptal etti, sayfada kalındı (düğme tepki verdi; tepkisizlik bulgusu değildir).`
+}
 const firstLine = (value: string) => value.split('\n')[0] ?? value
 const field = (input: unknown, name: string): string => {
   const v = (input as Record<string, unknown> | null)?.[name]
@@ -333,9 +353,10 @@ export class PageController {
 
   /**
    * Monitör karesi: görünüm alanının görüntüsü diske yazılır, hedef öğe verildiyse kutusu görünüm alanına oranla
-   * ölçülür (imleç ve çerçeve buraya çizilir). Modele hiçbir şey gitmez; alınamazsa adım karesiz yazılır.
+   * ölçülür (imleç ve çerçeve buraya çizilir) ve canlı izleyene işlemden önce imleç olarak gider. `actAt` işlemin
+   * anıdır (verilmezse şimdi): kayıttan izlemede imleç ve anlatı bu ana hizalanır. Modele hiçbir şey gitmez.
    */
-  private async frame(ref?: string): Promise<{ shot: string | null; target: StepTarget | null }> {
+  private async frame(tool: string, ref?: string, at?: number): Promise<StepFrame> {
     try {
       const box = ref
         ? await this.locate(ref)
@@ -354,24 +375,42 @@ export class PageController {
             height: box.height / viewport.height,
           }
         : null
-      return { shot: file.rel, target }
+      const actAt = at ?? Date.now()
+      if (target) this.input.hooks.pointer(tool, target, actAt)
+      return { shot: file.rel, target, actAt }
     } catch {
-      return { shot: null, target: null }
+      return { shot: null, target: null, actAt: at ?? Date.now() }
     }
   }
 
-  /** Adım akışa yazılır; karesi (varsa) monitör içindir, modele gitmez. */
+  /**
+   * Adım akışa yazılır; karesi (varsa) monitör içindir, modele gitmez. Adım sırasında tarayıcı penceresi açıldıysa
+   * sonuca eklenir ve aynı not döner: çağıran onu modele de söyler (yoksa düğme "tepkisiz" sanılır).
+   */
   private async step(
     tool: string,
     reason: string | null,
     outcome: string,
-    frame: { shot: string | null; target: StepTarget | null } = { shot: null, target: null },
-  ): Promise<void> {
-    this.input.hooks.emit({ type: 'adim', tool, reason, outcome, ...frame })
+    frame: StepFrame = { shot: null, target: null, actAt: Date.now() },
+  ): Promise<string> {
+    const dialogs = this.input.session.drainDialogs()
+    const note = dialogNote(dialogs)
+    outcome = note ? `${outcome} — ${note}` : outcome
+    this.input.hooks.emit({
+      type: 'adim',
+      tool,
+      reason,
+      outcome,
+      ...frame,
+      ...(dialogs.length
+        ? { dialog: dialogs.map((d) => d.message || (DIALOG_KIND[d.type] ?? d.type)).join(' · ') }
+        : {}),
+    })
     if (tool === 'bastan_ac') this.trail = []
     else if (tool !== 'ekrana_bak') this.trail = [...this.trail, outcome].slice(-10)
     const requests = this.input.session.drainNetwork()
     if (requests.length) this.input.hooks.emit({ type: 'ag', requests: requests.slice(0, 40) })
+    return note ? ` ${note}` : ''
   }
 
   /** Göz isabetlerini ve konsol/ağ sorunlarını kaydeder; yalnız bu sayfada yeni olanları döner. */
@@ -809,18 +848,18 @@ export class PageController {
           })
           .catch(() => null)
         if (!target) return `'${ref}' bulunamadı; ekran değişmiş olabilir, ekrana_bak ile yeniden bak.`
-        const frame = await this.frame(ref)
+        const frame = await this.frame(name, ref)
         if (isUnsafeLabel(target.label) || target.submit) {
           await this.step(name, reason, `Salt okuma: "${target.label}" basılmadı.`, frame)
           return `Salt okuma: "${target.label}" yazma işi yapabilir, basılmadı. Başka bir şey dene.`
         }
         await this.locate(ref).click({ timeout: 5_000 })
         const fresh = await this.afterAction()
-        await this.step(name, reason, `Tıklandı: "${target.label}"`, frame)
-        return [text(`Tıklandı: "${target.label}".`), ...(await this.screen(false, fresh, true))]
+        const note = await this.step(name, reason, `Tıklandı: "${target.label}"`, frame)
+        return [text(`Tıklandı: "${target.label}".${note}`), ...(await this.screen(false, fresh, true))]
       }
       case 'uzerine_gel': {
-        const frame = await this.frame(ref)
+        const frame = await this.frame(name, ref)
         await this.locate(ref).hover({ timeout: 5_000 })
         await this.page.waitForTimeout(400)
         const tip = await this.page
@@ -836,59 +875,68 @@ export class PageController {
           })
           .catch(() => '')
         const fresh = await this.afterAction()
-        await this.step(name, reason, tip ? `İpucu: ${tip.slice(0, 120)}` : 'Üstüne gelindi', frame)
+        const note = await this.step(
+          name,
+          reason,
+          tip ? `İpucu: ${tip.slice(0, 120)}` : 'Üstüne gelindi',
+          frame,
+        )
         return [
-          text(tip ? `Açılan ipucu: ${tip}` : 'İpucu açılmadı.'),
+          text((tip ? `Açılan ipucu: ${tip}` : 'İpucu açılmadı.') + note),
           ...(await this.screen(false, fresh, true)),
         ]
       }
       case 'yaz': {
         const value = field(input, 'metin')
         this.input.session.guard.dirty = true
-        const frame = await this.frame(ref)
+        const frame = await this.frame(name, ref)
         await this.locate(ref).fill(value, { timeout: 5_000 })
         const fresh = await this.afterAction()
-        await this.step(name, reason, `Yazıldı: "${value.slice(0, 60)}"`, frame)
-        return [text(`Yazıldı.`), ...(await this.screen(false, fresh, true))]
+        const note = await this.step(name, reason, `Yazıldı: "${value.slice(0, 60)}"`, frame)
+        return [text(`Yazıldı.${note}`), ...(await this.screen(false, fresh, true))]
       }
       case 'tus': {
         const key = field(input, 'tus')
+        const at = Date.now()
         await this.page.keyboard.press(key)
         const fresh = await this.afterAction()
-        await this.step(name, reason, `Tuş: ${key}`, await this.frame())
-        return [text(`${key} basıldı.`), ...(await this.screen(false, fresh, true))]
+        const note = await this.step(name, reason, `Tuş: ${key}`, await this.frame(name, undefined, at))
+        return [text(`${key} basıldı.${note}`), ...(await this.screen(false, fresh, true))]
       }
       case 'kaydir': {
+        const at = Date.now()
         await this.page.mouse.wheel(0, field(input, 'yon') === 'yukari' ? -600 : 600)
         const fresh = await this.afterAction()
         await this.step(
           name,
           reason,
           field(input, 'yon') === 'yukari' ? 'Yukarı kaydırıldı' : 'Aşağı kaydırıldı',
-          await this.frame(),
+          await this.frame(name, undefined, at),
         )
         return [text('Kaydırıldı.'), ...(await this.screen(false, fresh, true))]
       }
       case 'ekrana_bak': {
         const withImage = (input as { goruntu?: unknown } | null)?.goruntu === true
+        const at = Date.now()
         await this.input.session.settle(3_000)
         await this.step(
           name,
           reason,
           withImage ? 'Ekrana bakıldı (görüntüyle)' : 'Ekrana bakıldı',
-          await this.frame(),
+          await this.frame(name, undefined, at),
         )
         // Ağaç zaten her adımda geliyor; bakışta yalnız fark (ve istenirse görüntü) gider.
         return this.screen(withImage, [], true)
       }
       case 'bastan_ac': {
+        const at = Date.now()
         await this.input.session.open(this.input.url)
         const fresh = await this.recordDeterministic(
           await runEyes(this.page, this.input.patterns),
           this.input.session.drainProblems(),
           'gorev',
         )
-        await this.step(name, reason, 'Sayfa baştan açıldı', await this.frame())
+        await this.step(name, reason, 'Sayfa baştan açıldı', await this.frame(name, undefined, at))
         return this.screen(false, fresh, true)
       }
       default:
@@ -926,7 +974,7 @@ export class PageController {
             role: 'user',
             content: [
               text(
-                `${this.judgeFacts()}\n\n${JUDGE_TASK}\n\nAday bulgu:\n${JSON.stringify(candidate, null, 1)}\n\nEkranın ağacı:\n${tree}`,
+                `${this.judgeFacts()}\n\n${JUDGE_TASK}\n\nBu ekrana gelen son adımlar:\n${this.trail.length ? this.trail.map((t) => `- ${t}`).join('\n') : '- Sayfa açıldı.'}\n\nAday bulgu:\n${JSON.stringify(candidate, null, 1)}\n\nEkranın ağacı:\n${tree}`,
               ),
               ...(image
                 ? [

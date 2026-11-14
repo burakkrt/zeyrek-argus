@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import {
   FINDING_KINDS,
@@ -270,6 +270,20 @@ export function createApi(ctx: AppContext): Hono {
     return c.json({ ok: true })
   })
 
+  /** Koşunun kayıt kareleri: alındıkları anlar (epoch ms), sıralı. Kayıt yoksa (eski koşu) boş. */
+  api.get('/kosular/:id/kareler', (c) => {
+    const id = c.req.param('id')
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ hata: 'Geçersiz koşu.' }, 400)
+    const dir = resolve(ctx.config.dataDir, 'runs', id, 'kare')
+    if (!existsSync(dir)) return c.json([])
+    const times = readdirSync(dir)
+      .map((name) => /^(\d+)\.jpg$/.exec(name)?.[1])
+      .filter((t): t is string => t !== undefined)
+      .map(Number)
+      .sort((a, b) => a - b)
+    return c.json(times)
+  })
+
   api.get('/kosular/:id/dosya/*', (c) => {
     const id = c.req.param('id')
     if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ hata: 'Geçersiz koşu.' }, 400)
@@ -291,6 +305,7 @@ export function createApi(ctx: AppContext): Hono {
       let wake: (() => void) | null = null
       const unsubscribe = ctx.bus.subscribe((message) => {
         // Kare birikmesin: sırada eski kare varsa yenisiyle değiştir.
+        // (Atlanan kare kayıttan izlemede diskte durur; canlıda en yenisi yeter.)
         if (message.type === 'kare') {
           const old = queue.findIndex((m) => m.type === 'kare' && m.runId === message.runId)
           if (old >= 0) queue.splice(old, 1)

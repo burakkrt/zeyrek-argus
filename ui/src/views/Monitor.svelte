@@ -1,111 +1,364 @@
 <script lang="ts">
-  import type { FindingKind, RunEvent, RunInfo } from '@argus/shared'
+  import type { IssueDetail, Occurrence, RunEvent, RunInfo, StepTarget } from '@argus/shared'
   import { onDestroy, onMount } from 'svelte'
-  import EventCard from '../components/EventCard.svelte'
   import Icon from '$lib/components/Icon.svelte'
-  import Spinner from '$lib/components/Spinner.svelte'
-  import Modal from '$lib/components/layout/Modal.svelte'
   import Page from '$lib/components/layout/Page.svelte'
-  import Panel from '$lib/components/layout/Panel.svelte'
+  import FindingDetail from '$lib/components/monitor/FindingDetail.svelte'
+  import FlowList from '$lib/components/monitor/FlowList.svelte'
+  import PlayerBar from '$lib/components/monitor/PlayerBar.svelte'
+  import Stage from '$lib/components/monitor/Stage.svelte'
+  import Tracks from '$lib/components/monitor/Tracks.svelte'
   import RunStatusBadge from '$lib/components/status/RunStatusBadge.svelte'
-  import * as Alert from '$lib/components/ui/alert/index.js'
-  import { Badge, type BadgeVariant } from '$lib/components/ui/badge/index.js'
   import { Button } from '$lib/components/ui/button/index.js'
   import * as Card from '$lib/components/ui/card/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
   import { api, fileUrl, post } from '$lib/api'
-  import { formatCost, formatDuration, KIND, OUTCOME } from '$lib/format'
-  import { buildMonitor, nextPlayhead, stepPercent, TOOL_LABEL, type MonitorFinding } from '$lib/monitor'
+  import { formatCost, formatDuration, KIND } from '$lib/format'
+  import {
+    ACTION_ICON,
+    actionOf,
+    buildClock,
+    buildFlowSections,
+    buildLanes,
+    buildMonitor,
+    findingIndexAt,
+    formatClock,
+    frameIndexAt,
+    pointerAt,
+    stepIndexAt,
+    TRAVEL_MS,
+    zoomAt,
+    type PointerMove,
+  } from '$lib/monitor'
   import { live, subscribe } from '$lib/stream.svelte'
-  import { cn } from '$lib/utils'
 
   /**
-   * Koşu monitörü: koşu canlı izlenir ya da kayıttan geri sarılır. Ortada sahne (canlı tarayıcı ya da adımın karesi,
-   * üstünde imleç ve hedef çerçevesi), altında tek satır anlatı (ne yaptı · neden) ve bulgu işaretli zaman çizelgesi;
-   * solda plan (sayfa › görev), sağda bulgular. Canlı akış hızlıyken her adım en az 1,2 sn gösterilir (kaçırma olmaz);
-   * bulguya tıklayınca o anın kaydı açılır. Ham olay akışı "Tüm olaylar" penceresindedir. Model çağrısı yoktur: anlatı
-   * modelin zaten verdiği "neden", kare ve hedef sunucunun modelsiz ölçümüdür.
+   * Koşu monitörü (Stüdyo düzeni): solda video gibi izlenen kayıt — kenardan kenara sahne, hemen altında oynatma
+   * çubuğu (eylem kartı, bulgu gezgini) ve görev · adım · bulgu şeritleri, oynatma çizgisi hepsini birlikte keser.
+   * Sağda okunur akış ya da seçili bulgunun ayrıntısı. Canlı koşuda canlının ~0,7 sn gerisinden izlenir (imleç hedefe
+   * tıklamadan önce varsın diye); ekran durgunken ne olduğu söylenir. Kayıtta model düşünürken geçen bekleme kısaltılır.
+   * Model çağrısı yoktur: kareler ve hedefler sunucunun modelsiz ölçümüdür.
    */
   let { runId }: { runId: string } = $props()
 
-  const MIN_STEP_MS = 1_200
-  const KIND_BADGE: Record<FindingKind, BadgeVariant> = {
-    kesin: 'error',
-    tutarsizlik: 'warning',
-    not: 'info',
-  }
-  const KIND_PIN: Record<FindingKind, string> = {
-    kesin: 'bg-destructive',
-    tutarsizlik: 'bg-warning',
-    not: 'bg-info',
-  }
+  const LIVE_DELAY_MS = 700
+  const LIVE_CACHE = 120
+  const THINK_AFTER_MS = 2_500
+  // Kayıt alanı sabit: kontrolcünün tarayıcı görünümü (`browser/session.ts`).
+  const VIEWPORT = { width: 1280, height: 800 }
 
   let run = $state<RunInfo | null>(null)
   let events = $state<RunEvent[]>([])
-  let frame = $state<string | null>(null)
+  let frames = $state<number[]>([])
+  let liveMoves = $state<PointerMove[]>([])
   let error = $state<string | null>(null)
   let message = $state('')
-  let allEvents = $state(false)
-  let following = $state(true)
-  let shown = $state(-1)
-  let shownAt = $state(0)
-  let selected = $state<MonitorFinding | null>(null)
+  let ready = $state(false)
+
+  // Oynatma durumu: `wall` ekrandaki anın duvar saati; `following` canlının ucunda mı.
+  let wall = $state(0)
+  let playing = $state(true)
+  let following = $state(false)
+  let speed = $state(1)
+  let autoZoom = $state(false)
+  let pauseAt: number | null = null
+  let selected = $state<number | null>(null)
+  let detail = $state<IssueDetail | null>(null)
+  let detailFailed = $state(false)
   let now = $state(Date.now())
+  let copied = $state(false)
+  let fullscreen = $state(false)
+  let player = $state<HTMLDivElement | null>(null)
+
+  // Canlı kareler bellekte (son 120); eskileri diskten okunur. Reaktif değil: kare listesi zaten tetikler.
+  const liveData = new Map<number, string>()
 
   const current = $derived(live.runs[runId] ?? run)
   const running = $derived(current?.status === 'calisiyor' || current?.status === 'sirada')
   const model = $derived(buildMonitor(events))
-  const latest = $derived(model.steps.length - 1)
-  const step = $derived(model.steps[shown] ?? null)
-  const behind = $derived(following ? latest - shown : 0)
-  const atLive = $derived(following && running && shown >= latest)
+  // Eski koşularda (kayıt yokken) adım kareleri kayıt yerine geçer.
+  const fallback = $derived(
+    frames.length ? null : new Map(model.steps.filter((s) => s.shot).map((s) => [s.at, s.shot!])),
+  )
+  const timeline = $derived(fallback ? [...fallback.keys()].sort((a, b) => a - b) : frames)
+  const clock = $derived(
+    buildClock([
+      ...timeline,
+      ...model.steps.map((s) => s.at),
+      ...model.flow.map((r) => r.at),
+      ...(running ? [now - LIVE_DELAY_MS] : []),
+    ]),
+  )
+  const position = $derived(clock.toPlay(wall))
+  const atLive = $derived(following && running)
+
+  // Canlı imleç: henüz adımı gelmemiş işlemler (adım olayı işlem bittikten sonra gelir).
+  const pending = $derived(liveMoves.filter((m) => !model.steps.some((s) => s.at === m.at)))
+  const moves = $derived<PointerMove[]>(
+    [
+      ...model.steps.flatMap((s) =>
+        s.target && s.tool !== 'kaydir' ? [{ at: s.at, tool: s.tool, target: s.target }] : [],
+      ),
+      ...pending,
+    ].sort((a, b) => a.at - b.at),
+  )
+  // Animasyonların saati: kayıtta oynatma saati (kısaltılan beklemede imleç ve yakınlık ani sıçramasın), canlıda
+  // gerçek saat (canlının ucunda kısaltma yoktur ve uç her an ilerler).
+  const motionAt = $derived(following ? wall : position)
+  const toMotion = (at: number) => (following ? at : clock.toPlay(at))
+  const motionMoves = $derived(moves.map((m) => ({ ...m, at: toMotion(m.at) })))
+  const stepIndex = $derived(
+    stepIndexAt(
+      model.steps.map((s) => ({ at: toMotion(s.at) })),
+      motionAt,
+    ),
+  )
+  const step = $derived(model.steps[stepIndex] ?? null)
+  const pendingNow = $derived(
+    pending.find((m) => motionAt >= toMotion(m.at) - TRAVEL_MS && (!step || m.at > step.at)) ?? null,
+  )
+  const pointer = $derived(pointerAt(motionMoves, motionAt))
+  const zoom = $derived(autoZoom ? zoomAt(motionMoves, motionAt, pointer) : { scale: 1, x: 0.5, y: 0.5 })
+  const frameIndex = $derived(frameIndexAt(timeline, wall))
+  const srcOf = (at: number) =>
+    liveData.get(at) ?? fileUrl(runId, fallback ? fallback.get(at)! : `kare/${at}.jpg`)
+  const src = $derived(frameIndex >= 0 ? srcOf(timeline[frameIndex]!) : null)
+  const prefetch = $derived(
+    playing && !following
+      ? timeline
+          .slice(frameIndex + 1, frameIndex + 13)
+          .map(srcOf)
+          .filter((url): url is string => url !== null)
+      : [],
+  )
+  const sections = $derived(buildFlowSections(model))
+  const dialog = $derived.by(() => {
+    if (!step?.dialog) return null
+    const since = motionAt - toMotion(step.at)
+    return since >= 0 && since < 3_500 ? step.dialog : null
+  })
+
+  const lanes = $derived(buildLanes(model, clock, atLive ? now - LIVE_DELAY_MS : clock.end))
+  const planned = $derived(model.pages.some((p) => p.tasks.length > 0))
+  // Canlıda ekran durgunsa ne olduğu: plan bekleniyor ya da model sonraki adımı seçiyor.
+  const waiting = $derived.by(() => {
+    if (!atLive || pendingNow) return null
+    if (!model.flow.some((r) => r.kind === 'sayfa')) return 'Tarayıcı açılıyor, oturum kuruluyor'
+    if (!planned) return 'Sayfa açıldı · açılış araştırması ve plan hazırlanıyor'
+    const last = Math.max(
+      Date.parse(events.at(-1)?.at ?? '') || 0,
+      model.steps.at(-1)?.at ?? 0,
+      liveMoves.at(-1)?.at ?? 0,
+    )
+    const idle = now - last
+    return idle > THINK_AFTER_MS ? `Yapay zekâ sonraki adımı seçiyor · ${Math.round(idle / 1000)} sn` : null
+  })
+  const ending = $derived.by(() => {
+    if (running || !current || (current.status !== 'hata' && current.status !== 'durduruldu')) return null
+    if (position < clock.duration - 300) return null
+    const reason = current.error ?? model.flow.findLast((r) => r.kind === 'not' && r.tone === 'hata')
+    return {
+      title: current.status === 'hata' ? 'Koşu yarıda kaldı' : 'Koşu durduruldu',
+      message:
+        typeof reason === 'string'
+          ? reason
+          : reason?.kind === 'not'
+            ? reason.text
+            : 'Koşu tamamlanmadan bitti; kalan görevler çalışmadı.',
+    }
+  })
+
+  const occurrence = $derived.by<Occurrence | null>(() => {
+    const id = selected === null ? null : model.findings[selected]?.event.occurrenceId
+    if (!id || !detail) return null
+    return detail.occurrences.find((o) => o.id === id) ?? detail.occurrences[0] ?? null
+  })
+  // Seçili bulgu ancak anında durulduğunda sahnede çerçevelenir (oynarken ekran değişir, çerçeve yanlış yeri gösterir).
+  const findingOverlay = $derived.by(() => {
+    if (selected === null || playing || pauseAt !== null) return null
+    const finding = model.findings[selected]
+    if (!finding || Math.abs(wall - finding.at) > 1_500) return null
+    const box: StepTarget | null = occurrence?.box
+      ? {
+          x: occurrence.box.x / VIEWPORT.width,
+          y: occurrence.box.y / VIEWPORT.height,
+          width: occurrence.box.width / VIEWPORT.width,
+          height: occurrence.box.height / VIEWPORT.height,
+        }
+      : null
+    return { box, kind: finding.event.kind, title: finding.event.title }
+  })
+
+  const findingNav = $derived({
+    index: selected ?? findingIndexAt(model.findings, wall),
+    total: model.findings.length,
+    selected: selected !== null,
+  })
+
+  const barAction = $derived.by(() => {
+    if (ending)
+      return { icon: 'error' as const, title: ending.title, detail: ending.message, tone: 'hata' as const }
+    if (findingOverlay) {
+      const before = step ? actionOf(step) : null
+      return {
+        icon: 'bug' as const,
+        title: `${KIND[findingOverlay.kind].label} bulgu · ${findingOverlay.title}`,
+        detail: before ? `Önceki adım: ${before.verb}${before.object ? ` · ${before.object}` : ''}` : '',
+        tone: 'bulgu' as const,
+      }
+    }
+    if (pendingNow) {
+      const action = actionOf({ tool: pendingNow.tool, outcome: '' })
+      return {
+        icon: ACTION_ICON[action.kind],
+        title: `${action.verb}…`,
+        detail: 'Sonucu bekleniyor',
+        tone: 'eylem' as const,
+      }
+    }
+    if (waiting)
+      return {
+        icon: 'psychology' as const,
+        title: planned ? 'Düşünüyor…' : 'Plan hazırlanıyor',
+        detail: step ? `Son adım: ${actionOf(step).verb}` : 'Açılış araştırması',
+        tone: 'bekliyor' as const,
+      }
+    if (step) {
+      const action = actionOf(step)
+      return {
+        icon: ACTION_ICON[action.kind],
+        title: `${action.verb}${action.object ? ` · ${action.object}` : ''}`,
+        detail: [step.reason ? `Neden: ${step.reason}` : '', step.dialog ? 'tarayıcı penceresi açıldı' : '']
+          .filter(Boolean)
+          .join(' · '),
+        tone: 'eylem' as const,
+      }
+    }
+    return {
+      icon: 'visibility' as const,
+      title: running ? 'Sayfa açılıyor' : 'Sayfa açıldı ve incelendi',
+      detail: 'Açılış araştırması: ipuçları, gözler ve ağ istekleri',
+      tone: 'eylem' as const,
+    }
+  })
+
+  // Oynatılan anın sayfası (üst şeritte tarayıcı adresi olarak): o ana kadar açılan son sayfa.
+  const pageUrl = $derived.by(() => {
+    const opened = events.filter((e) => e.type === 'sayfa-basladi')
+    const row = opened.findLast((e) => Date.parse(e.at) <= wall) ?? opened[0]
+    return row?.type === 'sayfa-basladi' ? row.url.replace(/^https?:\/\//, '') : ''
+  })
+
   const elapsed = $derived.by(() => {
     void now
     return current ? formatDuration(current.startedAt, current.finishedAt) : '—'
   })
 
-  // Sahnenin görüntüsü: seçili bulgunun kanıtı > canlı tarayıcı (canlıya yetişmişken) > adımın karesi.
-  const scene = $derived.by(() => {
-    if (selected?.event.shot) return { src: fileUrl(runId, selected.event.shot), live: false, overlay: false }
-    if (atLive && frame) {
-      const fresh = step ? now - Date.parse(step.at) < 2_500 : false
-      return { src: frame, live: true, overlay: fresh }
-    }
-    if (step?.shot) return { src: fileUrl(runId, step.shot), live: false, overlay: true }
-    return null
-  })
-
-  const activeTask = $derived(step ? { page: step.page, task: step.task } : null)
-
-  function goTo(index: number) {
-    selected = null
-    following = false
-    shown = Math.min(Math.max(index, 0), latest)
+  /** Adımın ipucu: ne yapıldı ("Tuşa bastı · Enter", "Yazdı · “PLN-2027”"). */
+  function describe(index: number) {
+    const action = actionOf(model.steps[index]!)
+    return `${action.verb}${action.object ? ` · ${action.object}` : ''}`
   }
 
-  function backToLive() {
+  function seekPlay(value: number, play = playing) {
+    following = false
+    pauseAt = null
+    wall = clock.toWall(value)
+    playing = play
+  }
+
+  function goLive() {
     selected = null
+    pauseAt = null
     following = true
-    shown = latest
-    shownAt = Date.now()
+    playing = true
   }
 
-  function openFinding(finding: MonitorFinding) {
-    following = false
-    shown = finding.step
-    selected = finding
+  // Akışta adıma tıklanınca imleç hedefe gitmeden biraz öncesinden oynatılır; göreve tıklanınca görevin başına gidilir.
+  function onFlowStep(at: number) {
+    selected = null
+    seekPlay(clock.toPlay(at) - TRAVEL_MS - 400, true)
   }
 
-  function onBarClick(event: MouseEvent) {
-    const bar = event.currentTarget as HTMLElement
-    const rect = bar.getBoundingClientRect()
-    goTo(Math.round(((event.clientX - rect.left) / rect.width) * latest))
+  function onFlowTask(at: number) {
+    selected = null
+    seekPlay(clock.toPlay(at))
+  }
+
+  function openFinding(index: number) {
+    const finding = model.findings[index]
+    if (!finding) return
+    if (selected !== index) {
+      detail = null
+      detailFailed = false
+      const id = finding.event.issueId
+      api<IssueDetail>(`/sorunlar/${id}`)
+        .then((d) => model.findings[selected ?? -1]?.event.issueId === id && (detail = d))
+        .catch(() => (detailFailed = true))
+    }
+    selected = index
+    // Bulgudan önceki adımdan oynatılır ve bulgunun anında durur.
+    const before = model.steps.filter((s) => s.at <= finding.at).at(-1)
+    seekPlay(clock.toPlay(before?.at ?? finding.at) - TRAVEL_MS - 400, true)
+    pauseAt = finding.at
+  }
+
+  function moveFinding(delta: number) {
+    const total = model.findings.length
+    if (!total) return
+    const base = findingNav.index
+    openFinding(Math.min(Math.max(base < 0 && delta > 0 ? 0 : base + delta, 0), total - 1))
+  }
+
+  function togglePlay() {
+    if (following) {
+      following = false
+      playing = false
+      return
+    }
+    if (!playing && position >= clock.duration - 50) wall = clock.start
+    playing = !playing
+    pauseAt = null
+  }
+
+  function seekBy(delta: number) {
+    seekPlay(Math.min(Math.max(position + delta, 0), clock.duration))
+  }
+
+  function stepBy(delta: number) {
+    const count = model.steps.length
+    const target = model.steps[Math.min(Math.max(stepIndex + delta, 0), count - 1)]
+    if (target) seekPlay(clock.toPlay(target.at), false)
+  }
+
+  async function copyLink() {
+    const url = `${location.origin}${location.pathname}#/monitor/${runId}?t=${Math.floor(position / 1000)}`
+    await navigator.clipboard.writeText(url).catch(() => undefined)
+    copied = true
+    setTimeout(() => (copied = false), 2_000)
+  }
+
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) await document.exitFullscreen()
+    else await player?.requestFullscreen()
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if ((event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) return
-    if (event.key === 'ArrowLeft') goTo(shown - 1)
-    if (event.key === 'ArrowRight') goTo(shown + 1)
+    const target = event.target
+    if (target instanceof HTMLElement && target.closest('input, textarea, button, [contenteditable="true"]'))
+      return
+    // YouTube kısayolları: boşluk/K oynat, ←/→ 5 sn, J/L 10 sn; Shift+←/→ önceki/sonraki adım.
+    const key = event.key.toLocaleLowerCase('tr')
+    if (key === ' ' || key === 'k') {
+      event.preventDefault()
+      togglePlay()
+    }
+    if (event.key === 'ArrowLeft') event.shiftKey ? stepBy(-1) : seekBy(-5_000)
+    if (event.key === 'ArrowRight') event.shiftKey ? stepBy(1) : seekBy(5_000)
+    if (key === 'j') seekBy(-10_000)
+    if (key === 'l') seekBy(10_000)
+    if (event.key === 'b' || event.key === 'B') moveFinding(event.shiftKey ? -1 : 1)
+    if (event.key === 'f' || event.key === 'F') void toggleFullscreen()
   }
 
   async function steer() {
@@ -123,24 +376,64 @@
   }
 
   let unsubscribe: (() => void) | null = null
-  let timer: ReturnType<typeof setInterval> | undefined
+  let raf = 0
+  let last = 0
+
+  function tick(t: number) {
+    const dt = last ? Math.min(t - last, 100) : 0
+    last = t
+    now = Date.now()
+    if (following && running) wall = now - LIVE_DELAY_MS
+    else if (following) {
+      following = false
+      playing = false
+      wall = clock.end
+    } else if (playing) {
+      const next = position + dt * speed
+      wall = clock.toWall(next)
+      if (pauseAt !== null && wall >= pauseAt) {
+        wall = pauseAt
+        pauseAt = null
+        playing = false
+      } else if (next >= clock.duration) {
+        // Kaydın sonuna gelindi: koşu sürüyorsa canlıya bağlanır, bittiyse durur.
+        if (running) following = true
+        else playing = false
+      }
+    }
+    raf = requestAnimationFrame(tick)
+  }
 
   onMount(async () => {
     try {
-      ;[run, events] = await Promise.all([
+      const [info, list, times] = await Promise.all([
         api<RunInfo>(`/kosular/${runId}`),
         api<RunEvent[]>(`/kosular/${runId}/olaylar`),
+        api<number[]>(`/kosular/${runId}/kareler`),
       ])
-      // Açılışta son adım görünür; biten koşu kayıttan izlenir.
-      shown = model.steps.length - 1
-      shownAt = Date.now()
-      following = run.status === 'calisiyor' || run.status === 'sirada'
+      run = info
+      events = list
+      frames = times
+      // Paylaşılan an (`?t=<sn>`) varsa orada durulur; yoksa süren koşu canlıdan, biten koşu baştan oynatılır.
+      const shared = Number(new URLSearchParams(location.hash.split('?')[1] ?? '').get('t'))
+      following = (info.status === 'calisiyor' || info.status === 'sirada') && !shared
+      wall = shared ? clock.toWall(shared * 1000) : clock.start
+      if (shared) playing = false
+      ready = true
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     }
     unsubscribe = subscribe((m) => {
       if (m.type === 'kare') {
-        if (m.runId === runId) frame = `data:image/jpeg;base64,${m.data}`
+        if (m.runId !== runId) return
+        liveData.set(m.at, `data:image/jpeg;base64,${m.data}`)
+        if (liveData.size > LIVE_CACHE) liveData.delete(liveData.keys().next().value!)
+        if (!frames.length || m.at > frames[frames.length - 1]!) frames.push(m.at)
+        return
+      }
+      if (m.type === 'imlec') {
+        if (m.runId === runId)
+          liveMoves = [...liveMoves.slice(-20), { at: m.at, tool: m.tool, target: m.target }]
         return
       }
       if (m.type === 'kosu-guncellendi' || m.type === 'calisma-alani') {
@@ -150,195 +443,143 @@
       if (m.runId !== runId || events.some((e) => e.seq === m.seq)) return
       events.push(m)
     })
-    timer = setInterval(() => {
-      now = Date.now()
-      const next = nextPlayhead({ shown, shownAt, following }, latest, now, MIN_STEP_MS)
-      shown = next.shown
-      shownAt = next.shownAt
-    }, 250)
+    raf = requestAnimationFrame(tick)
   })
 
   onDestroy(() => {
     unsubscribe?.()
-    clearInterval(timer)
+    cancelAnimationFrame(raf)
   })
 </script>
 
 <svelte:window onkeydown={onKeydown} />
+<svelte:document onfullscreenchange={() => (fullscreen = document.fullscreenElement === player)} />
 
-<Page
-  title={running ? 'Canlı koşu' : 'Koşu kaydı'}
-  description={current
-    ? `${current.project}/${current.application} · ${current.environment} · ${current.pages.length} sayfa`
-    : ''}
->
-  {#snippet actions()}
-    {#if current}
-      <span class="text-muted-foreground tabular text-[13px]">{elapsed} · {formatCost(current.usage)}</span>
-      <RunStatusBadge status={current.status} />
-    {/if}
-    <Button variant="outline" onclick={() => (allEvents = true)}>Tüm olaylar</Button>
-    {#if running}<Button variant="outline" onclick={stop}>Durdur</Button>{/if}
-  {/snippet}
-
-  {#if error}
-    <Alert.Root variant="destructive">
-      <Icon name="error" />
-      <Alert.Description>{error}</Alert.Description>
-    </Alert.Root>
-  {/if}
-
-  <div class="grid grid-cols-[240px_minmax(0,1fr)_300px] items-start gap-5">
-    <Panel title="Plan" flush>
-      <div class="flex flex-col py-2">
-        {#each model.pages as page (page.page)}
-          <div class="flex items-center gap-2 px-4 pt-2 pb-1">
-            <span class="min-w-0 flex-1 truncate text-[13px] font-semibold">{page.page}</span>
-            {#if page.status === 'suruyor'}<Spinner />{:else if page.status === 'bitti'}<Icon
-                name="checkCircle"
-                class="text-success size-4"
-              />{/if}
-          </div>
-          {#each page.tasks as task (task.index)}
-            {@const active = activeTask?.page === page.page && activeTask.task === task.index}
-            <button
-              type="button"
-              onclick={() => task.firstStep !== null && goTo(task.firstStep)}
-              disabled={task.firstStep === null}
-              class={cn(
-                'mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] disabled:cursor-default',
-                active ? 'bg-brand-soft text-brand-strong font-medium' : 'hover:bg-secondary',
-                task.status === 'bitti' && !active && 'text-muted-foreground',
-              )}
-            >
-              <Icon
-                name={task.status === 'bitti' ? 'checkCircle' : 'circleOutline'}
-                class={cn('size-4', task.status === 'suruyor' ? 'text-brand' : 'text-muted-foreground')}
-              />
-              <span class="min-w-0 flex-1 truncate">{task.title}</span>
-            </button>
-          {/each}
-        {/each}
-        {#if !model.pages.length}<p class="text-muted-foreground px-4 py-3 text-[13px]">
-            Plan bekleniyor.
-          </p>{/if}
-      </div>
-    </Panel>
-
-    <Card.Root class="gap-4 px-5 py-5">
-      <div class="flex items-center gap-2">
-        <span class="text-sm font-semibold">
-          {selected ? 'Bulgunun anı' : atLive ? 'Şimdi' : `Adım ${shown + 1} / ${model.steps.length}`}
-        </span>
-        {#if atLive}<Badge variant="success"
-            ><span class="size-1.5 animate-pulse rounded-full bg-current"></span>Canlı</Badge
+<!--
+  Çalışma alanı ekranı doldurur, sayfa kaymaz (Sentry Replay, PostHog, Cypress Test Replay düzeni): solda oynatıcı —
+  üst şerit (başlık, tarayıcı adresi, durum), gri tuvalde pencere gibi duran kayıt, çubuk ve şeritler altta sabit —,
+  sağda her zaman açık panel (akış ya da bulgunun ayrıntısı). Kayıt tuvale iki yönde de sığar; zaman çizelgesi laptop
+  boyutunda da kaydırmadan görünür.
+-->
+<Page class="h-[calc(100svh-56px)] max-w-none gap-3 px-3 py-3">
+  <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_clamp(300px,24vw,380px)] gap-3">
+    <div
+      bind:this={player}
+      class="bg-card flex min-h-0 flex-col overflow-hidden rounded-xl border [&:fullscreen]:rounded-none"
+    >
+      <!-- Üst şerit: sayfa başlığının yerini alır; adres "aşağısı bir tarayıcı ekranı" der. -->
+      <div class="flex h-11 shrink-0 items-center gap-2.5 border-b pr-2.5 pl-3.5">
+        <h1 class="shrink-0 text-sm font-semibold">{running ? 'Canlı koşu' : 'Koşu kaydı'}</h1>
+        <div
+          class="bg-surface-alt text-muted-foreground flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border px-2.5 font-mono text-xs"
+          title={pageUrl}
+        >
+          <Icon name="webAsset" class="size-3.5 shrink-0" /><span class="truncate">{pageUrl || '—'}</span>
+        </div>
+        {#if error}<span class="text-destructive max-w-[30%] truncate text-xs" title={error}>{error}</span
           >{/if}
-        {#if behind > 1}
-          <span class="text-muted-foreground ml-auto text-[13px]">Canlıdan {behind} adım geride</span>
-          <Button size="sm" variant="outline" onclick={backToLive}>Canlıya atla</Button>
+        <span class="text-muted-foreground/80 hidden shrink-0 font-mono text-[11px] xl:inline">1280×800</span>
+        {#if current}
+          <span class="text-muted-foreground tabular hidden shrink-0 text-[12.5px] lg:inline"
+            >{elapsed} · {formatCost(current.usage)}</span
+          >
+          <RunStatusBadge status={current.status} />
         {/if}
+        {#if running}<Button size="sm" variant="outline" onclick={stop}>Durdur</Button>{/if}
       </div>
 
-      <div class="bg-surface-alt relative aspect-[16/10] overflow-hidden rounded-lg border">
-        {#if scene}
-          <img src={scene.src} alt="Tarayıcı görüntüsü" class="size-full object-contain" />
-          {#if scene.overlay && step?.target && !selected}
-            {@const t = step.target}
-            <div
-              class="border-brand pointer-events-none absolute rounded-[3px] border-2 border-dashed"
-              style={`left:${t.x * 100}%;top:${t.y * 100}%;width:${t.width * 100}%;height:${t.height * 100}%`}
-            ></div>
-            <div
-              class="pointer-events-none absolute"
-              style={`left:${(t.x + t.width / 2) * 100}%;top:${(t.y + t.height / 2) * 100}%`}
-            >
-              <span class="border-brand absolute -top-3 -left-3 size-6 animate-ping rounded-full border-2"
-              ></span>
-              <Icon name="cursor" class="text-foreground size-6 drop-shadow-[0_1px_1px_rgb(255_255_255)]" />
-            </div>
-          {/if}
-        {:else}
-          <div class="text-muted-foreground grid size-full place-items-center text-sm">
-            {running ? 'Görüntü bekleniyor' : 'Bu adımın görüntüsü yok'}
-          </div>
-        {/if}
+      <!-- Gri tuval: kayıt bir pencere gibi ortada, iki yönde de sığar. -->
+      <div
+        class="grid min-h-0 flex-1 place-items-center bg-[#e8e9ec] bg-[radial-gradient(#d6d8de_1px,transparent_1px)] [background-size:14px_14px] p-3 [container-type:size]"
+      >
+        <Stage
+          {src}
+          {prefetch}
+          {pointer}
+          {zoom}
+          {dialog}
+          status={waiting}
+          chip={fallback && ready ? 'Adım görüntüleri · sürekli kayıt yok' : null}
+          ontoggle={togglePlay}
+          onseekby={seekBy}
+          finding={findingOverlay}
+          paused={ready && !playing && !following && model.steps.length > 0}
+          {ending}
+          placeholder={!ready ? 'Yükleniyor' : running ? 'Görüntü bekleniyor' : 'Bu koşunun kaydı yok'}
+          onrestart={() => seekPlay(0, true)}
+        />
       </div>
 
-      {#if selected}
-        <div class="grid gap-1">
-          <div class="flex items-center gap-2">
-            <Badge variant={KIND_BADGE[selected.event.kind]}>{KIND[selected.event.kind].label}</Badge>
-            <span class="text-sm font-medium">{selected.event.title}</span>
-          </div>
-          {#if selected.event.reason}<p class="text-muted-foreground text-[13px]">
-              {selected.event.reason}
-            </p>{/if}
-        </div>
-      {:else if step}
-        <div class="grid gap-1">
-          <div class="flex items-center gap-2">
-            <Badge variant="brand">{TOOL_LABEL[step.tool] ?? step.tool}</Badge>
-            <span class="truncate text-sm font-medium">{step.outcome}</span>
-          </div>
-          {#if step.reason}<p class="text-muted-foreground text-[13px]">Neden: {step.reason}</p>{/if}
-        </div>
+      <div class="shrink-0">
+        <PlayerBar
+          {playing}
+          {position}
+          duration={clock.duration}
+          action={barAction}
+          {running}
+          live={atLive}
+          {speed}
+          zoomed={autoZoom}
+          {fullscreen}
+          {copied}
+          onplay={togglePlay}
+          onseekby={seekBy}
+          onlive={goLive}
+          onspeed={(value) => (speed = value)}
+          onzoom={() => (autoZoom = !autoZoom)}
+          oncopy={copyLink}
+          onfullscreen={toggleFullscreen}
+        />
+      </div>
+      <div class="shrink-0 border-t">
+        <Tracks
+          {lanes}
+          duration={clock.duration}
+          {position}
+          live={atLive}
+          gaps={clock.gaps}
+          activeStep={stepIndex}
+          selectedFinding={selected}
+          pending={pendingNow ? clock.toPlay(pendingNow.at) : null}
+          loading={running && !planned}
+          {describe}
+          onseek={(value) => seekPlay(value)}
+          onfinding={openFinding}
+        />
+      </div>
+    </div>
+
+    <Card.Root class="flex min-h-0 flex-col gap-0 overflow-hidden py-0">
+      {#if selected !== null && model.findings[selected]}
+        <FindingDetail
+          {runId}
+          finding={model.findings[selected]!}
+          {occurrence}
+          failed={detailFailed}
+          onback={() => (selected = null)}
+        />
       {:else}
-        <p class="text-muted-foreground text-[13px]">
-          {running ? 'Sayfa açılıyor, ilk adım bekleniyor.' : 'Bu koşuda adım yok.'}
-        </p>
-      {/if}
-
-      {#if model.steps.length}
-        <div class="grid gap-2">
-          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="relative h-5 cursor-pointer" onclick={onBarClick}>
-            <div class="bg-border absolute inset-x-0 top-2 h-1 rounded-full"></div>
-            <div
-              class="bg-brand absolute top-2 left-0 h-1 rounded-full"
-              style={`width:${stepPercent(shown, model.steps.length)}%`}
-            ></div>
-            {#each model.findings as finding (finding.event.seq)}
-              <button
-                type="button"
-                title={finding.event.title}
-                aria-label={`Bulgu: ${finding.event.title}`}
-                onclick={(e) => {
-                  e.stopPropagation()
-                  openFinding(finding)
-                }}
-                class={cn(
-                  'absolute top-0.5 size-4 -translate-x-1/2 rounded-full border-2 border-white',
-                  KIND_PIN[finding.event.kind],
-                )}
-                style={`left:${stepPercent(finding.step, model.steps.length)}%`}
-              ></button>
-            {/each}
-          </div>
-          <div class="flex items-center gap-2">
-            <Button size="icon-sm" variant="outline" aria-label="Önceki adım" onclick={() => goTo(shown - 1)}>
-              <Icon name="chevronLeft" />
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="outline"
-              aria-label="Sonraki adım"
-              onclick={() => goTo(shown + 1)}
-            >
-              <Icon name="chevronRight" />
-            </Button>
-            <span class="text-muted-foreground tabular text-[13px]"
-              >{shown + 1} / {model.steps.length} adım</span
-            >
-            {#if running && !following}
-              <Button size="sm" class="ml-auto" onclick={backToLive}>Canlıya dön</Button>
-            {/if}
-          </div>
+        <div class="flex h-11 shrink-0 items-center gap-2 border-b px-4">
+          <h2 class="text-sm font-semibold">Akış</h2>
+          <span class="text-muted-foreground text-xs"
+            >{model.steps.length} adım · {model.findings.length} bulgu</span
+          >
         </div>
+        <FlowList
+          {model}
+          {sections}
+          {wall}
+          activeStep={stepIndex}
+          selectedFinding={selected}
+          offset={(at) => clock.toPlay(at)}
+          onstep={onFlowStep}
+          ontask={onFlowTask}
+          onfinding={openFinding}
+        />
       {/if}
-
       {#if running}
         <form
-          class="flex gap-2"
+          class="flex shrink-0 gap-2 border-t p-3"
           onsubmit={(e) => {
             e.preventDefault()
             void steer()
@@ -349,49 +590,5 @@
         </form>
       {/if}
     </Card.Root>
-
-    <Panel title={`Bulgular · ${model.findings.length}`} flush>
-      <div class="flex flex-col gap-2 p-3">
-        {#each model.findings as finding (finding.event.seq)}
-          <button
-            type="button"
-            onclick={() => openFinding(finding)}
-            class={cn(
-              'grid gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors',
-              selected?.event.seq === finding.event.seq
-                ? 'border-brand-border bg-brand-soft'
-                : 'hover:bg-secondary',
-            )}
-          >
-            <span class="flex items-center gap-1.5">
-              <Badge variant={KIND_BADGE[finding.event.kind]}>{KIND[finding.event.kind].label}</Badge>
-              <span class="text-muted-foreground text-xs">{OUTCOME[finding.event.outcome].label}</span>
-            </span>
-            <span class="text-[13px] leading-[18px]">{finding.event.title}</span>
-          </button>
-        {/each}
-        {#if !model.findings.length}
-          <p class="text-muted-foreground px-1 py-2 text-[13px]">
-            {running ? 'Henüz bulgu yok.' : 'Bu koşuda bulgu yok.'}
-          </p>
-        {/if}
-        {#if selected}
-          <a class="text-brand px-1 pt-1 text-[13px]" href={`#/bulgular/${selected.event.issueId}`}
-            >Bulgu kaydını aç</a
-          >
-        {/if}
-      </div>
-    </Panel>
   </div>
 </Page>
-
-<Modal
-  bind:open={allEvents}
-  title="Tüm olaylar"
-  description="Koşunun ham akışı: araştırma, ağ istekleri, maliyet ve ayrıntılar."
-  size="lg"
->
-  <div class="legacy grid gap-2">
-    {#each events as event (event.seq)}<EventCard {event} />{/each}
-  </div>
-</Modal>

@@ -119,4 +119,4 @@ export const JUDGE_TASK = `YARGIÇ GÖREVİ: Gezgin aşağıdaki aday bulguyu bi
 - anahtar: kök neden; bilinen bir sorunun aynısıysa onun anahtarı, değilse küçük harf ve tireyle yeni anahtar.
 - baslik: kısa ve somut; gerekirse gezginin başlığını düzelt.
 - gerekce: tek cümle.
-Ekranın ağacı ve görüntüsü aday bildirildiği andaki hâlidir.`
+Ekranın ağacı ve görüntüsü aday bildirildiği andaki hâlidir. Son adımlarda tarayıcı penceresi (onay, çıkış onayı) açıldıysa düğme tepki vermiştir; "tepkisiz" adayı reddet.`

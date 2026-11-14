@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFile } from 'node:fs'
 import { join } from 'node:path'
 import { moduleOf, type AppRef, type RunInfo, type RunOptions, type Settings } from '@argus/shared'
 import { PageController } from '../agent/page-controller.ts'
@@ -124,6 +124,13 @@ export class RunManager {
     const runDir = join(this.deps.dataDir, 'runs', run.id)
     mkdirSync(runDir, { recursive: true })
     const counters = { adim: 0, kanit: 0 }
+    // Kayıt (kayıttan izleme): ekran yayınının kareleri `kare/<an>.jpg`; giriş ve kimlik kurulurken yazılmaz.
+    const frameDir = join(runDir, 'kare')
+    let recording = false
+    const onFrame = (data: string, at: number) => {
+      bus.frame(run.id, data, at)
+      if (recording) writeFile(join(frameDir, `${at}.jpg`), Buffer.from(data, 'base64'), () => undefined)
+    }
     let lastUsageSave = 0
     let session: BrowserSession | null = null
     // Süper giriş açıldıysa koşu sonunda (hata olsa da) kapatılır.
@@ -164,7 +171,7 @@ export class RunManager {
         origin,
         accessToken: token,
         headless: this.deps.headless ?? true,
-        onFrame: (data) => bus.frame(run.id, data),
+        onFrame,
         ...(stateFile ? { storageState: stateFile } : {}),
       })
       const signIn = await session.signIn(urlOf(run.pages[0]!), appUser).catch((error: unknown) => {
@@ -197,6 +204,8 @@ export class RunManager {
       session.drainNetwork()
       session.drainProblems()
       session.drainBlocked()
+      mkdirSync(frameDir, { recursive: true })
+      recording = true
       const synced = issues.syncFromMemory(app)
       if (synced)
         bus.publish(run.id, null, { type: 'bilgi', message: `Takımın ${synced} kararı hafızadan okundu.` })
@@ -244,6 +253,7 @@ export class RunManager {
           },
           hooks: {
             emit: (body) => bus.publish(run.id, page, body),
+            pointer: (tool, target, at) => bus.pointer(run.id, tool, target, at),
             record: (draft) => {
               const result = issues.record({ ...draft, app, runId: run.id, page })
               const cited = [...draft.rules, ...(draft.suppressedByRule ? [draft.suppressedByRule] : [])]

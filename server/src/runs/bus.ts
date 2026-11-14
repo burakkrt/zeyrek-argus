@@ -1,11 +1,18 @@
 import { EventEmitter } from 'node:events'
-import type { RunEvent, RunEventBody, RunInfo, StreamMessage, WorkspaceState } from '@argus/shared'
+import type {
+  RunEvent,
+  RunEventBody,
+  RunInfo,
+  StepTarget,
+  StreamMessage,
+  WorkspaceState,
+} from '@argus/shared'
 import type { Database } from '../db/database.ts'
 import { appendEvent, lastEventSeq } from '../db/runs.ts'
 
 /**
- * Olay yolu: koşunun her adımı saklanır (tekrar izleme için) ve arayüze SSE ile akar. Canlı tarayıcı kareleri
- * saklanmaz, yalnız akar.
+ * Olay yolu: koşunun her adımı saklanır (tekrar izleme için) ve arayüze SSE ile akar. Canlı tarayıcı kareleri ve
+ * imleç burada saklanmaz, yalnız akar (kareleri koşu klasörüne yöneticinin kendisi yazar).
  */
 export class EventBus {
   private readonly emitter = new EventEmitter()
@@ -23,8 +30,12 @@ export class EventBus {
     return event
   }
 
-  frame(runId: string, data: string): void {
-    this.emitter.emit('message', { type: 'kare', runId, data } satisfies StreamMessage)
+  frame(runId: string, data: string, at: number): void {
+    this.emitter.emit('message', { type: 'kare', runId, data, at } satisfies StreamMessage)
+  }
+
+  pointer(runId: string, tool: string, target: StepTarget, at: number): void {
+    this.emitter.emit('message', { type: 'imlec', runId, tool, target, at } satisfies StreamMessage)
   }
 
   runUpdated(run: RunInfo): void {

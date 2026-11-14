@@ -160,6 +160,10 @@ export type RunEventBody =
       /** Monitör karesi (yalnız diske; modele gitmez). Etkileşimde işlemden önce, diğerlerinde sonra alınır. */
       shot: string | null
       target: StepTarget | null
+      /** İşlemin yapıldığı an (epoch ms): kayıttan izlemede imleç bu ana varır, tıklama halkası burada çıkar. */
+      actAt?: number
+      /** Adımda açılan tarayıcı penceresinin metni (onay, uyarı); kontrolcü iptal etti. */
+      dialog?: string
     }
   | { type: 'ag'; requests: NetworkEntry[] }
   | {
@@ -181,16 +185,28 @@ export type RunEventBody =
 
 export type RunEvent = RunEventBody & { runId: string; seq: number; at: string; page: string | null }
 
-/** Canlı tarayıcı karesi; saklanmaz. */
+/** Canlı tarayıcı karesi (base64 JPEG); aynısı koşu klasörüne `kare/<at>.jpg` olarak da yazılır. */
 export interface LiveFrame {
   type: 'kare'
   runId: string
   data: string
+  /** Karenin alındığı an (epoch ms). */
+  at: number
+}
+
+/** Canlı imleç: işlemden hemen önce hedef öğe; saklanmaz (kayıtta adımın `actAt` + `target`'ı aynı işi görür). */
+export interface PointerIntent {
+  type: 'imlec'
+  runId: string
+  tool: string
+  target: StepTarget
+  at: number
 }
 
 export type StreamMessage =
   | RunEvent
   | LiveFrame
+  | PointerIntent
   | { type: 'kosu-guncellendi'; run: RunInfo }
   | { type: 'calisma-alani'; state: WorkspaceState }
 

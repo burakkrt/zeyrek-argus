@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { listEvents } from '../src/db/runs.ts'
@@ -10,13 +10,19 @@ const app = { project: 'qm', application: 'web' }
 
 const script: Script = {
   plan: (prompt) =>
-    prompt.includes('Sayfa: egt-liste')
-      ? {
-          ozet: 'Eğitim listesi',
-          gorevler: [{ baslik: 'Satır işlemleri ve pencere', amac: 'Düğmeleri ve ayrıntı penceresini dene' }],
-        }
-      : { ozet: 'Basit sayfa', gorevler: [{ baslik: 'Kısa bakış', amac: 'Bak ve bitir' }] },
+    prompt.includes('Sayfa: egt-form')
+      ? { ozet: 'Form', gorevler: [{ baslik: 'Vazgeç', amac: 'Vazgeç düğmesini dene' }] }
+      : prompt.includes('Sayfa: egt-liste')
+        ? {
+            ozet: 'Eğitim listesi',
+            gorevler: [
+              { baslik: 'Satır işlemleri ve pencere', amac: 'Düğmeleri ve ayrıntı penceresini dene' },
+            ],
+          }
+        : { ozet: 'Basit sayfa', gorevler: [{ baslik: 'Kısa bakış', amac: 'Bak ve bitir' }] },
   task: (conversation, task, turn) => {
+    if (task === 'Vazgeç' && turn === 1)
+      return { name: 'tikla', input: { ref: refOf(conversation, 'Vazgeç'), neden: 'Vazgeç ne yapıyor' } }
     if (task !== 'Satır işlemleri ve pencere') return { name: 'gorevi_bitir', input: { ozet: 'Bakıldı.' } }
     switch (turn) {
       case 1:
@@ -278,6 +284,36 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
     expect(events.some((e) => e.type === 'sayfa-bitti')).toBe(true)
     expect(events.some((e) => e.type === 'plan' || e.type === 'bulgu')).toBe(false)
     expect(h.calls.length).toBe(callsBefore)
+  })
+
+  it('tarayıcı onay penceresi modele ve akışa söylenir (düğme "tepkisiz" sanılmaz); koşu kare kare kaydedilir', async () => {
+    overrides.set(
+      'egt-form',
+      `<!doctype html><html lang="tr"><body><h1>Yeni gösterge</h1><input placeholder="Ad"><button id="v">Vazgeç</button>
+      <script>document.getElementById('v').onclick = () => {
+        if (confirm('Kaydedilmemiş değişiklikler var. Çıkılsın mı?')) location.href = 'egt-temiz'
+      }</script></body></html>`,
+    )
+    const run = await h.waitFor(
+      h.ctx.runs.create({ ...app, environment: 'development', pages: ['egt-form'] }).id,
+    )
+    expect(run.status).toBe('bitti')
+    const events = listEvents(h.ctx.db, run.id)
+    const click = events.find((e) => e.type === 'adim' && e.outcome.startsWith('Tıklandı: "Vazgeç"'))
+    if (click?.type !== 'adim') throw new Error('Vazgeç tıklaması akışta yok')
+    expect(click.outcome).toContain('onay penceresi ("Kaydedilmemiş değişiklikler var. Çıkılsın mı?")')
+    // Model aynı notu tıklamanın sonucunda okur; iptal edildiği için sayfada kalınır.
+    const after = h.calls.find(
+      (c) => c.tools && JSON.stringify(c.messages.at(-1)).includes('Tıklandı: \\"Vazgeç\\"'),
+    )!
+    expect(JSON.stringify(after.messages.at(-1))).toContain('Tarayıcı penceresi açıldı')
+    expect(JSON.stringify(after.messages.at(-1))).toContain('/dev/qm/web/egt-form')
+    // İşlem anı kayıtla hizalı: tıklama, adım olayından önce yapıldı.
+    expect(click.actAt).toBeLessThanOrEqual(Date.parse(click.at))
+    // Kayıt: ekran yayınının kareleri koşu klasöründe, adlarında alındıkları an.
+    const frames = readdirSync(join(h.ctx.config.dataDir, 'runs', run.id, 'kare'))
+    expect(frames.length).toBeGreaterThan(0)
+    expect(frames.every((f) => /^\d{13}\.jpg$/.test(f))).toBe(true)
   })
 
   it('uygulama oturumu saklanır: ikinci koşu yeniden giriş yapmaz, kullanıcı değişince yeniden girilir', async () => {
