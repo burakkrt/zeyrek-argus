@@ -9,7 +9,6 @@
 	}: CommandPrimitive.LinkItemProps = $props();
 </script>
 
-
 <CommandPrimitive.LinkItem
 	bind:ref
 	data-slot="command-item"

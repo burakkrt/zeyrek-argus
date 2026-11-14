@@ -1,4 +1,4 @@
-import type { RunEvent, RunEventBody, RunInfo, RunOptions, RunStatus, Usage } from '@argus/shared'
+import type { RunEvent, RunEventBody, RunInfo, RunOptions, RunStatus, Usage, Workspace } from '@argus/shared'
 import { json, newId, now, type Database } from './database.ts'
 
 export const EMPTY_USAGE: Usage = {
@@ -81,11 +81,26 @@ export function getRun(db: Database, id: string): RunInfo | null {
   return row ? toInfo(db, row) : null
 }
 
-export function listRuns(db: Database, limit = 100): RunInfo[] {
-  const rows = db
-    .prepare('select * from runs order by created_at desc limit ?')
-    .all(limit) as unknown as RunRow[]
+/** Koşular, yeniden eskiye. Çalışma alanı verilirse yalnız o proje · uygulama · dalınkiler. */
+export function listRuns(db: Database, limit = 100, workspace?: Workspace): RunInfo[] {
+  const rows = (workspace
+    ? db
+        .prepare(
+          'select * from runs where project = ? and application = ? and environment = ? order by created_at desc limit ?',
+        )
+        .all(workspace.project, workspace.application, workspace.environment, limit)
+    : db.prepare('select * from runs order by created_at desc limit ?').all(limit)) as unknown as RunRow[]
   return rows.map((row) => toInfo(db, row))
+}
+
+/** Son koşuların farklı çalışma alanları, yeniden eskiye (açılışta çalışma alanı tahmini için). */
+export function recentWorkspaces(db: Database, limit = 10): Workspace[] {
+  return db
+    .prepare(
+      `select project, application, environment from runs group by project, application, environment
+       order by max(created_at) desc limit ?`,
+    )
+    .all(limit) as unknown as Workspace[]
 }
 
 export function nextQueuedRun(db: Database): RunInfo | null {

@@ -12,6 +12,9 @@
 <CommandPrimitive.List
 	bind:ref
 	data-slot="command-list"
-	class={cn("no-scrollbar max-h-72 scroll-py-1 outline-none overflow-x-hidden overflow-y-auto", className)}
+	class={cn(
+		"scroll-thin max-h-72 scroll-py-1 py-1 pr-1 pl-2.5 outline-none overflow-x-hidden overflow-y-auto",
+		className
+	)}
 	{...restProps}
 />

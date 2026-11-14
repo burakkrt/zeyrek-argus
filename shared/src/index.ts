@@ -24,6 +24,23 @@ export interface AppRef {
   application: string
 }
 
+/**
+ * Çalışma alanı: arayüzün odaklandığı tek proje · uygulama · dal (ortam adı). Sunucuda saklanır; bütün sayfalar
+ * buna göre süzülür.
+ */
+export interface Workspace extends AppRef {
+  environment: string
+}
+
+export interface WorkspaceState {
+  /** null: hiçbir yoldan çıkarılamadı, kullanıcı bir kez seçmeli. */
+  workspace: Workspace | null
+  /** Görünen adlar (katalogdan; platforma ulaşılamazsa kısa adlar). */
+  labels: { project: string; application: string } | null
+  /** Kayıtlı seçim geçersiz kalıp başka seçime geçildiyse kullanıcıya söylenecek cümle. */
+  notice: string | null
+}
+
 export interface Rule {
   id: string
   scope: RuleScope
@@ -153,7 +170,11 @@ export interface LiveFrame {
   data: string
 }
 
-export type StreamMessage = RunEvent | LiveFrame | { type: 'kosu-guncellendi'; run: RunInfo }
+export type StreamMessage =
+  | RunEvent
+  | LiveFrame
+  | { type: 'kosu-guncellendi'; run: RunInfo }
+  | { type: 'calisma-alani'; state: WorkspaceState }
 
 export interface CatalogProject {
   id: string

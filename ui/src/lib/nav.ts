@@ -25,11 +25,15 @@ export interface NavGroup {
   entries: NavEntry[]
 }
 
+export const HOME = 'genel'
+export const HOME_LABEL = 'Ana sayfa'
+export const APP_NAME = 'Zeyrek Argus'
+
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Kalite kontrol',
     entries: [
-      { path: 'genel', label: 'Genel bakış', icon: 'squaresFour' },
+      { path: 'genel', label: HOME_LABEL, icon: 'squaresFour' },
       {
         label: 'Koşular',
         icon: 'playCircle',
@@ -51,9 +55,6 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-export const HOME = 'genel'
-export const APP_NAME = 'Zeyrek Argus'
-
 /** Menüde olmayan sayfalar (bir kayıttan açılanlar) ve bağlı oldukları modül. */
 const OTHER: Record<string, { label: string; module: string }> = {
   monitor: { label: 'Canlı koşu', module: 'Koşular' },
@@ -70,17 +71,18 @@ export function locate(
     const child = entry.children?.find((c) => c.path === path)
     if (child) return { module: entry.label, label: child.label }
   }
-  return { label: 'Genel bakış' }
+  return { label: HOME_LABEL }
 }
 
-/** İz: uygulama › modül › sayfa. */
+/** İz her zaman ana sayfadan başlar: Ana sayfa › modül › sayfa (ana sayfada yalnız kendisi). */
 export function crumbsFor(path: string | undefined): string[] {
   const place = locate(path)
-  return [APP_NAME, ...(place.module ? [place.module] : []), place.label]
+  if (!place.module && place.label === HOME_LABEL) return [HOME_LABEL]
+  return [HOME_LABEL, ...(place.module ? [place.module] : []), place.label]
 }
 
-/** Tarayıcı sekmesinin başlığı: "Sayfa · Zeyrek Argus". */
-export const documentTitle = (path: string | undefined) => `${locate(path).label} · ${APP_NAME}`
+/** Tarayıcı sekmesinin başlığı, tek biçim: "Sayfa | Zeyrek Argus". */
+export const documentTitle = (path: string | undefined) => `${locate(path).label} | ${APP_NAME}`
 
 /**
  * Menü araması: modül adı eşleşirse bütün alt sayfalarıyla, değilse yalnız eşleşen alt sayfalarıyla kalır; boş kalan

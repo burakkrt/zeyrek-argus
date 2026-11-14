@@ -1,4 +1,4 @@
-import type { AppRef, AppUserSetting, Settings } from '@argus/shared'
+import type { AppRef, AppUserSetting, Settings, Workspace } from '@argus/shared'
 import { json, type Database } from './database.ts'
 
 /**
@@ -44,6 +44,22 @@ export function saveSettings(db: Database, patch: Partial<Settings>): Settings {
     `insert into settings (key, value) values ('settings', ?) on conflict(key) do update set value = excluded.value`,
   ).run(JSON.stringify(next))
   return next
+}
+
+/** Kullanıcının son seçtiği çalışma alanı (proje · uygulama · dal). */
+export function getSavedWorkspace(db: Database): Workspace | null {
+  const row = db.prepare(`select value from settings where key = 'workspace'`).get() as
+    { value: string } | undefined
+  const saved = json<Partial<Workspace>>(row?.value, {})
+  return saved.project && saved.application && saved.environment
+    ? { project: saved.project, application: saved.application, environment: saved.environment }
+    : null
+}
+
+export function saveWorkspace(db: Database, workspace: Workspace): void {
+  db.prepare(
+    `insert into settings (key, value) values ('workspace', ?) on conflict(key) do update set value = excluded.value`,
+  ).run(JSON.stringify(workspace))
 }
 
 /** Uygulamanın kendi kullanıcısı (kompleks projede giriş ekranı için). Yalnız bu makinede, Git'e girmez. */

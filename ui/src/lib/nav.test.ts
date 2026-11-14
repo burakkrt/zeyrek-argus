@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { crumbsFor, documentTitle, filterNav, locate, type NavGroup } from './nav'
 
 const groups: NavGroup[] = [
-  { entries: [{ path: 'genel', label: 'Genel bakış', icon: 'squaresFour' }] },
+  { entries: [{ path: 'genel', label: 'Ana sayfa', icon: 'squaresFour' }] },
   {
     label: 'Kalite kontrol',
     entries: [
@@ -22,15 +22,20 @@ const groups: NavGroup[] = [
 describe('menü ağacı', () => {
   it('alt sayfanın modülünü, üst sayfanın yalnız adını verir; bilinmeyen sayfa ana sayfadır', () => {
     expect(locate('kosular', groups)).toEqual({ module: 'Koşular', label: 'Koşu geçmişi' })
-    expect(locate('genel', groups)).toEqual({ label: 'Genel bakış' })
-    expect(locate('yok', groups)).toEqual({ label: 'Genel bakış' })
+    expect(locate('genel', groups)).toEqual({ label: 'Ana sayfa' })
+    expect(locate('yok', groups)).toEqual({ label: 'Ana sayfa' })
   })
 
-  it('iz modülü araya koyar, kayıttan açılan sayfa da modülüne bağlanır', () => {
-    expect(crumbsFor('baslat')).toEqual(['Zeyrek Argus', 'Koşular', 'Yeni koşu'])
-    expect(crumbsFor('bulgular')).toEqual(['Zeyrek Argus', 'Bulgular'])
-    expect(crumbsFor('monitor')).toEqual(['Zeyrek Argus', 'Koşular', 'Canlı koşu'])
-    expect(documentTitle('kosular')).toBe('Koşu geçmişi · Zeyrek Argus')
+  it('iz ana sayfadan başlar, modülü araya koyar; kayıttan açılan sayfa da modülüne bağlanır', () => {
+    expect(crumbsFor('genel')).toEqual(['Ana sayfa'])
+    expect(crumbsFor('baslat')).toEqual(['Ana sayfa', 'Koşular', 'Yeni koşu'])
+    expect(crumbsFor('bulgular')).toEqual(['Ana sayfa', 'Bulgular'])
+    expect(crumbsFor('monitor')).toEqual(['Ana sayfa', 'Koşular', 'Canlı koşu'])
+  })
+
+  it('sekme başlığı tek biçimdedir: "Sayfa | Zeyrek Argus"', () => {
+    expect(documentTitle('kosular')).toBe('Koşu geçmişi | Zeyrek Argus')
+    expect(documentTitle(undefined)).toBe('Ana sayfa | Zeyrek Argus')
   })
 
   it('arama alt sayfayı modülüyle birlikte bırakır, boş grubu düşürür', () => {

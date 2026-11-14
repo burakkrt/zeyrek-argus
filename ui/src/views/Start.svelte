@@ -1,25 +1,15 @@
 <script lang="ts">
-  import type {
-    CatalogApplication,
-    CatalogEnvironment,
-    CatalogProject,
-    PageGroup,
-    RunInfo,
-    Settings,
-  } from '@argus/shared'
+  import type { PageGroup, RunInfo, Settings } from '@argus/shared'
   import { onMount } from 'svelte'
   import Page from '$lib/components/layout/Page.svelte'
+  import { workspace } from '$lib/workspace.svelte'
   import { api, post, qs } from '../lib/api'
   import { go } from '../lib/router.svelte'
 
+  // Koşu çalışma alanında açılır (proje · uygulama · dal menünün üstünde seçilir); burada yalnız sayfalar ve sınırlar.
   const SAVED = 'argus.baslat'
-  let projects = $state<CatalogProject[]>([])
-  let applications = $state<CatalogApplication[]>([])
-  let environments = $state<CatalogEnvironment[]>([])
+  const target = workspace.current!
   let groups = $state<PageGroup[]>([])
-  let project = $state('')
-  let application = $state('')
-  let environment = $state('development')
   let selected = $state<string[]>([])
   let filter = $state('')
   let maxTasks = $state(5)
@@ -47,7 +37,7 @@
 
   function remember() {
     try {
-      localStorage.setItem(SAVED, JSON.stringify({ project, application, environment, maxTasks, maxSteps }))
+      localStorage.setItem(SAVED, JSON.stringify({ maxTasks, maxSteps }))
     } catch {
       /* tarayıcı depolaması kapalıysa hatırlamaz */
     }
@@ -66,44 +56,6 @@
     }
   }
 
-  async function loadProjects() {
-    projects =
-      (await guard('Projeler MCP’den okunuyor…', () => api<CatalogProject[]>('/katalog/projeler'))) ?? []
-  }
-
-  async function pickProject(value: string) {
-    project = value
-    applications = []
-    environments = []
-    groups = []
-    selected = []
-    if (!value) return
-    const [apps, envs] = (await guard('Uygulamalar ve dallar okunuyor…', () =>
-      Promise.all([
-        api<CatalogApplication[]>(`/katalog/uygulamalar${qs({ proje: value })}`),
-        api<CatalogEnvironment[]>(`/katalog/ortamlar${qs({ proje: value })}`),
-      ]),
-    )) ?? [[], []]
-    applications = apps
-    environments = envs
-    if (!apps.some((a) => a.slug === application)) application = apps[0]?.slug ?? ''
-    if (!envs.some((e) => e.name === environment)) environment = 'development'
-    remember()
-    await loadPages()
-  }
-
-  async function loadPages() {
-    selected = []
-    if (!project || !application || !environment) return
-    groups =
-      (await guard('Sayfalar okunuyor…', () =>
-        api<PageGroup[]>(
-          `/katalog/sayfalar${qs({ proje: project, uygulama: application, ortam: environment })}`,
-        ),
-      )) ?? []
-    remember()
-  }
-
   function toggle(slugs: string[], on: boolean) {
     selected = on ? [...new Set([...selected, ...slugs])] : selected.filter((s) => !slugs.includes(s))
   }
@@ -113,9 +65,9 @@
     remember()
     const run = await guard('Koşu sıraya yazılıyor…', () =>
       post<RunInfo>('/kosular', {
-        proje: project,
-        uygulama: application,
-        ortam: environment,
+        proje: target.project,
+        uygulama: target.application,
+        ortam: target.environment,
         sayfalar: selected,
         secenekler: { maxTasks, maxSteps },
       }),
@@ -125,56 +77,37 @@
   }
 
   onMount(async () => {
+    let saved: Record<string, unknown> = {}
     try {
-      const saved = JSON.parse(localStorage.getItem(SAVED) ?? '{}') as Record<string, unknown>
-      if (typeof saved.application === 'string') application = saved.application
-      if (typeof saved.environment === 'string') environment = saved.environment
-      if (typeof saved.maxTasks === 'number') maxTasks = saved.maxTasks
-      if (typeof saved.maxSteps === 'number') maxSteps = saved.maxSteps
-      const { settings } = await api<{ settings: Settings }>('/ayarlar')
-      if (typeof saved.maxTasks !== 'number') maxTasks = settings.defaultOptions.maxTasks
-      if (typeof saved.maxSteps !== 'number') maxSteps = settings.defaultOptions.maxSteps
-      await loadProjects()
-      if (typeof saved.project === 'string' && projects.some((p) => p.slug === saved.project))
-        await pickProject(saved.project)
+      saved = JSON.parse(localStorage.getItem(SAVED) ?? '{}') as Record<string, unknown>
     } catch {
-      await loadProjects()
+      /* tarayıcı depolaması kapalı */
     }
+    const [settings, pages] = await Promise.all([
+      api<{ settings: Settings }>('/ayarlar').catch(() => null),
+      guard('Sayfalar okunuyor…', () =>
+        api<PageGroup[]>(
+          `/katalog/sayfalar${qs({ proje: target.project, uygulama: target.application, ortam: target.environment })}`,
+        ),
+      ),
+    ])
+    maxTasks =
+      typeof saved.maxTasks === 'number' ? saved.maxTasks : (settings?.settings.defaultOptions.maxTasks ?? 5)
+    maxSteps =
+      typeof saved.maxSteps === 'number' ? saved.maxSteps : (settings?.settings.defaultOptions.maxSteps ?? 10)
+    groups = pages ?? []
   })
 </script>
 
 <Page
   title="Yeni koşu"
-  description="Uygulamayı, ortamı (dalı) ve sayfaları seç; kontrolcü sayfaları gezsin, sen monitörden izle"
+  description="Sayfaları seç; kontrolcü çalışma alanındaki uygulamanın bu dalında gezsin, sen monitörden izle"
 >
   <div class="legacy">
     {#if error}<p class="error">{error}</p>{/if}
 
     <div class="grid">
       <section class="card stack">
-        <label class="field">
-          Proje
-          <select value={project} onchange={(e) => pickProject((e.target as HTMLSelectElement).value)}>
-            <option value="">Seç…</option>
-            {#each projects as p (p.id)}<option value={p.slug}>{p.name} ({p.slug})</option>{/each}
-          </select>
-        </label>
-        <label class="field">
-          Uygulama
-          <select bind:value={application} onchange={loadPages} disabled={!applications.length}>
-            {#each applications as a (a.id)}<option value={a.slug}>{a.name} ({a.slug})</option>{/each}
-          </select>
-        </label>
-        <label class="field">
-          Ortam / dal
-          <select bind:value={environment} onchange={loadPages} disabled={!environments.length}>
-            {#each environments as env (env.name)}
-              <option value={env.name} disabled={env.state !== 'ready'}
-                >{env.name}{env.state !== 'ready' ? ` (${env.state})` : ''}</option
-              >
-            {/each}
-          </select>
-        </label>
         <div class="row">
           <label class="field"
             >Sayfa başına görev<input type="number" min="1" max="12" bind:value={maxTasks} /></label
@@ -203,8 +136,8 @@
           <span class="spacer"></span>
           <input placeholder="Sayfa ara…" bind:value={filter} />
         </div>
-        {#if !groups.length}
-          <p class="muted">Sayfaları görmek için proje, uygulama ve ortam seç.</p>
+        {#if !groups.length && !error}
+          <p class="muted">Bu dalda sayfa bulunamadı.</p>
         {/if}
         {#each visibleGroups as group (group.key)}
           {@const slugs = group.pages.map((p) => p.slug)}

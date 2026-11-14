@@ -64,13 +64,28 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
   48×44 ortalı, ikon 22.5, modül yana açılan panelde, grup başlığı yerine ayraç. Menü ağacı `nav.ts`. Üst çubuk 56 px
   yapışkan (iz 14 px ikincil renk "/" ayraçlı; sağda 36 px Ctrl+K arama). `Page`: üst çubuğun altında yapışkan 68 px
   başlık şeridi (başlık 22/600/28, açıklama 12.5/18 ikincil, sağda eylemler) ve içerik kapsayıcısı (en çok 1480 px,
-  28/24 px dolgu, bölüm aralığı 20 px). Sayfa değişince içerik, açılış okuma istekleri bitene kadar gizlenir ve ortada
-  spinner döner (`page-load.ts`; platformun sayfa kabı yükleniyor hâli). Sayfa kendi iskeletini ya da yükleniyor yazısını
-  çizmez. İçerik `Grid` içinde `StatCard` / `Panel`; boş durum
-  `EmptyState` (kesik çizgili kutu). Menü, iz, komut paleti ve sekme başlığı `ui/src/lib/nav.ts`'ten okunur. Sayfa kendi
+  28/24 px dolgu, bölüm aralığı 20 px). Sayfa değişince içerik, açılış okuma istekleri bitene kadar gizlenir ve içerik
+  alanının görünen kısmının ortasında spinner döner (`page-load.ts`; platformun sayfa kabı yükleniyor hâli). Sayfa
+  kendi yükleniyor yazısını çizmez. İçerik `Grid` içinde `StatCard` / `Panel`; boş durum
+  `EmptyState` (kesik çizgili kutu). Menü, iz, komut paleti ve sekme başlığı `ui/src/lib/nav.ts`'ten okunur: iz hep
+  "Ana sayfa" ile başlar (uygulama adı izde değil, menü dibindeki kartta), sekme başlığı "Sayfa | Zeyrek Argus". Sayfa kendi
   kenar boşluğunu, ızgarasını ya da kart çerçevesini yazmaz; yeni bir düzen gerekirse `layout/` altına eklenir.
-- Form: her kontrol `Field` ile sarılır (etiket, zorunlu işareti, açıklama, hata). Seçim için yerel `<select>`
-  kullanılmaz: aramalı `Combobox` / `MultiCombobox` (Türkçe harf duyarlı süzgeç), kısa sabit listede `Select`.
+- **Arayüz tek çalışma alanına odaklıdır** (proje · uygulama · dal; `server/src/workspace/workspace.ts`,
+  `ui/src/lib/workspace.svelte.ts`). Sayfa kendi proje / uygulama / dal seçicisini çizmez; veriyi `runQuery()`
+  (koşular, dala göre) ya da `appQuery()` (bulgu, hafıza; uygulamaya göre) ile süzer. Seçim açılışta sorulmaz:
+  sunucu kayıtlıyı, yoksa tahmini verir; değişince sayfa ağacı `{#key}` ile baştan kurulur ve açık sekmeler
+  `calisma-alani` olayıyla aynı seçime geçer. Seçicinin tek yeri menünün dibindeki `WorkspaceSwitcher`'dır.
+- Form: her kontrol `Field` ile sarılır (etiket, zorunlu işareti, açıklama, hata; etikete tıklamak açılır menüyü
+  açmaz, odaklar). Seçim için yerel `<select>` kullanılmaz: aramalı `Combobox` / `MultiCombobox` (Türkçe harf
+  duyarlı süzgeç), kısa sabit listede `Select`. Açılır menü standardı: açıkken tetik mavi kenar + halka; üzerine
+  gelinen öğe gri, seçili öğe açık mavi + koyu mavi yazı (tik yok); listede çerçeveli arama kutusu, öğe 32 px.
+  Seçenekler okunurken `loading`: tetik pasif, okun yerinde gri spinner.
+- Pencere yalnız `layout/Modal` ile açılır: başlık 18/600, açıklama 14 (aralık 2), başlık bölümü 20/16/24 px dolgu,
+  sağ üstte kapat, yalnız gövde kayar, alt çubuk 12/24 px dolgulu, sağa yaslı 38 px düğmeler (`footer`); genişlik
+  `sm` / `md` / `lg`. Katman sırası: pencere `z-50`, açılır liste `z-[60]` (pencerede açılan liste üstte kalır).
+- Yükleme: kısa işlemde gri `Spinner` (sm/md/lg; tek biçim, IMS Cortex yükleyicisi gibi), yeri belli içeriğin ilk
+  yüklemesinde aynı ölçüde `Skeleton`
+  (`ui/skeleton`; içerik gelince yer değişmez, zıplama olmaz — örnek `WorkspaceSwitcher`).
 - shadcn bileşeni `pnpm dlx shadcn-svelte@1.7.2 add <ad> --no-deps-install` ile eklenir. CLI canlı kayıttan çeker ve
   sürümleri değiştirir: `package.json` elle tam sürüme geri sabitlenir; bileşenin Lucide ikonları `Icon`'a çevrilir.
   Durum varyantları (`data-open`, `data-checked` …) `app.css`'te bits-ui'nin `data-state` / `data-orientation`

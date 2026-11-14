@@ -35,9 +35,9 @@
 			data-slot="dropdown-menu-checkbox-item-indicator"
 		>
 			{#if indeterminate}
-				<Icon name="remove"  />
+				<Icon name="remove" />
 			{:else if checked}
-				<Icon name="check"  />
+				<Icon name="check" />
 			{/if}
 		</span>
 		{@render childrenProp?.()}

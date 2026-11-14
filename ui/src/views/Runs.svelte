@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { RunInfo } from '@argus/shared'
   import { onMount } from 'svelte'
-  import { api } from '../lib/api'
+  import { runQuery } from '$lib/workspace.svelte'
+  import { api, qs } from '../lib/api'
   import { formatCost, formatDate, formatDuration, RUN_STATUS } from '../lib/format'
   import { go } from '../lib/router.svelte'
   import { live } from '../lib/stream.svelte'
@@ -11,7 +12,7 @@
   const rows = $derived(runs.map((r) => live.runs[r.id] ?? r))
 
   onMount(() => {
-    api<RunInfo[]>('/kosular')
+    api<RunInfo[]>(`/kosular${qs(runQuery())}`)
       .then((r) => (runs = r))
       .catch((e: unknown) => (error = String(e)))
   })

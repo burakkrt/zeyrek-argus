@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import type { RunEvent, RunEventBody, RunInfo, StreamMessage } from '@argus/shared'
+import type { RunEvent, RunEventBody, RunInfo, StreamMessage, WorkspaceState } from '@argus/shared'
 import type { Database } from '../db/database.ts'
 import { appendEvent, lastEventSeq } from '../db/runs.ts'
 
@@ -29,6 +29,11 @@ export class EventBus {
 
   runUpdated(run: RunInfo): void {
     this.emitter.emit('message', { type: 'kosu-guncellendi', run } satisfies StreamMessage)
+  }
+
+  /** Çalışma alanı değişti: açık bütün sekmeler aynı seçime geçer. */
+  workspaceChanged(state: WorkspaceState): void {
+    this.emitter.emit('message', { type: 'calisma-alani', state } satisfies StreamMessage)
   }
 
   subscribe(listener: (message: StreamMessage) => void): () => void {

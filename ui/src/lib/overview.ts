@@ -1,6 +1,6 @@
 import type { FindingKind, Issue, RunInfo } from '@argus/shared'
 
-/** Genel bakış ekranının özeti: göstergeler, türe göre açık bulgu, günlük seri. Saf hesap; ekran yalnız gösterir. */
+/** Ana sayfanın özeti: göstergeler, türe göre açık bulgu, günlük seri. Saf hesap; ekran yalnız gösterir. */
 export interface Overview {
   openIssues: number
   newThisWeek: number

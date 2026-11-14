@@ -1,14 +1,13 @@
 <script lang="ts">
-  import type { AppRef, MemoryBudget, Proposal, Rule } from '@argus/shared'
+  import type { MemoryBudget, Proposal, Rule } from '@argus/shared'
   import { onMount } from 'svelte'
   import { api, post, put, qs } from '../lib/api'
   import { formatDate, SCOPE_LABEL, TYPE_LABEL } from '../lib/format'
+  import { workspace } from '$lib/workspace.svelte'
 
   type RuleRow = Rule & { stats: { uses: number; eligible: number; lastUsed: string | null } }
 
   let tab = $state<'kurallar' | 'oneriler' | 'dosyalar' | 'musteri'>('kurallar')
-  let apps = $state<AppRef[]>([])
-  let app = $state('')
   let rules = $state<RuleRow[]>([])
   let budgets = $state<MemoryBudget[]>([])
   let pendingDecisions = $state(0)
@@ -27,7 +26,10 @@
     proposals: Proposal[]
   } | null>(null)
 
-  const appRef = $derived(app ? { proje: app.split('/')[0]!, uygulama: app.split('/')[1]! } : null)
+  // Hafıza uygulama başınadır: çalışma alanının uygulaması.
+  const appRef = workspace.current
+    ? { proje: workspace.current.project, uygulama: workspace.current.application }
+    : null
   const byState = (state: Rule['state']) => rules.filter((r) => r.state === state)
   const waiting = $derived(proposals.filter((p) => p.status === 'bekliyor'))
 
@@ -68,11 +70,6 @@
   async function reload() {
     await Promise.all([loadRules(), loadProposals()])
   }
-
-  $effect(() => {
-    void app
-    void reload()
-  })
 
   async function setState(rule: RuleRow, durum: Rule['state']) {
     await run('Kaydediliyor…', () =>
@@ -164,9 +161,7 @@
   }
 
   onMount(async () => {
-    apps = await api<AppRef[]>('/hafiza/uygulamalar').catch(() => [])
-    if (apps[0]) app = `${apps[0].project}/${apps[0].application}`
-    await loadFiles()
+    await Promise.all([reload(), loadFiles()])
   })
 </script>
 
@@ -179,11 +174,6 @@
     </p>
   </div>
   <span class="spacer"></span>
-  <select bind:value={app}>
-    {#each apps as a (`${a.project}/${a.application}`)}<option value={`${a.project}/${a.application}`}
-        >{a.project}/{a.application}</option
-      >{/each}
-  </select>
   <button onclick={learn} disabled={!appRef || !!busy}
     >Öğren{pendingDecisions ? ` (${pendingDecisions} yeni karar)` : ''}</button
   >

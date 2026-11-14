@@ -27,6 +27,39 @@
 @custom-variant data-vertical (&:where([data-orientation='vertical']));
 
 /*
+ * Kaydırma çubuğu gizli (kenar menü; shadcn bileşeni bu sınıfı kullanır). Tanımsızken tarayıcı 15 px'lik çubuk çiziyordu.
+ */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/*
+ * İnce, görünür kaydırma çubuğu (açılır liste): 6 px, gri, yuvarlak; içerik kaydırılabilir olduğunu belli eder. Yeri
+ * hep ayrılır (`scrollbar-gutter: stable`): liste uzayıp kısalınca içerik kaymaz, kullanan yer sol dolguyu 6 px fazla
+ * vererek iki yanı eşitler.
+ */
+@utility scroll-thin {
+  scrollbar-gutter: stable;
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
+    border-radius: 999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+  }
+}
+
+/*
  * Renk ve ölçü Zeyrek platformunun (IMS Cortex) kabuk standardından alınır: docs/apps/qm/kabuk-ve-tasarim-standardi.md §1.
  * Zemin soğuk gri, kart beyaz, vurgu tek mavi. Seçili öğe = açık mavi zemin + kenar + koyu mavi yazı. Durum renkleri
  * yalnız durum bildirir; yazı, %10 zemin ve %30 kenar olarak kullanılır. Sayfada renk kodu yazılmaz.

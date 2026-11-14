@@ -22,15 +22,19 @@ bilgisayarda saklanır).
 
 ## Ekranlar
 
-| Ekran       | Ne yapar                                                                                                                                                                                                                           |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Genel bakış | Son 14 gün: açık bulgu, koşu, sayfa başı maliyet ve süre; günlük yeni bulgu grafiği; türe göre açık bulgular; son koşular (açılış ekranı)                                                                                          |
-| Başlat      | Proje → uygulama → ortam/dal → sayfalar (MCP'den canlı); görev ve adım sınırı; tahmini süre ve maliyet                                                                                                                             |
-| Monitör     | Akış: araştırma, plan, görevler, her adım (neden + sonuç + küçük görüntü), ağ istekleri, bulgular. Yanında canlı tarayıcı görüntüsü, plan durumu, anlık maliyet. Yazarak yönlendir, durdur. Biten koşu aynı ekranda tekrar izlenir |
-| Koşular     | Geçmiş koşular, süre, maliyet, yeni / bilinen / bastırılan bulgu sayıları                                                                                                                                                          |
-| Bulgular    | Kök nedene göre tek kayıt, sayfa başına görünümler; kutuyla işaretli kanıt; senaryo, beklenen, gözlenen; karar + yorum; tarihçe; Markdown (şablonla, görüntülerle) / CSV / JSON dışa aktarma; JSON içe aktarma                     |
-| Hafıza      | Kurallar (onay bekleyen, devrede, emekli; kaynak ve kullanım), öneriler, istem bütçesi, düz metin düzenleyici, müşteri Excel'i içe aktarma, Öğren / Bakım                                                                          |
-| Ayarlar     | Durum, bağlantı denetimi, uygulama kullanıcıları, model ve efor, bütçe, öğrenme politikası                                                                                                                                         |
+Arayüz tek bir **çalışma alanına** (proje · uygulama · dal) odaklanır; menünün üstündeki karttan değiştirilir. Seçim
+sunucuda kalır: açılışta son seçim, hiç seçim yoksa son koşunun ya da tek proje/uygulamanın development dalı açılır;
+soru yalnız bunlar çıkarılamazsa sorulur. Koşular dala, bulgular ve hafıza uygulamaya göre süzülür.
+
+| Ekran     | Ne yapar                                                                                                                                                                                                                           |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ana sayfa | Son 14 gün: açık bulgu, koşu, sayfa başı maliyet ve süre; günlük yeni bulgu grafiği; türe göre açık bulgular; son koşular (açılış ekranı)                                                                                          |
+| Yeni koşu | Çalışma alanındaki dalın sayfaları (MCP'den canlı); görev ve adım sınırı; tahmini süre ve maliyet                                                                                                                                  |
+| Monitör   | Akış: araştırma, plan, görevler, her adım (neden + sonuç + küçük görüntü), ağ istekleri, bulgular. Yanında canlı tarayıcı görüntüsü, plan durumu, anlık maliyet. Yazarak yönlendir, durdur. Biten koşu aynı ekranda tekrar izlenir |
+| Koşular   | Geçmiş koşular, süre, maliyet, yeni / bilinen / bastırılan bulgu sayıları                                                                                                                                                          |
+| Bulgular  | Kök nedene göre tek kayıt, sayfa başına görünümler; kutuyla işaretli kanıt; senaryo, beklenen, gözlenen; karar + yorum; tarihçe; Markdown (şablonla, görüntülerle) / CSV / JSON dışa aktarma; JSON içe aktarma                     |
+| Hafıza    | Kurallar (onay bekleyen, devrede, emekli; kaynak ve kullanım), öneriler, istem bütçesi, düz metin düzenleyici, müşteri Excel'i içe aktarma, Öğren / Bakım                                                                          |
+| Ayarlar   | Durum, bağlantı denetimi, uygulama kullanıcıları, model ve efor, bütçe, öğrenme politikası                                                                                                                                         |
 
 ## Kontrolcü nasıl çalışır
 
@@ -113,15 +117,15 @@ Yerel veri (`data/`: koşular, görüntüler, ayarlar) Git'e girmez.
 
 ## Klasörler
 
-| Klasör                | Ne                                                                                                                      |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `server/src/platform` | zeyrek-mcp (yalnız okuyan araçlar), katalog, sayfa adresi, platform girişi, bağlantı denetimi                           |
-| `server/src/browser`  | Tarayıcı oturumu (Türkçe, korumalar, canlı görüntü), gözler, ipuçları, ağaç sıkıştırma, kanıt                           |
-| `server/src/agent`    | Model, istemler, araçlar, sayfa denetleyicisi (araştırma → plan → görev → doğrulama)                                    |
-| `server/src/memory`   | Hafıza dosyaları, bütçeli kural seçimi, ders çıkarıcı, bakım, müşteri Excel'i, çıktı biçimi                             |
-| `server/src/issues`   | Sorun ve görünüm kaydı, karar, yorum, bastırma, yeniden açma, Git eşitlemesi                                            |
-| `server/src/runs`     | Koşu sırası ve yürütme, olay yolu                                                                                       |
-| `server/src/api`      | HTTP uçları ve SSE akışı                                                                                                |
+| Klasör                | Ne                                                                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `server/src/platform` | zeyrek-mcp (yalnız okuyan araçlar), katalog, sayfa adresi, platform girişi, bağlantı denetimi                                      |
+| `server/src/browser`  | Tarayıcı oturumu (Türkçe, korumalar, canlı görüntü), gözler, ipuçları, ağaç sıkıştırma, kanıt                                      |
+| `server/src/agent`    | Model, istemler, araçlar, sayfa denetleyicisi (araştırma → plan → görev → doğrulama)                                               |
+| `server/src/memory`   | Hafıza dosyaları, bütçeli kural seçimi, ders çıkarıcı, bakım, müşteri Excel'i, çıktı biçimi                                        |
+| `server/src/issues`   | Sorun ve görünüm kaydı, karar, yorum, bastırma, yeniden açma, Git eşitlemesi                                                       |
+| `server/src/runs`     | Koşu sırası ve yürütme, olay yolu                                                                                                  |
+| `server/src/api`      | HTTP uçları ve SSE akışı                                                                                                           |
 | `ui/`                 | Svelte 5 arayüz: shadcn-svelte + Tailwind v4, Phosphor + Material Symbols, Geist, LayerChart; kalıp `ui/src/lib/components/layout` |
-| `shared/`             | Sunucu ile arayüzün ortak türleri                                                                                       |
-| `memory/`             | Git'te paylaşılan hafıza                                                                                                |
+| `shared/`             | Sunucu ile arayüzün ortak türleri                                                                                                  |
+| `memory/`             | Git'te paylaşılan hafıza                                                                                                           |

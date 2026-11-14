@@ -18,6 +18,6 @@
 	class={cn("size-5 [&>svg]:size-4 flex items-center justify-center", className)}
 	{...restProps}
 >
-	<Icon name="moreHoriz"  />
+	<Icon name="moreHoriz" />
 	<span class="sr-only">More</span>
 </span>

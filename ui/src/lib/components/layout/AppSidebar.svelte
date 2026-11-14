@@ -6,17 +6,19 @@
   import * as Popover from '$lib/components/ui/popover/index.js'
   import * as Sidebar from '$lib/components/ui/sidebar/index.js'
   import * as Tooltip from '$lib/components/ui/tooltip/index.js'
-  import { APP_NAME, NAV_GROUPS, filterNav, type NavEntry, type NavPage } from '$lib/nav'
+  import { APP_NAME, NAV_GROUPS, filterNav, locate, type NavEntry, type NavPage } from '$lib/nav'
   import { route } from '$lib/router.svelte'
   import { cn } from '$lib/utils'
   import StatusLine from './StatusLine.svelte'
+  import WorkspaceSwitcher from './WorkspaceSwitcher.svelte'
 
   /**
    * Kenar menü: IMS Cortex menüsünün (ng-apps-ui `navigations`, sidebar düzeni, QM ayarı) birebir karşılığı.
    *
    * - 264 px; başlık üst çubukla aynı yükseklikte, sağda yalnız ikonlu daraltma düğmesi (Phosphor `sidebar-simple`).
    *   64 px şeride daralır (tercih çerezde); şeritte açma düğmesi başlık çizgisiyle kenarın kesiştiği 24 px yuvarlak.
-   * - "Menüde ara…" kutusu (`/` odaklar): eşleşen modüller açık gelir.
+   * - En altta çalışma alanı kartı (`WorkspaceSwitcher`, IMS Cortex kullanıcı kartının yeri); "Menüde ara…" kutusu (`/` odaklar): eşleşen
+   *   modüller açık gelir.
    * - Satır 40 px, panelden 8 px içeride, sol dolgu 10.4 px, ikon 18 px Phosphor Duotone, ikon-etiket 10 px, 14 px.
    *   Ağırlık: üst düzey satır 500, alt sayfa 400, aktif sayfa ve aktif yoldaki modül 600. Üzerine gelince açık gri; aktif sayfa açık
    *   mavi zemin + koyu yazı + mavi ikon; aktif yoldaki modülün ikonu mavi.
@@ -43,7 +45,8 @@
 
   let query = $state('')
   let searchInput = $state<HTMLInputElement | null>(null)
-  let openModule = $state<string | null>(null)
+  // İlk çizimde aktif sayfanın modülü açık başlar: sonradan açılırsa yenilemede akordeon kapanıp yeniden açılıyordu.
+  let openModule = $state<string | null>(locate(route.parts[0]).module ?? null)
 
   const reducedMotion =
     typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -71,8 +74,8 @@
 
   // Sayfa değişince aktif sayfanın modülü açılır (akordeon: öbürü kapanır).
   $effect(() => {
-    const trail = groups.flatMap((g) => g.entries).find(inTrail)
-    if (trail) openModule = trail.label
+    const module = locate(route.parts[0]).module
+    if (module) openModule = module
   })
 
   function toggleModule(entry: NavEntry) {
@@ -302,4 +305,8 @@
       <StatusLine ok={line.ok} label={line.label} title={line.title} />
     {/each}
   </Sidebar.Footer>
+
+  <div class="shrink-0 border-t p-2">
+    <WorkspaceSwitcher />
+  </div>
 </Sidebar.Root>

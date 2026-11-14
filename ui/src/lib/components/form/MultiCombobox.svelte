@@ -1,12 +1,16 @@
 <script lang="ts">
   import Icon from '$lib/components/Icon.svelte'
+  import Spinner from '$lib/components/Spinner.svelte'
   import { Button } from '$lib/components/ui/button/index.js'
   import * as Command from '$lib/components/ui/command/index.js'
   import * as Popover from '$lib/components/ui/popover/index.js'
   import { cn } from '$lib/utils'
   import { summarizeSelection, turkishFilter, type Option } from './options'
 
-  /** Aramalı çoklu seçim: işaretli seçenekler, altta "tümünü seç" ve "temizle". Pencere seçimde kapanmaz. */
+  /**
+   * Aramalı çoklu seçim: işaretli seçenekler, altta "tümünü seç" ve "temizle". Pencere seçimde kapanmaz. Görünüm ve
+   * `loading` Combobox'taki açılır menü standardıdır.
+   */
   let {
     options,
     value = $bindable([]),
@@ -14,6 +18,7 @@
     searchPlaceholder = 'Ara…',
     empty = 'Sonuç bulunamadı.',
     disabled = false,
+    loading = false,
     id,
   }: {
     options: Option[]
@@ -22,6 +27,7 @@
     searchPlaceholder?: string
     empty?: string
     disabled?: boolean
+    loading?: boolean
     id?: string
   } = $props()
 
@@ -40,26 +46,33 @@
         variant="outline"
         role="combobox"
         aria-expanded={open}
-        {disabled}
-        class="border-input w-full justify-between px-3 font-normal"
+        aria-busy={loading || undefined}
+        disabled={disabled || loading}
+        class="border-input hover:border-muted-foreground/40 aria-expanded:border-brand aria-expanded:ring-brand/15 hover:bg-card aria-expanded:bg-card w-full justify-between px-3 font-normal aria-expanded:ring-3"
       >
-        <span class={cn('truncate', !value.length && 'text-muted-foreground')}>{label}</span>
-        <Icon name="unfoldMore" class="text-muted-foreground" />
+        <span class={cn('truncate', !value.length && 'text-muted-foreground')}
+          >{loading && !value.length ? 'Yükleniyor…' : label}</span
+        >
+        {#if loading}<Spinner />{:else}<Icon name="unfoldMore" class="text-muted-foreground" />{/if}
       </Button>
     {/snippet}
   </Popover.Trigger>
-  <Popover.Content class="w-(--bits-popover-anchor-width) min-w-64 p-0" align="start">
+  <Popover.Content class="w-(--bits-popover-anchor-width) min-w-64 gap-0 p-0" align="start">
     <Command.Root filter={turkishFilter}>
       <Command.Input placeholder={searchPlaceholder} />
       <Command.List>
-        <Command.Empty>{empty}</Command.Empty>
-        <Command.Group>
+        <Command.Empty class="text-muted-foreground">{empty}</Command.Empty>
+        <Command.Group class="p-0">
           {#each options as option (option.value)}
             {@const on = value.includes(option.value)}
             <Command.Item
               value={option.label}
               keywords={[option.value]}
               onSelect={() => toggle(option.value)}
+              class={cn(
+                on &&
+                  'bg-brand-soft text-brand-strong data-selected:bg-brand-soft data-selected:text-brand-strong font-medium',
+              )}
             >
               <span
                 class={cn(
@@ -69,10 +82,8 @@
               >
                 {#if on}<Icon name="check" class="size-3" />{/if}
               </span>
-              <span class="truncate">{option.label}</span>
-              {#if option.hint}<span class="text-muted-foreground ml-auto truncate text-xs"
-                  >{option.hint}</span
-                >{/if}
+              <span class="min-w-0 flex-1 truncate">{option.label}</span>
+              {#if option.hint}<span class="text-muted-foreground shrink-0 text-xs">{option.hint}</span>{/if}
             </Command.Item>
           {/each}
         </Command.Group>

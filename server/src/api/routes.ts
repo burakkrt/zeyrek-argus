@@ -17,14 +17,16 @@ import {
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppContext } from '../context.ts'
-import { listEvents, listRuns, getRun } from '../db/runs.ts'
+import { listEvents, listRuns, getRun, recentWorkspaces } from '../db/runs.ts'
 import {
   deleteAppUser,
   getAppUser,
+  getSavedWorkspace,
   getSettings,
   listAppUsers,
   saveAppUser,
   saveSettings,
+  saveWorkspace,
 } from '../db/settings.ts'
 import { ArgusError } from '../errors.ts'
 import { DEFAULT_FORMAT, issuesCsv, markdownZip } from '../memory/format.ts'
@@ -36,6 +38,7 @@ import { parseCustomerXlsx } from '../memory/xlsx.ts'
 import { describeAccess } from '../platform/credentials.ts'
 import { probe } from '../platform/probe.ts'
 import { KNOWN_MODELS } from '../agent/model.ts'
+import { confirmWorkspace, resolveWorkspace } from '../workspace/workspace.ts'
 
 const bad = (message: string): never => {
   throw new ArgusError('BAD_REQUEST', message)
@@ -173,9 +176,35 @@ export function createApi(ctx: AppContext): Hono {
     return c.json(groupPages(pages))
   })
 
+  // --- çalışma alanı ---
+
+  api.get('/calisma-alani', async (c) => {
+    const saved = getSavedWorkspace(ctx.db)
+    const state = await resolveWorkspace(ctx.platform.catalog, saved, recentWorkspaces(ctx.db))
+    // Tahmin edilen ya da geçersizin yerine açılan seçim kaydedilir: sonraki açılış aynı yerde, uyarısız başlar.
+    if (state.workspace && JSON.stringify(state.workspace) !== JSON.stringify(saved))
+      saveWorkspace(ctx.db, state.workspace)
+    return c.json(state)
+  })
+
+  api.put('/calisma-alani', async (c) => {
+    const body = (await c.req.json()) as Record<string, unknown>
+    const state = await confirmWorkspace(ctx.platform.catalog, {
+      ...appOf(body),
+      environment: str(body.ortam, 'ortam'),
+    })
+    saveWorkspace(ctx.db, state.workspace!)
+    ctx.bus.workspaceChanged(state)
+    return c.json(state)
+  })
+
   // --- koşular ---
 
-  api.get('/kosular', (c) => c.json(listRuns(ctx.db)))
+  api.get('/kosular', (c) => {
+    const app = queryApp(c)
+    const environment = c.req.query('ortam')
+    return c.json(listRuns(ctx.db, 100, app && environment ? { ...app, environment } : undefined))
+  })
 
   api.post('/kosular', async (c) => {
     const body = (await c.req.json()) as Record<string, unknown>
@@ -358,14 +387,6 @@ export function createApi(ctx: AppContext): Hono {
   })
 
   // --- hafıza ---
-
-  api.get('/hafiza/uygulamalar', (c) => {
-    const known = new Map<string, AppRef>()
-    for (const app of ctx.memory.apps()) known.set(`${app.project}/${app.application}`, app)
-    for (const run of listRuns(ctx.db, 200))
-      known.set(`${run.project}/${run.application}`, { project: run.project, application: run.application })
-    return c.json([...known.values()])
-  })
 
   api.get('/hafiza/kurallar', (c) => {
     const app = queryApp(c) ?? null

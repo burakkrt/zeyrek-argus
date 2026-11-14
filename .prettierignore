@@ -3,3 +3,4 @@ data/
 ui/dist/
 pnpm-lock.yaml
 memory/
+ui/src/lib/components/ui/

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import Spinner from '$lib/components/Spinner.svelte'
   import { pageLoad } from '$lib/page-load'
   import { cn } from '$lib/utils'
 
@@ -9,8 +10,9 @@
    * kapsayıcısı (en çok 1480 px, 28 px yan, 24 px dikey boşluk, bölümler arası 20 px). `title` verilmezse şerit
    * çizilmez (henüz taşınmamış sayfalar). Sayfa kendi kenar boşluğunu yazmaz.
    *
-   * Açılış yüklemesi sürerken (`page-load.ts`) içerik gizli kalır ve ortada spinner döner (platformun sayfa kabı
-   * yükleniyor hâli); veri gelince içerik tek seferde görünür. Spinner kısa yüklemede yanıp sönmesin diye geç belirir.
+   * Açılış yüklemesi sürerken (`page-load.ts`) içerik gizli kalır ve içerik alanının görünen kısmının tam ortasında
+   * 28 px spinner döner (platformun sayfa kabı yükleniyor hâli); veri gelince içerik tek seferde görünür. Spinner kısa
+   * yüklemede yanıp sönmesin diye 150 ms geç belirir.
    */
   let {
     title,
@@ -41,24 +43,21 @@
   </div>
 {/if}
 
-<div class="relative">
-  {#if $pageLoad}
-    <div
-      class="animate-in fade-in-0 fill-mode-backwards absolute inset-x-0 top-0 grid h-60 place-items-center [animation-delay:150ms]"
-      role="status"
-      aria-label="Yükleniyor"
-    >
-      <span class="border-brand size-8 animate-spin rounded-full border-[3px] border-t-transparent"></span>
-    </div>
-  {/if}
+{#if $pageLoad}
+  <!-- İçerik alanının görünen kısmını doldurur: spinner üst çubuk ve şerit dışındaki alanın tam ortasında durur. -->
   <div
     class={cn(
-      'mx-auto flex w-full max-w-[1480px] flex-col gap-5 px-7 py-6',
-      $pageLoad && 'pointer-events-none max-h-60 overflow-hidden opacity-0',
-      className,
+      'animate-in fade-in-0 fill-mode-backwards grid place-items-center [animation-delay:150ms]',
+      title ? 'h-[calc(100svh-124px)]' : 'h-[calc(100svh-56px)]',
     )}
-    aria-busy={$pageLoad}
   >
-    {@render children()}
+    <Spinner size="lg" />
   </div>
+{/if}
+<!-- Yüklenirken de bağlı kalır (sayfanın istekleri buradan başlar), yalnız gizlidir. -->
+<div
+  class={cn('mx-auto flex w-full max-w-[1480px] flex-col gap-5 px-7 py-6', $pageLoad && 'hidden', className)}
+  aria-busy={$pageLoad}
+>
+  {@render children()}
 </div>

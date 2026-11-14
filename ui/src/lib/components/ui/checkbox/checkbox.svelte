@@ -29,9 +29,9 @@
 			class="[&>svg]:size-3.5 grid place-content-center text-current transition-none"
 		>
 			{#if checked}
-				<Icon name="check"  />
+				<Icon name="check" />
 			{:else if indeterminate}
-				<Icon name="remove"  />
+				<Icon name="remove" />
 			{/if}
 		</div>
 	{/snippet}

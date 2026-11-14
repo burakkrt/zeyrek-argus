@@ -5,6 +5,9 @@
   /**
    * Form alanı kalıbı: etiket (zorunluysa işaretli), kontrol, altında açıklama ya da hata. Formdaki her kontrol bununla
    * sarılır; hata varsa açıklamanın yerini alır.
+   *
+   * Kontrol bir düğmeyse (açılır menü tetiği) etikete tıklamak onu yalnız odaklar: tarayıcı etiket tıklamasını düğmeye
+   * tıklama sayar ve açık bir menüyü kapatıp bu menüyü açıyordu.
    */
   let {
     label,
@@ -21,10 +24,18 @@
     required?: boolean
     children: Snippet
   } = $props()
+
+  function focusOnly(event: MouseEvent) {
+    const target = htmlFor ? document.getElementById(htmlFor) : null
+    if (target instanceof HTMLButtonElement) {
+      event.preventDefault()
+      target.focus()
+    }
+  }
 </script>
 
 <div class="grid min-w-0 gap-2">
-  <Label for={htmlFor} class="gap-1">
+  <Label for={htmlFor} class="gap-1" onclick={focusOnly}>
     {label}{#if required}<span class="text-destructive" aria-hidden="true">*</span>{/if}
   </Label>
   {@render children()}

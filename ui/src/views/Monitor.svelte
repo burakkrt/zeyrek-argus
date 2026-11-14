@@ -78,6 +78,7 @@
         if (m.run.id === runId) run = m.run
         return
       }
+      if (m.type === 'calisma-alani') return
       if (m.runId !== runId || events.some((e) => e.seq === m.seq)) return
       if (m.type === 'yonlendirme') {
         // Yerel yankıyı sunucunun kaydıyla değiştir (iki kez görünmesin).

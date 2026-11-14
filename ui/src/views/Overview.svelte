@@ -13,7 +13,8 @@
   import { Button } from '$lib/components/ui/button/index.js'
   import * as Chart from '$lib/components/ui/chart/index.js'
   import * as Table from '$lib/components/ui/table/index.js'
-  import { api } from '$lib/api'
+  import { api, qs } from '$lib/api'
+  import { appQuery, runQuery } from '$lib/workspace.svelte'
   import { formatCost, formatDate, formatDuration, formatMoney, formatSeconds } from '$lib/format'
   import { overview } from '$lib/overview'
 
@@ -35,7 +36,7 @@
   } satisfies Chart.ChartConfig
 
   onMount(() => {
-    Promise.all([api<RunInfo[]>('/kosular'), api<Issue[]>('/sorunlar')])
+    Promise.all([api<RunInfo[]>(`/kosular${qs(runQuery())}`), api<Issue[]>(`/sorunlar${qs(appQuery())}`)])
       .then(([r, i]) => {
         runs = r
         issues = i
@@ -44,7 +45,7 @@
   })
 </script>
 
-<Page title="Genel bakış" description="Son 14 günün kalite kontrol özeti: bulgular, koşular, maliyet ve süre">
+<Page title="Ana sayfa" description="Son 14 günün kalite kontrol özeti: bulgular, koşular, maliyet ve süre">
   {#snippet actions()}
     <Button href="#/bulgular" variant="outline">Bulgular</Button>
     <Button href="#/baslat">Yeni koşu</Button>

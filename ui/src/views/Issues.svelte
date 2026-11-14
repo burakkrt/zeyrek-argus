@@ -1,15 +1,14 @@
 <script lang="ts">
-  import type { AppRef, FindingKind, Issue, IssueDetail, IssueStatus } from '@argus/shared'
+  import type { FindingKind, Issue, IssueDetail, IssueStatus } from '@argus/shared'
   import { onMount } from 'svelte'
   import Shot from '../components/Shot.svelte'
   import { api, fileUrl, post, qs } from '../lib/api'
   import { formatDate, KIND, OUTCOME, STATUS } from '../lib/format'
   import { go } from '../lib/router.svelte'
+  import { appQuery } from '$lib/workspace.svelte'
 
   let { selectedId }: { selectedId: string | null } = $props()
 
-  let apps = $state<AppRef[]>([])
-  let app = $state('')
   let statuses = $state<IssueStatus[]>(['acik', 'duzeltilecek'])
   let kinds = $state<FindingKind[]>(['kesin', 'tutarsizlik'])
   let query = $state('')
@@ -27,8 +26,7 @@
 
   const filterQuery = $derived(
     qs({
-      proje: app.split('/')[0],
-      uygulama: app.split('/')[1],
+      ...appQuery(),
       durum: statuses.join(','),
       tur: kinds.join(','),
       q: query,
@@ -109,7 +107,6 @@
   }
 
   onMount(async () => {
-    apps = await api<AppRef[]>('/hafiza/uygulamalar').catch(() => [])
     formats = await api<Array<{ name: string }>>('/hafiza/bicimler').catch(() => [])
   })
 </script>
@@ -135,12 +132,6 @@
 {#if error}<p class="error">{error}</p>{/if}
 
 <div class="card filters row">
-  <select bind:value={app}>
-    <option value="">Bütün uygulamalar</option>
-    {#each apps as a (`${a.project}/${a.application}`)}<option value={`${a.project}/${a.application}`}
-        >{a.project}/{a.application}</option
-      >{/each}
-  </select>
   {#each Object.entries(STATUS) as [value, s] (value)}
     <button
       class="chip"
