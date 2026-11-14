@@ -162,3 +162,26 @@ export function pageUrl(input: {
     ? `${base}/dev/${tail}`
     : `${base}/branch/${encodeURIComponent(input.environment.slug)}/${tail}`
 }
+
+/**
+ * Açılan sayfa istenen sayfa değilse vardığı sayfanın adı (adresin son parçası), aynıysa null. Kayıt sayfası
+ * (`performans-olcum?id=…` gibi) kimliksiz açılınca uygulama kendisi başka sayfaya (ör. `sayfa-bulunamadi`)
+ * yönlendirir; bu bir uygulama hatası değil, sayfanın doğrudan açılamamasıdır.
+ */
+export function landedOn(expectedUrl: string, actualUrl: string): string | null {
+  const last = (url: string) => {
+    const segments = new URL(url).pathname.split('/').filter(Boolean)
+    return decodeURIComponent(segments.at(-1) ?? '').toLowerCase()
+  }
+  const actual = last(actualUrl)
+  return actual === last(expectedUrl) ? null : actual
+}
+
+/**
+ * Zeyrek çalışma anının uç isteklerine eklediği bağlam başlıkları: erişim denetimi isteğin hangi ortamdan ve
+ * sayfadan geldiğine bakar; başlıksız istek (ör. sayfa içinden elle `fetch`) yetkisiz döner. Ölçüldü 2026-11-14
+ * (IMS Cortex süper giriş: başlıksız 403, başlıklı 200).
+ */
+export function runtimeHeaders(environment: string, page: string): Record<string, string> {
+  return { 'x-environment': environment, 'x-page': page, 'x-surface': 'runtime' }
+}

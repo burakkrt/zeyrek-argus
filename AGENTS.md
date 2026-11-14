@@ -8,7 +8,8 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
    çağırır; liste yalnız okuyan araçla büyür. Tarayıcıda yazma korumaları (`server/src/browser/guard.ts`) testle
    kanıtlıdır; gevşetilmez. production'a koşulmaz.
 2. **Karar kanıta bağlıdır.** Bulgu türü: kesin (görüldü), tutarsızlık (neyle çeliştiği yazılı), not (bulgu
-   sayılmaz). Alıntısı ekranda bulunmayan bulgu kesin olamaz. Giriş ekranında kalan sayfaya "bakılamadı" denir.
+   sayılmaz). Alıntısı ekranda bulunmayan bulgu kesin olamaz. Giriş ekranında kalan ya da başka sayfaya yönlenen
+   (kimliksiz açılan kayıt sayfası) sayfaya "bakılamadı" denir; model çağrılmaz, bulgu yazılmaz.
 3. **Görmezden gelmeyi öğrenmek insan onayı ister.** `sorun-degil` kuralı ve devredeki kuralı değiştiren öneri
    kendiliğinden uygulanmaz (`server/src/memory/learn.ts`). Kural emekliye ayrılınca bastırdıkları serbest kalır.
 4. **Ham bilgi isteme girmez.** Kararlar ve müşteri satırları ders çıkarıcıdan geçer; istem yalnız onaylı kuralları
@@ -31,6 +32,18 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 
 - Yeni belirlenimci göz: `server/src/browser/eyes.ts` + `DEFINITIONS` + `server/test/support/site.ts`'te kusurlu
   örnek + uçtan uca testte beklenti. Kural desenle çözülebiliyorsa göz yerine hafızaya desenli kural yazılır.
+- **Kimlik koşudan önce, modelsiz belirlenir** (`server/src/identity/plan.ts`): istenen hesap, yoksa varsayılan hesap,
+  hiç hesap yoksa platform jetonu; istenen hesap kayıtlı değilse koşu modelsiz durur. Hesaplar uygulama başına çok,
+  biri varsayılan (`app_accounts`, yalnız bu makinede). Yeni kimlik yolu (süper giriş gibi) plana yeni tür olarak
+  eklenir; koşu yöneticisi yalnız planı uygular.
+- **Süper giriş** uygulamanın kendi akışıdır; sözleşmesi kodda değil uygulama hafızasında (`memory/apps/<p>/<u>/kimlik.md`:
+  uçlar, hedef alanı, kişi listesi, isteğin sayfası, jeton alanı, çerez). Dosya yoksa süper giriş hiç denenmez. İstekler
+  çalışma anı başlıklarıyla gider (`runtimeHeaders`; başlıksız istek 403), dönen jeton istemci olarak oturum çerezine
+  yazılır, koşu sonunda hata olsa da kapatılır. Süper giriş uçları gezintide ayrılmıştır (`guard.reserved`): kontrolcü
+  menüden kendiliğinden kullanıcı değiştiremez. Saklanan oturum hep asıl hesabındır.
+- Uygulama oturumu koşular arasında saklanır (`data/oturumlar/`, hesap başına dosya 0600, Git dışı; platform jetonu
+  yazılmaz): her koşu yeniden giriş yapmaz, süresi dolunca yeniden girilir. Parola değişince, hesap silinince ya da
+  giriş tutmayınca saklanan oturum silinir; bozuk dosya koşuyu düşürmez. Kanıt: `controller.test.ts`.
 - Model çağrısı yalnız `CreateMessage` üzerinden; testler senaryolu sahte modelle koşar, gerçek API'ye gitmez.
 - `pnpm check` ve `pnpm test:e2e` yeşil olmadan iş bitmiş sayılmaz.
 - Sürümler tam sabitlenir; kullanılmayan bağımlılık eklenmez.
@@ -83,6 +96,10 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 - Pencere yalnız `layout/Modal` ile açılır: başlık 18/600, açıklama 14 (aralık 2), başlık bölümü 20/16/24 px dolgu,
   sağ üstte kapat, yalnız gövde kayar, alt çubuk 12/24 px dolgulu, sağa yaslı 38 px düğmeler (`footer`); genişlik
   `sm` / `md` / `lg`. Katman sırası: pencere `z-50`, açılır liste `z-[60]` (pencerede açılan liste üstte kalır).
+- Monitör (`views/Monitor.svelte`, model `lib/monitor.ts`) ek model çağrısı yapmaz: anlatı modelin verdiği "neden",
+  adım karesi ve hedef kutusu sunucunun modelsiz ölçümüdür (`PageController.frame`; kare diske yazılır, modele gitmez —
+  `controller.test.ts` kanıtlar). Monitöre yeni bilgi eklenecekse önce olaylarda var mı bakılır; model çıktısı bunun
+  için büyütülmez.
 - Yükleme: kısa işlemde gri `Spinner` (sm/md/lg; tek biçim, IMS Cortex yükleyicisi gibi), yeri belli içeriğin ilk
   yüklemesinde aynı ölçüde `Skeleton`
   (`ui/skeleton`; içerik gelince yer değişmez, zıplama olmaz — örnek `WorkspaceSwitcher`).

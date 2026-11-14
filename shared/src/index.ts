@@ -64,6 +64,14 @@ export interface Box {
   height: number
 }
 
+/** Adımın hedef öğesi, görünüm alanına oranla (0–1): monitörde imleç ve çerçeve buraya çizilir. */
+export interface StepTarget {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface Usage {
   input: number
   cacheWrite: number
@@ -97,6 +105,8 @@ export interface RunOptions {
   maxTasks: number
   /** Görev başına en çok adım. */
   maxSteps: number
+  /** Koşunun kimliği: uygulama hesabının kullanıcı adı; boşsa varsayılan hesap (yoksa platform jetonu). */
+  user?: string | null
 }
 
 export interface RunInfo {
@@ -142,7 +152,15 @@ export type RunEventBody =
   | { type: 'plan'; summary: string; tasks: Array<{ title: string; goal: string }> }
   | { type: 'gorev-basladi'; index: number; title: string }
   | { type: 'gorev-bitti'; index: number; summary: string }
-  | { type: 'adim'; tool: string; reason: string | null; outcome: string; shot: string | null }
+  | {
+      type: 'adim'
+      tool: string
+      reason: string | null
+      outcome: string
+      /** Monitör karesi (yalnız diske; modele gitmez). Etkileşimde işlemden önce, diğerlerinde sonra alınır. */
+      shot: string | null
+      target: StepTarget | null
+    }
   | { type: 'ag'; requests: NetworkEntry[] }
   | {
       type: 'bulgu'
@@ -308,6 +326,8 @@ export interface AppUserSetting {
   application: string
   identifier: string
   hasPassword: boolean
+  /** Koşuda kullanıcı seçilmezse bu hesapla girilir; uygulama başına bir tane. */
+  isDefault: boolean
 }
 
 export interface ProbeLine {

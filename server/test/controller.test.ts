@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { listEvents } from '../src/db/runs.ts'
+import { appSessionFile, deleteAppUser, forgetAppSessions, saveAppUser } from '../src/db/settings.ts'
 import { refOf, startHarness, type Harness, type Script } from './support/harness.ts'
-import { overrides } from './support/site.ts'
+import { APP_USER, overrides } from './support/site.ts'
 
 const app = { project: 'qm', application: 'web' }
 
@@ -184,7 +185,17 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
     expect(lastTurn).toContain('Yalnız değişen kısım')
     expect(lastTurn).toContain('Eğitim ayrıntısı')
     expect(lastTurn).not.toContain('Yangın eğitimi')
-    expect(events.filter((e) => e.type === 'adim').every((e) => e.shot === null)).toBe(true)
+    // Monitör karesi diske yazılır ama modele gitmez: tıklamadan sonraki turda görüntü bloğu yok.
+    expect(lastTurn).not.toContain('"type":"image"')
+    const click = events.find((e) => e.type === 'adim' && e.outcome === 'Tıklandı: "Ayrıntılar"')
+    if (click?.type !== 'adim') throw new Error('Ayrıntılar tıklaması akışta yok')
+    expect(existsSync(join(h.ctx.config.dataDir, 'runs', run.id, click.shot!))).toBe(true)
+    // Hedef kutusu görünüm alanına oranla: imleç monitörde öğenin üstüne çizilir.
+    expect(click.target).not.toBeNull()
+    expect(click.target!.x).toBeGreaterThan(0)
+    expect(click.target!.y).toBeGreaterThan(0)
+    expect(click.target!.x + click.target!.width).toBeLessThanOrEqual(1)
+    expect(click.target!.y + click.target!.height).toBeLessThanOrEqual(1)
   })
 
   it('karar Git dosyasına yazılır; "bulgu değil" sonraki koşuda bastırılır, düzelen göz sorunu kendiliğinden kapanır, yeniden bozulunca açılır', async () => {
@@ -244,6 +255,147 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
     expect(reopened.occurrences.find((o) => o.runId === fourth.id)).toMatchObject({
       outcome: 'yeniden-acildi',
     })
+  })
+
+  it('kimliksiz açılan kayıt sayfası başka sayfaya yönlenirse atlanır: model çağrılmaz, bulgu yazılmaz', async () => {
+    overrides.set(
+      'egt-kayit',
+      `<!doctype html><html><body><h1>Kayıt</h1><script>location.replace('sayfa-bulunamadi')</script></body></html>`,
+    )
+    overrides.set(
+      'sayfa-bulunamadi',
+      '<!doctype html><html><body><h1>Aradığınız sayfa bulunamadı</h1></body></html>',
+    )
+    const callsBefore = h.calls.length
+    const run = await h.waitFor(
+      h.ctx.runs.create({ ...app, environment: 'development', pages: ['egt-kayit'] }).id,
+    )
+    const events = listEvents(h.ctx.db, run.id)
+    expect(run.status).toBe('bitti')
+    expect(
+      events.some((e) => e.type === 'hata' && e.message.includes('"sayfa-bulunamadi" sayfasına yönlendirdi')),
+    ).toBe(true)
+    expect(events.some((e) => e.type === 'sayfa-bitti')).toBe(true)
+    expect(events.some((e) => e.type === 'plan' || e.type === 'bulgu')).toBe(false)
+    expect(h.calls.length).toBe(callsBefore)
+  })
+
+  it('uygulama oturumu saklanır: ikinci koşu yeniden giriş yapmaz, kullanıcı değişince yeniden girilir', async () => {
+    saveAppUser(h.ctx.db, app, APP_USER.identifier, APP_USER.password)
+    const stateFile = appSessionFile(h.ctx.config.dataDir, app, APP_USER.identifier)
+    const runOnce = async (user?: string) => {
+      const run = await h.waitFor(
+        h.ctx.runs.create({
+          ...app,
+          environment: 'development',
+          pages: ['gizli'],
+          options: { maxTasks: 1, maxSteps: 3, user: user ?? null },
+        }).id,
+      )
+      const message = listEvents(h.ctx.db, run.id).find((e) => e.type === 'bilgi')
+      return { run, message: message?.type === 'bilgi' ? message.message : '' }
+    }
+    try {
+      expect((await runOnce()).message).toMatch(
+        /giriş ekranından girildi \(onur@ornek.test\); oturum sonraki koşular için saklandı/,
+      )
+      expect(h.site.signIns()).toBe(1)
+      // Saklanan dosyada uygulama çerezi var, platform jetonu yok.
+      const stored = readFileSync(stateFile, 'utf8')
+      expect(stored).toContain('SY_Token')
+      expect(stored).not.toContain('NG_AccessToken')
+
+      expect((await runOnce(APP_USER.identifier)).message).toMatch(/Saklanan uygulama oturumu sürdürüldü/)
+      expect(h.site.signIns()).toBe(1)
+
+      // Parola değişince saklanan oturum silinir; sonraki koşu yeniden girer.
+      forgetAppSessions(h.ctx.config.dataDir, app, APP_USER.identifier)
+      expect((await runOnce()).message).toMatch(/giriş ekranından girildi/)
+      expect(h.site.signIns()).toBe(2)
+
+      // Bozuk oturum dosyası koşuyu düşürmez: silinir, yeniden girilir.
+      writeFileSync(stateFile, '{yarım')
+      const recovered = await runOnce()
+      expect(recovered.run.status).toBe('bitti')
+      expect(recovered.message).toMatch(/giriş ekranından girildi/)
+      expect(h.site.signIns()).toBe(3)
+
+      // Hesabı olmayan kullanıcı istenirse koşu modelsiz durur, nedeni yazılır.
+      const callsBefore = h.calls.length
+      const missing = await runOnce('yok@ornek.test')
+      expect(missing.run.status).toBe('hata')
+      expect(missing.run.error).toContain('"yok@ornek.test" için kayıtlı hesap yok')
+      expect(h.calls.length).toBe(callsBefore)
+    } finally {
+      deleteAppUser(h.ctx.db, app, APP_USER.identifier)
+      forgetAppSessions(h.ctx.config.dataDir, app)
+    }
+  })
+
+  it('hesabı olmayan kişiye süper girişle geçilir, koşu sonunda kapatılır; saklanan oturum asıl hesabın kalır', async () => {
+    saveAppUser(h.ctx.db, app, APP_USER.identifier, APP_USER.password)
+    const identityFile = join(h.ctx.config.memoryDir, 'apps', 'qm', 'web', 'kimlik.md')
+    mkdirSync(join(h.ctx.config.memoryDir, 'apps', 'qm', 'web'), { recursive: true })
+    writeFileSync(
+      identityFile,
+      [
+        '---',
+        'super_giris_baslat: sy-super-login-start',
+        'super_giris_bitir: sy-super-login-stop',
+        'super_giris_hedef_alani: target_id',
+        'super_giris_kullanicilar: dashboard/sg_kullanici',
+        'super_giris_sayfa: dashboard',
+        'super_giris_jeton_alani: token',
+        'super_giris_cerez: SY_Token',
+        'super_giris_govde_page: dashboard',
+        '---',
+        'Test',
+      ].join('\n'),
+    )
+    const runAs = async (user: string) => {
+      const run = await h.waitFor(
+        h.ctx.runs.create({
+          ...app,
+          environment: 'development',
+          pages: ['gizli'],
+          options: { maxTasks: 1, maxSteps: 3, user },
+        }).id,
+      )
+      return {
+        run,
+        messages: listEvents(h.ctx.db, run.id).flatMap((e) => ('message' in e ? [e.message] : [])),
+      }
+    }
+    try {
+      const switched = await runAs('çetin test')
+      expect(switched.run.status).toBe('bitti')
+      expect(switched.messages).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/Süper girişle Çetin Test kişisine geçildi \(asıl hesap: onur@ornek.test\)/),
+          'Süper giriş kapatıldı.',
+        ]),
+      )
+      expect(h.site.superStarts).toEqual(['k1'])
+      expect(h.site.superStops()).toBe(1)
+      // Sayfa gerçekten süper giriş jetonuyla (Çetin olarak) gezildi.
+      expect(h.site.pageViews).toContain('super-k1')
+      // Saklanan oturum süper girişin değil asıl hesabın jetonunu taşır.
+      const stored = readFileSync(appSessionFile(h.ctx.config.dataDir, app, APP_USER.identifier), 'utf8')
+      expect(stored).toContain('gecerli')
+      expect(stored).not.toContain('super-k1')
+
+      // Listede olmayan kişi: koşu modelsiz durur, süper giriş açılmaz.
+      const callsBefore = h.calls.length
+      const unknown = await runAs('Bilinmeyen Kişi')
+      expect(unknown.run.status).toBe('hata')
+      expect(unknown.run.error).toContain('"Bilinmeyen Kişi" süper giriş listesinde yok')
+      expect(h.site.superStarts).toEqual(['k1'])
+      expect(h.calls.length).toBe(callsBefore)
+    } finally {
+      rmSync(identityFile, { force: true })
+      deleteAppUser(h.ctx.db, app, APP_USER.identifier)
+      forgetAppSessions(h.ctx.config.dataDir, app)
+    }
   })
 
   it('production ve hazır olmayan dal reddedilir; dal adresi /branch/<slug> ile kurulur', async () => {

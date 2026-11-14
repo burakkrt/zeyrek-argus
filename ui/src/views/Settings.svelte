@@ -94,8 +94,20 @@
   async function removeUser(u: AppUserSetting) {
     const result = await guard('Siliniyor…', () =>
       del<{ appUsers: AppUserSetting[] }>(
-        `/ayarlar/uygulama-kullanicisi${qs({ proje: u.project, uygulama: u.application })}`,
+        `/ayarlar/uygulama-kullanicisi${qs({ proje: u.project, uygulama: u.application, kullanici: u.identifier })}`,
       ),
+    )
+    if (result) appUsers = result.appUsers
+  }
+
+  async function makeDefault(u: AppUserSetting) {
+    const result = await guard('Kaydediliyor…', () =>
+      put<{ appUsers: AppUserSetting[] }>('/ayarlar/uygulama-kullanicisi', {
+        proje: u.project,
+        uygulama: u.application,
+        kullanici: u.identifier,
+        varsayilan: true,
+      }),
     )
     if (result) appUsers = result.appUsers
   }
@@ -176,14 +188,20 @@
   <section class="card stack">
     <h2>Uygulama kullanıcıları</h2>
     <p class="muted small">
-      Uygulama kendi giriş ekranını gösteriyorsa (ör. IMS Cortex) kontrolcü bu kullanıcıyla girer. Yalnız bu
-      bilgisayarda saklanır, Git'e girmez.
+      Uygulama kendi giriş ekranını gösteriyorsa (ör. IMS Cortex) kontrolcü bu hesaplarla girer; oturum
+      saklanır, her koşu yeniden giriş yapmaz. Uygulama başına birden çok hesap olabilir: Yeni koşu'da
+      seçilmezse varsayılan hesapla girilir. Yalnız bu bilgisayarda saklanır, Git'e girmez.
     </p>
-    {#each appUsers as u (`${u.project}/${u.application}`)}
+    {#each appUsers as u (`${u.project}/${u.application}/${u.identifier}`)}
       <div class="row">
         <strong>{u.project}/{u.application}</strong><span>{u.identifier}</span><span class="muted small"
           >{u.hasPassword ? 'parola kayıtlı' : 'parola yok'}</span
-        ><span class="spacer"></span><button class="small danger" onclick={() => removeUser(u)}>Sil</button>
+        >{#if u.isDefault}<span class="badge">varsayılan</span>{:else}<button
+            class="small"
+            onclick={() => makeDefault(u)}>Varsayılan yap</button
+          >{/if}<span class="spacer"></span><button class="small danger" onclick={() => removeUser(u)}
+          >Sil</button
+        >
       </div>
     {/each}
     <div class="row">

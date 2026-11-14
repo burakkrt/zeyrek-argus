@@ -30,7 +30,7 @@ describe('menü ağacı', () => {
     expect(crumbsFor('genel')).toEqual(['Ana sayfa'])
     expect(crumbsFor('baslat')).toEqual(['Ana sayfa', 'Koşular', 'Yeni koşu'])
     expect(crumbsFor('bulgular')).toEqual(['Ana sayfa', 'Bulgular'])
-    expect(crumbsFor('monitor')).toEqual(['Ana sayfa', 'Koşular', 'Canlı koşu'])
+    expect(crumbsFor('monitor')).toEqual(['Ana sayfa', 'Koşular', 'Koşu izleme'])
   })
 
   it('sekme başlığı tek biçimdedir: "Sayfa | Zeyrek Argus"', () => {

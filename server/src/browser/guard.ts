@@ -42,6 +42,13 @@ export interface GuardState {
   loading: boolean
   /** Kontrolcü bir alana yazdı mı. */
   dirty: boolean
+  /** Kimlik işi sürüyor (süper giriş başlat / bitir, kullanıcı listesi): istekler serbest, serbest listeye girmez. */
+  identity: boolean
+  /**
+   * Gezintide hiç geçmeyen uçlar (süper giriş başlat / bitir): kullanıcı değiştirmek kimlik katmanının işidir, kontrolcü
+   * menüden kendiliğinden başka kullanıcıya geçmesin.
+   */
+  reserved: Set<string>
 }
 
 export type GuardVerdict = { allow: true } | { allow: false; reason: string }
@@ -55,6 +62,9 @@ export function judgeRequest(
   if (isWriteRequest(method, url)) return { allow: false, reason: 'veri yazan istek' }
   if (method.toUpperCase() !== 'POST' || !sameOrigin) return { allow: true }
   const key = endpointKey(method, url)
+  if (state.identity) return { allow: true }
+  if (state.reserved.has(key))
+    return { allow: false, reason: 'kullanıcı değiştiren uç (kimlik katmanının işi)' }
   if (state.loading) {
     state.loadPosts.add(key)
     return { allow: true }

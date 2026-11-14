@@ -102,13 +102,13 @@
     {#key workspace.key}
       {#if route.parts[0] === 'baslat'}
         <Start />
-      {:else if ['monitor', 'kosular', 'bulgular', 'hafiza', 'ayarlar'].includes(route.parts[0] ?? '')}
+      {:else if route.parts[0] === 'monitor' && route.parts[1]}
+        {#key route.parts[1]}<Monitor runId={route.parts[1]} />{/key}
+      {:else if ['kosular', 'bulgular', 'hafiza', 'ayarlar'].includes(route.parts[0] ?? '')}
         <!-- Henüz yeni kalıba taşınmamış sayfalar: başlık şeridi yok, eski stiller .legacy içinde. -->
         <Page>
           <div class="legacy">
-            {#if route.parts[0] === 'monitor' && route.parts[1]}
-              {#key route.parts[1]}<Monitor runId={route.parts[1]} />{/key}
-            {:else if route.parts[0] === 'kosular'}
+            {#if route.parts[0] === 'kosular'}
               <Runs />
             {:else if route.parts[0] === 'bulgular'}
               <Issues selectedId={route.parts[1] ?? null} />

@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { moduleOf, type AppRef, type RunInfo, type RunOptions, type Settings } from '@argus/shared'
 import { PageController } from '../agent/page-controller.ts'
@@ -15,7 +15,10 @@ import {
   saveUsage,
   startRun,
 } from '../db/runs.ts'
-import { getAppUser, getSettings } from '../db/settings.ts'
+import { appSessionFile, getAppUser, getSettings, listAppUsers } from '../db/settings.ts'
+import { planIdentity } from '../identity/plan.ts'
+import { parseSuperLogin, type SuperLoginSpec } from '../identity/super-login.ts'
+import { endSuperLogin, reserveSuperLogin, switchUser } from '../identity/switch.ts'
 import { ArgusError, errorMessage } from '../errors.ts'
 import type { IssueService } from '../issues/issues.ts'
 import type { Learner } from '../memory/learn.ts'
@@ -73,6 +76,7 @@ export class RunManager {
     const options: RunOptions = {
       maxTasks: Math.min(Math.max(input.options?.maxTasks ?? settings.defaultOptions.maxTasks, 1), 12),
       maxSteps: Math.min(Math.max(input.options?.maxSteps ?? settings.defaultOptions.maxSteps, 3), 40),
+      user: input.options?.user?.trim() || null,
     }
     const run = createRun(this.deps.db, { ...input, pages: [...new Set(input.pages)], options })
     this.deps.bus.runUpdated(run)
@@ -122,6 +126,8 @@ export class RunManager {
     const counters = { adim: 0, kanit: 0 }
     let lastUsageSave = 0
     let session: BrowserSession | null = null
+    // Süper giriş açıldıysa koşu sonunda (hata olsa da) kapatılır.
+    let superLogin: SuperLoginSpec | null = null
     startRun(db, run.id)
     bus.runUpdated(getRun(db, run.id)!)
     bus.publish(run.id, null, { type: 'kosu-basladi', pages: run.pages })
@@ -139,24 +145,58 @@ export class RunManager {
           page,
           environment,
         })
+      // Kimlik koşudan önce, modelsiz belirlenir (`identity/plan.ts`); kurulamıyorsa koşu burada durur.
+      const spec = parseSuperLogin(memory.identity(app))
+      const plan = planIdentity(run.options.user, listAppUsers(db, app), spec !== null)
+      if (plan.kind === 'yok') throw new ArgusError('IDENTITY', plan.message)
+      const appUser =
+        plan.kind === 'hesap'
+          ? getAppUser(db, app, plan.identifier)
+          : plan.kind === 'super'
+            ? getAppUser(db, app, plan.base)
+            : null
       const origin = new URL(access.credentials.studioBaseUrl).origin
       const token = await fetchAccessToken(access.credentials)
+      // Uygulama oturumu saklanır: her koşu yeniden giriş yapmaz, süresi dolunca giriş ekranından yeniden girilir.
+      const stateFile = appUser ? appSessionFile(this.deps.dataDir, app, appUser.identifier) : null
+      const hadState = stateFile !== null && existsSync(stateFile)
       session = await BrowserSession.open({
         origin,
         accessToken: token,
         headless: this.deps.headless ?? true,
         onFrame: (data) => bus.frame(run.id, data),
+        ...(stateFile ? { storageState: stateFile } : {}),
       })
-      const signIn = await session.signIn(urlOf(run.pages[0]!), getAppUser(db, app))
+      const signIn = await session.signIn(urlOf(run.pages[0]!), appUser).catch((error: unknown) => {
+        // Giriş tutmadıysa saklanan oturum da geçersizdir: sonraki koşu temiz başlar.
+        if (stateFile) rmSync(stateFile, { force: true })
+        throw error
+      })
+      // Saklanan oturum hep asıl hesabındır: süper girişten önce yazılır, sonra yazılmaz.
+      if (stateFile && (signIn === 'girildi' || hadState)) await session.saveState(stateFile)
+      const who = appUser ? ` (${appUser.identifier})` : ''
+      bus.publish(run.id, null, {
+        type: 'bilgi',
+        message:
+          signIn === 'girildi'
+            ? `Uygulamanın giriş ekranından girildi${who}; oturum sonraki koşular için saklandı.`
+            : hadState
+              ? `Saklanan uygulama oturumu sürdürüldü${who}; yeniden giriş yapılmadı.`
+              : 'Platform jetonuyla girildi.',
+      })
+      if (spec) reserveSuperLogin(session, origin, app, spec)
+      if (plan.kind === 'super' && spec) {
+        const person = await switchUser(session, app, spec, plan.target, run.environment)
+        superLogin = spec
+        bus.publish(run.id, null, {
+          type: 'bilgi',
+          message: `Süper girişle ${person.label} kişisine geçildi (asıl hesap: ${plan.base}); koşu sonunda kapatılacak.`,
+        })
+      }
       // Girişten önceki açılışın 401'leri ve konsol kayıtları sayfa bulgusu değildir.
       session.drainNetwork()
       session.drainProblems()
       session.drainBlocked()
-      bus.publish(run.id, null, {
-        type: 'bilgi',
-        message:
-          signIn === 'girildi' ? 'Uygulamanın giriş ekranından girildi.' : 'Platform jetonuyla girildi.',
-      })
       const synced = issues.syncFromMemory(app)
       if (synced)
         bus.publish(run.id, null, { type: 'bilgi', message: `Takımın ${synced} kararı hafızadan okundu.` })
@@ -250,6 +290,15 @@ export class RunManager {
       failure = describeModelError(error)
       bus.publish(run.id, null, { type: 'hata', message: failure })
     } finally {
+      if (session && superLogin) {
+        const ended = await endSuperLogin(session, app, superLogin, run.environment)
+        bus.publish(run.id, null, {
+          type: ended ? 'bilgi' : 'hata',
+          message: ended
+            ? 'Süper giriş kapatıldı.'
+            : 'Süper giriş kapatılamadı; uygulamada kullanıcı menüsünden sonlandırın.',
+        })
+      }
       await session?.close()
     }
     finishRun(db, run.id, status, meter.usage, failure)

@@ -1,4 +1,6 @@
-import type { Box, FindingKind, Issue, ModelRole, RunEventBody, Settings } from '@argus/shared'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import type { Box, FindingKind, Issue, ModelRole, RunEventBody, Settings, StepTarget } from '@argus/shared'
 import type { Locator } from 'playwright'
 import {
   annotateShot,
@@ -9,6 +11,7 @@ import {
 } from '../browser/evidence.ts'
 import { describeHit, runEyes, type EyeHit, type PatternRule } from '../browser/eyes.ts'
 import { isUnsafeLabel } from '../browser/guard.ts'
+import { landedOn } from '../platform/catalog.ts'
 import { ariaTree, harvestTooltips, visibleText } from '../browser/research.ts'
 import type { BrowserSession, Problem } from '../browser/session.ts'
 import { changeSize, compressSnapshot, diffSnapshot, stripRefs } from '../browser/snapshot.ts'
@@ -328,9 +331,43 @@ export class PageController {
     return this.input.session.page
   }
 
-  /** Adım akışa yazılır; ekran görüntüsü alınmaz (görüntü yalnız bulgu kanıtı için). */
-  private async step(tool: string, reason: string | null, outcome: string): Promise<void> {
-    this.input.hooks.emit({ type: 'adim', tool, reason, outcome, shot: null })
+  /**
+   * Monitör karesi: görünüm alanının görüntüsü diske yazılır, hedef öğe verildiyse kutusu görünüm alanına oranla
+   * ölçülür (imleç ve çerçeve buraya çizilir). Modele hiçbir şey gitmez; alınamazsa adım karesiz yazılır.
+   */
+  private async frame(ref?: string): Promise<{ shot: string | null; target: StepTarget | null }> {
+    try {
+      const box = ref
+        ? await this.locate(ref)
+            .boundingBox({ timeout: 1_000 })
+            .catch(() => null)
+        : null
+      const { image, viewport } = await this.input.session.stepFrame()
+      const file = this.input.hooks.file('adim')
+      mkdirSync(dirname(file.abs), { recursive: true })
+      writeFileSync(file.abs, image)
+      const target = box
+        ? {
+            x: box.x / viewport.width,
+            y: box.y / viewport.height,
+            width: box.width / viewport.width,
+            height: box.height / viewport.height,
+          }
+        : null
+      return { shot: file.rel, target }
+    } catch {
+      return { shot: null, target: null }
+    }
+  }
+
+  /** Adım akışa yazılır; karesi (varsa) monitör içindir, modele gitmez. */
+  private async step(
+    tool: string,
+    reason: string | null,
+    outcome: string,
+    frame: { shot: string | null; target: StepTarget | null } = { shot: null, target: null },
+  ): Promise<void> {
+    this.input.hooks.emit({ type: 'adim', tool, reason, outcome, ...frame })
     if (tool === 'bastan_ac') this.trail = []
     else if (tool !== 'ekrana_bak') this.trail = [...this.trail, outcome].slice(-10)
     const requests = this.input.session.drainNetwork()
@@ -485,6 +522,14 @@ export class PageController {
           'Sayfa giriş ekranına yönlendirdi; bakılamadı. Uygulama kullanıcısını ve yetkisini kontrol edin.',
       })
       return 'Bakılamadı: giriş ekranı.'
+    }
+    // Kayıt sayfası kimliksiz açılınca uygulama başka sayfaya yönlendirir: model çağrılmaz, bulgu yazılmaz.
+    const landed = landedOn(this.input.url, this.page.url())
+    if (landed) {
+      const summary = `Doğrudan açılamadı: uygulama "${landed}" sayfasına yönlendirdi. Bu bir kayıt sayfası olabilir (bir kayıttan ?id= ile açılır); sayfa atlandı, model çağrılmadı.`
+      hooks.emit({ type: 'hata', message: summary })
+      hooks.emit({ type: 'sayfa-bitti', summary })
+      return summary
     }
     const tooltips = await harvestTooltips(this.page)
     const hits = await runEyes(this.page, this.input.patterns)
@@ -764,16 +809,18 @@ export class PageController {
           })
           .catch(() => null)
         if (!target) return `'${ref}' bulunamadı; ekran değişmiş olabilir, ekrana_bak ile yeniden bak.`
+        const frame = await this.frame(ref)
         if (isUnsafeLabel(target.label) || target.submit) {
-          await this.step(name, reason, `Salt okuma: "${target.label}" basılmadı.`)
+          await this.step(name, reason, `Salt okuma: "${target.label}" basılmadı.`, frame)
           return `Salt okuma: "${target.label}" yazma işi yapabilir, basılmadı. Başka bir şey dene.`
         }
         await this.locate(ref).click({ timeout: 5_000 })
         const fresh = await this.afterAction()
-        await this.step(name, reason, `Tıklandı: "${target.label}"`)
+        await this.step(name, reason, `Tıklandı: "${target.label}"`, frame)
         return [text(`Tıklandı: "${target.label}".`), ...(await this.screen(false, fresh, true))]
       }
       case 'uzerine_gel': {
+        const frame = await this.frame(ref)
         await this.locate(ref).hover({ timeout: 5_000 })
         await this.page.waitForTimeout(400)
         const tip = await this.page
@@ -789,7 +836,7 @@ export class PageController {
           })
           .catch(() => '')
         const fresh = await this.afterAction()
-        await this.step(name, reason, tip ? `İpucu: ${tip.slice(0, 120)}` : 'Üstüne gelindi')
+        await this.step(name, reason, tip ? `İpucu: ${tip.slice(0, 120)}` : 'Üstüne gelindi', frame)
         return [
           text(tip ? `Açılan ipucu: ${tip}` : 'İpucu açılmadı.'),
           ...(await this.screen(false, fresh, true)),
@@ -798,16 +845,17 @@ export class PageController {
       case 'yaz': {
         const value = field(input, 'metin')
         this.input.session.guard.dirty = true
+        const frame = await this.frame(ref)
         await this.locate(ref).fill(value, { timeout: 5_000 })
         const fresh = await this.afterAction()
-        await this.step(name, reason, `Yazıldı: "${value.slice(0, 60)}"`)
+        await this.step(name, reason, `Yazıldı: "${value.slice(0, 60)}"`, frame)
         return [text(`Yazıldı.`), ...(await this.screen(false, fresh, true))]
       }
       case 'tus': {
         const key = field(input, 'tus')
         await this.page.keyboard.press(key)
         const fresh = await this.afterAction()
-        await this.step(name, reason, `Tuş: ${key}`)
+        await this.step(name, reason, `Tuş: ${key}`, await this.frame())
         return [text(`${key} basıldı.`), ...(await this.screen(false, fresh, true))]
       }
       case 'kaydir': {
@@ -817,13 +865,19 @@ export class PageController {
           name,
           reason,
           field(input, 'yon') === 'yukari' ? 'Yukarı kaydırıldı' : 'Aşağı kaydırıldı',
+          await this.frame(),
         )
         return [text('Kaydırıldı.'), ...(await this.screen(false, fresh, true))]
       }
       case 'ekrana_bak': {
         const withImage = (input as { goruntu?: unknown } | null)?.goruntu === true
         await this.input.session.settle(3_000)
-        await this.step(name, reason, withImage ? 'Ekrana bakıldı (görüntüyle)' : 'Ekrana bakıldı')
+        await this.step(
+          name,
+          reason,
+          withImage ? 'Ekrana bakıldı (görüntüyle)' : 'Ekrana bakıldı',
+          await this.frame(),
+        )
         // Ağaç zaten her adımda geliyor; bakışta yalnız fark (ve istenirse görüntü) gider.
         return this.screen(withImage, [], true)
       }
@@ -834,7 +888,7 @@ export class PageController {
           this.input.session.drainProblems(),
           'gorev',
         )
-        await this.step(name, reason, 'Sayfa baştan açıldı')
+        await this.step(name, reason, 'Sayfa baştan açıldı', await this.frame())
         return this.screen(false, fresh, true)
       }
       default:

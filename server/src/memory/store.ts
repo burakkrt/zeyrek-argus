@@ -225,6 +225,12 @@ export class MemoryStore {
     return text === null ? '' : parseDocument(text).body
   }
 
+  /** Uygulamanın kimlik bilgisi (`kimlik.md` ön bilgisi; ör. süper giriş uçları). İsteme girmez. Yoksa boş. */
+  identity(app: AppRef): Record<string, string | string[]> {
+    const text = this.read(join(this.appDir(app), 'kimlik.md'))
+    return text === null ? {} : parseDocument(text).data
+  }
+
   formats(): Array<{ name: string; content: string }> {
     return this.list('formats').map((rel) => ({
       name: rel.split(/[\\/]/).pop()!.replace(/\.md$/, ''),

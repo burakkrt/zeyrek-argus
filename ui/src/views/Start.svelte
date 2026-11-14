@@ -1,6 +1,9 @@
 <script lang="ts">
-  import type { PageGroup, RunInfo, Settings } from '@argus/shared'
+  import type { AppUserSetting, PageGroup, RunInfo, Settings } from '@argus/shared'
+  import type { Option } from '$lib/components/form/options'
   import { onMount } from 'svelte'
+  import Combobox from '$lib/components/form/Combobox.svelte'
+  import Field from '$lib/components/form/Field.svelte'
   import Page from '$lib/components/layout/Page.svelte'
   import { workspace } from '$lib/workspace.svelte'
   import { api, post, qs } from '../lib/api'
@@ -17,6 +20,29 @@
   let loading = $state('')
   let error = $state('')
   let starting = $state(false)
+  // Koşunun kimliği: çalışma alanının uygulamasındaki hesaplardan biri (seçilmezse varsayılan hesap).
+  // Hesaplar ve (uygulamada süper giriş tanımlıysa) asıl hesaptan geçilebilecek kişiler; kişi kimliğiyle seçilir.
+  let accounts = $state<AppUserSetting[]>([])
+  let people = $state<Array<{ id: string; label: string }>>([])
+  let superLogin = $state(false)
+  let user = $state<string | null>(null)
+  const userOptions = $derived<Option[]>([
+    ...accounts.map((a) => ({
+      value: a.identifier,
+      label: a.identifier,
+      hint: a.isDefault ? 'varsayılan hesap' : 'hesap',
+    })),
+    ...people.map((p) => ({ value: p.id, label: p.label, hint: 'süper giriş' })),
+  ])
+  const userHelp = $derived(
+    !accounts.length
+      ? 'Hesap yok: platform jetonuyla açılır. Uygulama giriş isterse Ayarlar › Uygulama kullanıcıları.'
+      : superLogin && !people.length
+        ? 'Hesapla girilir. Süper giriş kişileri ilk girişten sonra listelenir.'
+        : superLogin
+          ? 'Hesapla girilir; hesabı olmayan kişiye varsayılan hesaptan süper girişle geçilir ve koşu sonunda kapatılır.'
+          : 'Koşu bu hesapla girer; oturum saklıysa yeniden giriş yapılmaz.',
+  )
 
   const visibleGroups = $derived(
     groups
@@ -69,7 +95,7 @@
         uygulama: target.application,
         ortam: target.environment,
         sayfalar: selected,
-        secenekler: { maxTasks, maxSteps },
+        secenekler: { maxTasks, maxSteps, user },
       }),
     )
     starting = false
@@ -83,8 +109,11 @@
     } catch {
       /* tarayıcı depolaması kapalı */
     }
-    const [settings, pages] = await Promise.all([
+    const [settings, identity, pages] = await Promise.all([
       api<{ settings: Settings }>('/ayarlar').catch(() => null),
+      api<{ accounts: AppUserSetting[]; superLogin: boolean; people: Array<{ id: string; label: string }> }>(
+        `/kimlik${qs({ proje: target.project, uygulama: target.application, ortam: target.environment })}`,
+      ).catch(() => null),
       guard('Sayfalar okunuyor…', () =>
         api<PageGroup[]>(
           `/katalog/sayfalar${qs({ proje: target.project, uygulama: target.application, ortam: target.environment })}`,
@@ -96,6 +125,10 @@
     maxSteps =
       typeof saved.maxSteps === 'number' ? saved.maxSteps : (settings?.settings.defaultOptions.maxSteps ?? 10)
     groups = pages ?? []
+    accounts = identity?.accounts ?? []
+    people = identity?.people ?? []
+    superLogin = identity?.superLogin ?? false
+    user = accounts.find((a) => a.isDefault)?.identifier ?? accounts[0]?.identifier ?? null
   })
 </script>
 
@@ -108,6 +141,16 @@
 
     <div class="grid">
       <section class="card stack">
+        <Field label="Test kullanıcısı" for="kosu-kullanici" description={userHelp}>
+          <Combobox
+            id="kosu-kullanici"
+            options={userOptions}
+            bind:value={user}
+            disabled={!accounts.length}
+            placeholder={accounts.length ? 'Hesap seçin' : 'Kayıtlı hesap yok'}
+            searchPlaceholder="Hesap ya da kişi ara…"
+          />
+        </Field>
         <div class="row">
           <label class="field"
             >Sayfa başına görev<input type="number" min="1" max="12" bind:value={maxTasks} /></label

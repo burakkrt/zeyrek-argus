@@ -17,8 +17,11 @@ pnpm dev                  # http://localhost:5300
 ```
 
 Platform adresi, kuruluş ve kullanıcı Argus'ta yazılmaz; `zeyrek-mcp/.env`'den okunur. Uygulama kendi giriş
-ekranını gösteriyorsa (kompleks proje) **Ayarlar → Uygulama kullanıcıları**'ndan bir kullanıcı ekle (yalnız bu
-bilgisayarda saklanır).
+ekranını gösteriyorsa (kompleks proje) **Ayarlar → Uygulama kullanıcıları**'ndan hesap ekle; birden çok hesap
+eklenebilir, biri varsayılandır ve Yeni koşu'da "Test kullanıcısı" olarak seçilir. Hesaplar ve saklanan oturumlar
+yalnız bu bilgisayarda (`data/`) durur, Git'e girmez: klonlayan ekip arkadaşı kendi hesabını ekler. Hesap yokken
+koşu platform jetonuyla açılır; uygulama giriş isterse koşu model çağrılmadan durur ve ne yapılacağını söyler. Uygulamanın hafızasında süper giriş tanımlıysa (`kimlik.md`) Test kullanıcısı listesinde kişiler de görünür:
+hesabı olmayan kişiye varsayılan hesaptan süper girişle geçilir, koşu sonunda kapatılır; parola gerekmez.
 
 ## Ekranlar
 
@@ -26,15 +29,15 @@ Arayüz tek bir **çalışma alanına** (proje · uygulama · dal) odaklanır; m
 sunucuda kalır: açılışta son seçim, hiç seçim yoksa son koşunun ya da tek proje/uygulamanın development dalı açılır;
 soru yalnız bunlar çıkarılamazsa sorulur. Koşular dala, bulgular ve hafıza uygulamaya göre süzülür.
 
-| Ekran     | Ne yapar                                                                                                                                                                                                                           |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ana sayfa | Son 14 gün: açık bulgu, koşu, sayfa başı maliyet ve süre; günlük yeni bulgu grafiği; türe göre açık bulgular; son koşular (açılış ekranı)                                                                                          |
-| Yeni koşu | Çalışma alanındaki dalın sayfaları (MCP'den canlı); görev ve adım sınırı; tahmini süre ve maliyet                                                                                                                                  |
-| Monitör   | Akış: araştırma, plan, görevler, her adım (neden + sonuç + küçük görüntü), ağ istekleri, bulgular. Yanında canlı tarayıcı görüntüsü, plan durumu, anlık maliyet. Yazarak yönlendir, durdur. Biten koşu aynı ekranda tekrar izlenir |
-| Koşular   | Geçmiş koşular, süre, maliyet, yeni / bilinen / bastırılan bulgu sayıları                                                                                                                                                          |
-| Bulgular  | Kök nedene göre tek kayıt, sayfa başına görünümler; kutuyla işaretli kanıt; senaryo, beklenen, gözlenen; karar + yorum; tarihçe; Markdown (şablonla, görüntülerle) / CSV / JSON dışa aktarma; JSON içe aktarma                     |
-| Hafıza    | Kurallar (onay bekleyen, devrede, emekli; kaynak ve kullanım), öneriler, istem bütçesi, düz metin düzenleyici, müşteri Excel'i içe aktarma, Öğren / Bakım                                                                          |
-| Ayarlar   | Durum, bağlantı denetimi, uygulama kullanıcıları, model ve efor, bütçe, öğrenme politikası                                                                                                                                         |
+| Ekran     | Ne yapar                                                                                                                                                                                                                                                                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ana sayfa | Son 14 gün: açık bulgu, koşu, sayfa başı maliyet ve süre; günlük yeni bulgu grafiği; türe göre açık bulgular; son koşular (açılış ekranı)                                                                                                                                                                                                         |
+| Yeni koşu | Çalışma alanındaki dalın sayfaları (MCP'den canlı); görev ve adım sınırı; tahmini süre ve maliyet                                                                                                                                                                                                                                                 |
+| Monitör   | Canlı ya da kayıttan izleme: ortada sahne (canlı tarayıcı ya da adım karesi, üstünde imleç ve hedef çerçevesi), altında anlatı (ne yaptı · neden) ve bulgu işaretli zaman çizelgesi; solda plan, sağda bulgular. Hızlı akışta her adım en az 1,2 sn görünür; bulguya tıklayınca o anın kanıtı açılır. Yönlendir, durdur; ham akış "Tüm olaylar"da |
+| Koşular   | Geçmiş koşular, süre, maliyet, yeni / bilinen / bastırılan bulgu sayıları                                                                                                                                                                                                                                                                         |
+| Bulgular  | Kök nedene göre tek kayıt, sayfa başına görünümler; kutuyla işaretli kanıt; senaryo, beklenen, gözlenen; karar + yorum; tarihçe; Markdown (şablonla, görüntülerle) / CSV / JSON dışa aktarma; JSON içe aktarma                                                                                                                                    |
+| Hafıza    | Kurallar (onay bekleyen, devrede, emekli; kaynak ve kullanım), öneriler, istem bütçesi, düz metin düzenleyici, müşteri Excel'i içe aktarma, Öğren / Bakım                                                                                                                                                                                         |
+| Ayarlar   | Durum, bağlantı denetimi, uygulama kullanıcıları, model ve efor, bütçe, öğrenme politikası                                                                                                                                                                                                                                                        |
 
 ## Kontrolcü nasıl çalışır
 

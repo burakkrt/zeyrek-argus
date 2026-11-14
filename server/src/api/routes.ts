@@ -19,7 +19,9 @@ import { streamSSE } from 'hono/streaming'
 import type { AppContext } from '../context.ts'
 import { listEvents, listRuns, getRun, recentWorkspaces } from '../db/runs.ts'
 import {
+  appSessionFile,
   deleteAppUser,
+  forgetAppSessions,
   getAppUser,
   getSavedWorkspace,
   getSettings,
@@ -39,6 +41,8 @@ import { describeAccess } from '../platform/credentials.ts'
 import { probe } from '../platform/probe.ts'
 import { KNOWN_MODELS } from '../agent/model.ts'
 import { confirmWorkspace, resolveWorkspace } from '../workspace/workspace.ts'
+import { parseSuperLogin, type Person } from '../identity/super-login.ts'
+import { peopleFromStoredSession } from '../identity/switch.ts'
 
 const bad = (message: string): never => {
   throw new ArgusError('BAD_REQUEST', message)
@@ -105,6 +109,33 @@ export function createApi(ctx: AppContext): Hono {
 
   api.get('/ayarlar', (c) => c.json({ settings: getSettings(ctx.db), appUsers: listAppUsers(ctx.db) }))
 
+  // Koşunun kimlik seçenekleri: uygulamanın hesapları ve (süper giriş tanımlıysa) geçilebilecek kişiler.
+  api.get('/kimlik', async (c) => {
+    const app = queryApp(c) ?? bad('proje ve uygulama gerekli.')
+    const accounts = listAppUsers(ctx.db, app)
+    const spec = parseSuperLogin(ctx.memory.identity(app))
+    const base = getAppUser(ctx.db, app)
+    let people: Person[] = []
+    if (spec && base) {
+      const origin = (() => {
+        try {
+          return new URL(ctx.platform.access().credentials.studioBaseUrl).origin
+        } catch {
+          return null
+        }
+      })()
+      if (origin)
+        people = await peopleFromStoredSession(
+          origin,
+          app,
+          spec,
+          appSessionFile(ctx.config.dataDir, app, base.identifier),
+          c.req.query('ortam') || 'development',
+        )
+    }
+    return c.json({ accounts, superLogin: spec !== null, people })
+  })
+
   api.put('/ayarlar', async (c) => {
     const body = (await c.req.json()) as Partial<Settings>
     const patch: Partial<Settings> = {}
@@ -135,14 +166,19 @@ export function createApi(ctx: AppContext): Hono {
   api.put('/ayarlar/uygulama-kullanicisi', async (c) => {
     const body = (await c.req.json()) as Record<string, unknown>
     const app = appOf(body)
+    const identifier = str(body.kullanici, 'kullanici')
     const password = typeof body.parola === 'string' && body.parola !== '' ? body.parola : null
-    saveAppUser(ctx.db, app, str(body.kullanici, 'kullanici'), password)
+    saveAppUser(ctx.db, app, identifier, password, body.varsayilan === true)
+    // Parola değişince saklanan oturum eskir; yalnız varsayılan değiştiyse oturum geçerli kalır.
+    if (password !== null) forgetAppSessions(ctx.config.dataDir, app, identifier)
     return c.json({ appUsers: listAppUsers(ctx.db) })
   })
 
   api.delete('/ayarlar/uygulama-kullanicisi', (c) => {
     const app = queryApp(c) ?? bad('proje ve uygulama gerekli.')
-    deleteAppUser(ctx.db, app)
+    const identifier = c.req.query('kullanici') ?? bad('kullanici gerekli.')
+    deleteAppUser(ctx.db, app, identifier)
+    forgetAppSessions(ctx.config.dataDir, app, identifier)
     return c.json({ appUsers: listAppUsers(ctx.db) })
   })
 
@@ -211,7 +247,7 @@ export function createApi(ctx: AppContext): Hono {
     const pages = Array.isArray(body.sayfalar)
       ? body.sayfalar.filter((p): p is string => typeof p === 'string')
       : []
-    const options = (body.secenekler ?? {}) as { maxTasks?: number; maxSteps?: number }
+    const options = (body.secenekler ?? {}) as { maxTasks?: number; maxSteps?: number; user?: string | null }
     const run = ctx.runs.create({ ...appOf(body), environment: str(body.ortam, 'ortam'), pages, options })
     return c.json(run)
   })

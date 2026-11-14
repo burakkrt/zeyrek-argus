@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import type { NetworkEntry } from '@argus/shared'
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'playwright'
 import { ArgusError } from '../errors.ts'
@@ -17,6 +19,24 @@ export interface SessionOptions {
   headless?: boolean
   /** Canlı görüntü: CDP ekran yayınının JPEG kareleri (base64). */
   onFrame?: (data: string) => void
+  /** Önceki koşudan saklanan uygulama oturumu (çerezler); varsa tarayıcı onunla açılır, yeniden giriş yapılmaz. */
+  storageState?: string
+}
+
+/**
+ * Saklanan oturum dosyası okunabilir mi; bozuksa (yarım yazılmış, elle değiştirilmiş) silinir ve tarayıcı temiz
+ * açılır — koşu bu yüzden düşmez, gerekirse yeniden giriş yapılır.
+ */
+function readableState(file: string | undefined): file is string {
+  if (!file || !existsSync(file)) return false
+  try {
+    const state = JSON.parse(readFileSync(file, 'utf8')) as { cookies?: unknown }
+    if (Array.isArray(state.cookies)) return true
+  } catch {
+    /* bozuk dosya: aşağıda silinir */
+  }
+  rmSync(file, { force: true })
+  return false
 }
 
 const SIGN_IN_BUTTON = /sign in|log ?in|giriş|oturum aç/i
@@ -28,7 +48,13 @@ const USER_FIELD =
  * "mm/dd/yyyy" görünüp yanlış bulgu üretmişti). Ağ istekleri, konsol hataları ve engellenen yazmalar kayıt altında.
  */
 export class BrowserSession {
-  readonly guard: GuardState = { loadPosts: new Set(), loading: true, dirty: false }
+  readonly guard: GuardState = {
+    loadPosts: new Set(),
+    loading: true,
+    dirty: false,
+    identity: false,
+    reserved: new Set(),
+  }
   private network: NetworkEntry[] = []
   private problems: Problem[] = []
   private blocked: string[] = []
@@ -44,13 +70,22 @@ export class BrowserSession {
   ) {}
 
   static async open(options: SessionOptions): Promise<BrowserSession> {
-    const browser = await chromium.launch({ headless: options.headless ?? true })
+    const browser = await chromium.launch({ headless: options.headless ?? true }).catch((error: unknown) => {
+      // Yeni klonda Playwright'ın tarayıcısı henüz indirilmemiş olabilir.
+      if (error instanceof Error && /Executable doesn't exist|playwright install/i.test(error.message))
+        throw new ArgusError(
+          'BROWSER_MISSING',
+          'Kontrolcünün tarayıcısı kurulu değil. Bir kez `pnpm browsers:install` çalıştırın.',
+        )
+      throw error
+    })
     try {
       const context = await browser.newContext({
         locale: 'tr-TR',
         timezoneId: 'Europe/Istanbul',
         viewport: { width: 1280, height: 800 },
         extraHTTPHeaders: { 'Accept-Language': 'tr-TR,tr;q=0.9' },
+        ...(readableState(options.storageState) ? { storageState: options.storageState } : {}),
       })
       if (options.accessToken) {
         await context.addCookies([
@@ -133,6 +168,19 @@ export class BrowserSession {
       clip: { x: 0, y: 0, width: viewport.width, height: viewport.height, scale: 0.6 },
     })) as { data: string }
     return Buffer.from(shot.data, 'base64')
+  }
+
+  /**
+   * Monitörün adım karesi: görünüm alanı tam boyut, JPEG %60 (~50 KB). Yalnız diske yazılır, modele gitmez; koşunun
+   * kayıttan izlenmesi ve bulgunun "o anı" bununla gösterilir.
+   */
+  async stepFrame(): Promise<{ image: Buffer; viewport: { width: number; height: number } }> {
+    this.cdp ??= await this.context.newCDPSession(this.page)
+    const viewport = this.page.viewportSize() ?? { width: 1280, height: 800 }
+    const shot = (await this.cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 60 })) as {
+      data: string
+    }
+    return { image: Buffer.from(shot.data, 'base64'), viewport }
   }
 
   private async startScreencast(onFrame: (data: string) => void): Promise<void> {
@@ -245,6 +293,56 @@ export class BrowserSession {
     } finally {
       this.guard.loading = false
     }
+  }
+
+  /**
+   * Uygulamanın oturum çerezinin değerini değiştirir (süper giriş jetonu); alan, yol ve güvenlik öznitelikleri mevcut
+   * çerezden alınır. Çerez yoksa bir şey yapmaz ve `false` döner (oturum kurulmamış demektir).
+   */
+  async setCookieValue(name: string, value: string): Promise<boolean> {
+    const current = (await this.context.cookies()).find((c) => c.name === name)
+    if (!current) return false
+    await this.context.addCookies([{ ...current, value }])
+    return true
+  }
+
+  /**
+   * Kimlik isteği (süper giriş, kullanıcı listesi): sayfanın içinden, oturum çerezleriyle JSON POST. Giriş gibi salt
+   * okumanın bilinçli istisnasıdır; bu süre yazma korumasında `identity` açıktır, uç serbest listeye girmez.
+   */
+  async identityRequest(
+    path: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<{ status: number; data: unknown }> {
+    this.guard.identity = true
+    try {
+      return await this.page.evaluate(
+        async ({ path, body, headers }) => {
+          const response = await fetch(path, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...headers },
+            body: JSON.stringify(body),
+          })
+          const data: unknown = await response.json().catch(() => null)
+          return { status: response.status, data }
+        },
+        { path, body, headers },
+      )
+    } finally {
+      this.guard.identity = false
+    }
+  }
+
+  /**
+   * Uygulama oturumunu (çerezler, yerel depo) sonraki koşular için diske yazar; dosya yalnız bu kullanıcıya okunur
+   * (0600) ve `data/` altında durur (Git'e girmez). Platform jetonu yazılmaz: her koşuda taze alınır.
+   */
+  async saveState(file: string): Promise<void> {
+    const state = await this.context.storageState()
+    state.cookies = state.cookies.filter((c) => c.name !== ACCESS_TOKEN_COOKIE)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify(state), { mode: 0o600 })
   }
 
   async close(): Promise<void> {

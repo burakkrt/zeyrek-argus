@@ -30,7 +30,13 @@ describe('isWriteRequest', () => {
 })
 
 describe('judgeRequest', () => {
-  const state = (): GuardState => ({ loadPosts: new Set(), loading: true, dirty: false })
+  const state = (): GuardState => ({
+    loadPosts: new Set(),
+    loading: true,
+    dirty: false,
+    identity: false,
+    reserved: new Set(),
+  })
 
   it('açılışta görülen POST, form kirlendikten sonra da serbest; yeni uç engellenir', () => {
     const s = state()
@@ -48,6 +54,19 @@ describe('judgeRequest', () => {
     expect(judgeRequest(s, 'POST', 'http://s/api/microservice/kisi-sec/execute', true)).toEqual({
       allow: true,
     })
+  })
+
+  it('kimlik isteği serbest ama serbest listeye girmez; ayrılmış uç gezintide açılışta bile geçmez', () => {
+    const s = state()
+    const start = 'http://s/api/qm/m/web/sy-super-login-start'
+    s.reserved.add(endpointKey('POST', start))
+    s.identity = true
+    expect(judgeRequest(s, 'POST', start, true)).toEqual({ allow: true })
+    expect(s.loadPosts.size).toBe(0)
+    s.identity = false
+    expect(judgeRequest(s, 'POST', start, true)).toMatchObject({ allow: false })
+    s.loading = false
+    expect(judgeRequest(s, 'POST', start, true)).toMatchObject({ allow: false })
   })
 
   it('uç anahtarı kimlik parçalarını ayırmaz', () => {

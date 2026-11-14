@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { existsSync, readdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AppRef, AppUserSetting, Settings, Workspace } from '@argus/shared'
 import { json, type Database } from './database.ts'
 
@@ -62,39 +65,113 @@ export function saveWorkspace(db: Database, workspace: Workspace): void {
   ).run(JSON.stringify(workspace))
 }
 
-/** Uygulamanın kendi kullanıcısı (kompleks projede giriş ekranı için). Yalnız bu makinede, Git'e girmez. */
-export function getAppUser(db: Database, app: AppRef): { identifier: string; password: string } | null {
-  const row = db
-    .prepare('select identifier, password from app_users where project = ? and application = ?')
-    .get(app.project, app.application) as { identifier: string; password: string } | undefined
+/**
+ * Uygulama hesapları (kompleks projede uygulamanın kendi giriş ekranı için): uygulama başına birden çok, biri
+ * varsayılan. Yalnız bu makinede (SQLite, `data/`), Git'e girmez; ekip arkadaşı kendi hesabını kendi ekler.
+ */
+interface AccountRow {
+  project: string
+  application: string
+  identifier: string
+  password: string
+  is_default: number
+}
+
+/** Hesap: kullanıcı adı verilirse o, verilmezse varsayılan (yoksa ilk) hesap. */
+export function getAppUser(
+  db: Database,
+  app: AppRef,
+  identifier?: string | null,
+): { identifier: string; password: string } | null {
+  const row = (
+    identifier
+      ? db
+          .prepare(
+            'select identifier, password from app_accounts where project = ? and application = ? and identifier = ?',
+          )
+          .get(app.project, app.application, identifier)
+      : db
+          .prepare(
+            'select identifier, password from app_accounts where project = ? and application = ? order by is_default desc, identifier limit 1',
+          )
+          .get(app.project, app.application)
+  ) as { identifier: string; password: string } | undefined
   return row ?? null
 }
 
-export function listAppUsers(db: Database): AppUserSetting[] {
-  const rows = db
-    .prepare('select project, application, identifier, password from app_users order by project')
-    .all() as Array<{
-    project: string
-    application: string
-    identifier: string
-    password: string
-  }>
+export function listAppUsers(db: Database, app?: AppRef): AppUserSetting[] {
+  const rows = (app
+    ? db
+        .prepare('select * from app_accounts where project = ? and application = ? order by identifier')
+        .all(app.project, app.application)
+    : db
+        .prepare('select * from app_accounts order by project, application, identifier')
+        .all()) as unknown as AccountRow[]
   return rows.map((r) => ({
     project: r.project,
     application: r.application,
     identifier: r.identifier,
     hasPassword: r.password !== '',
+    isDefault: r.is_default === 1,
   }))
 }
 
-export function saveAppUser(db: Database, app: AppRef, identifier: string, password: string | null): void {
-  const existing = getAppUser(db, app)
+/**
+ * Hesabı ekler ya da günceller (parola boşsa eskisi kalır). Uygulamanın ilk hesabı ya da `makeDefault` ise varsayılan
+ * olur; uygulamada hep tek varsayılan vardır.
+ */
+export function saveAppUser(
+  db: Database,
+  app: AppRef,
+  identifier: string,
+  password: string | null,
+  makeDefault = false,
+): void {
+  const existing = getAppUser(db, app, identifier)
+  const first = !getAppUser(db, app)
   db.prepare(
-    `insert into app_users (project, application, identifier, password) values (?, ?, ?, ?)
-     on conflict(project, application) do update set identifier = excluded.identifier, password = excluded.password`,
+    `insert into app_accounts (project, application, identifier, password, is_default) values (?, ?, ?, ?, 0)
+     on conflict(project, application, identifier) do update set password = excluded.password`,
   ).run(app.project, app.application, identifier, password ?? existing?.password ?? '')
+  if (first || makeDefault) setDefaultAppUser(db, app, identifier)
 }
 
-export function deleteAppUser(db: Database, app: AppRef): void {
-  db.prepare('delete from app_users where project = ? and application = ?').run(app.project, app.application)
+export function setDefaultAppUser(db: Database, app: AppRef, identifier: string): void {
+  db.prepare(
+    'update app_accounts set is_default = (identifier = ?) where project = ? and application = ?',
+  ).run(identifier, app.project, app.application)
+}
+
+/** Hesabı siler; varsayılan silindiyse kalan ilk hesap varsayılan olur. */
+export function deleteAppUser(db: Database, app: AppRef, identifier: string): void {
+  db.prepare('delete from app_accounts where project = ? and application = ? and identifier = ?').run(
+    app.project,
+    app.application,
+    identifier,
+  )
+  const hasDefault = listAppUsers(db, app).some((a) => a.isDefault)
+  const next = getAppUser(db, app)
+  if (!hasDefault && next) setDefaultAppUser(db, app, next.identifier)
+}
+
+/**
+ * Uygulama kullanıcısının saklanan oturum dosyası (`data/oturumlar/`): her koşu yeniden giriş yapmasın diye
+ * tarayıcı çerezleri burada kalır. Dosya adı kullanıcı adının özetini taşır; kullanıcı değişince eski oturum
+ * kullanılmaz.
+ */
+export function appSessionFile(dataDir: string, app: AppRef, identifier: string): string {
+  const id = createHash('sha256').update(identifier.trim().toLowerCase()).digest('hex').slice(0, 16)
+  return join(dataDir, 'oturumlar', `${app.project}__${app.application}__${id}.json`)
+}
+
+/** Saklanan oturumu siler (parola değişince, hesap silinince); kullanıcı adı verilmezse uygulamanın hepsini. */
+export function forgetAppSessions(dataDir: string, app: AppRef, identifier?: string): void {
+  if (identifier) {
+    rmSync(appSessionFile(dataDir, app, identifier), { force: true })
+    return
+  }
+  const dir = join(dataDir, 'oturumlar')
+  if (!existsSync(dir)) return
+  for (const name of readdirSync(dir))
+    if (name.startsWith(`${app.project}__${app.application}__`)) rmSync(join(dir, name), { force: true })
 }

@@ -10,6 +10,11 @@ import playCircle from '@phosphor-icons/core/assets/duotone/play-circle-duotone.
 import squaresFour from '@phosphor-icons/core/assets/duotone/squares-four-duotone.svg?raw'
 import sidebarSimple from '@phosphor-icons/core/assets/regular/sidebar-simple.svg?raw'
 import check from '@material-symbols/svg-400/outlined/check.svg?raw'
+import subject from '@material-symbols/svg-400/outlined/subject.svg?raw'
+import circleOutline from '@material-symbols/svg-400/outlined/radio_button_unchecked.svg?raw'
+import checkCircle from '@material-symbols/svg-400/outlined/check_circle.svg?raw'
+import chevronLeft from '@material-symbols/svg-400/outlined/chevron_left.svg?raw'
+import cursor from '@material-symbols/svg-400/outlined/arrow_selector_tool.svg?raw'
 import chevronRight from '@material-symbols/svg-400/outlined/chevron_right.svg?raw'
 import circle from '@material-symbols/svg-400/outlined/circle.svg?raw'
 import close from '@material-symbols/svg-400/outlined/close.svg?raw'
@@ -26,6 +31,11 @@ import unfoldMore from '@material-symbols/svg-400/outlined/unfold_more.svg?raw'
 import visibility from '@material-symbols/svg-400/outlined/visibility.svg?raw'
 
 export const icons = {
+  subject,
+  circleOutline,
+  checkCircle,
+  chevronLeft,
+  cursor,
   brain,
   bug,
   check,

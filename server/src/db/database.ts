@@ -145,6 +145,20 @@ const MIGRATIONS: string[] = [
   );
   create index page_prints_page on page_prints (project, application, environment, page, at);
   `,
+  // Uygulama başına birden çok hesap (farklı kullanıcılarla test); biri varsayılan. Eski tek hesap varsayılan olur.
+  `
+  create table app_accounts (
+    project text not null,
+    application text not null,
+    identifier text not null,
+    password text not null,
+    is_default integer not null default 0,
+    primary key (project, application, identifier)
+  );
+  insert into app_accounts (project, application, identifier, password, is_default)
+    select project, application, identifier, password, 1 from app_users;
+  drop table app_users;
+  `,
 ]
 
 export function openDatabase(file: string): Database {
