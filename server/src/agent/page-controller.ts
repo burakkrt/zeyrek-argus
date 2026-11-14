@@ -14,6 +14,7 @@ import { isUnsafeLabel } from '../browser/guard.ts'
 import { landedOn } from '../platform/catalog.ts'
 import { ariaTree, harvestTooltips, visibleText } from '../browser/research.ts'
 import type { BrowserDialog, BrowserSession, Problem } from '../browser/session.ts'
+import type { Attachment } from '../runs/attachments.ts'
 import { changeSize, compressSnapshot, diffSnapshot, stripRefs } from '../browser/snapshot.ts'
 import type { RecordResult } from '../issues/issues.ts'
 import { apiPrint, uiPrint } from '../runs/prints.ts'
@@ -80,6 +81,10 @@ export interface PageInput {
   settings: Pick<Settings, 'models' | 'effort' | 'escalate' | 'inspector'>
   maxTasks: number
   maxSteps: number
+  /** Kullanıcının talimatı (yoksa null): planlayıcı önce bunu karşılar, gezgin görevde akılda tutar. */
+  brief: string | null
+  /** Talimatın ekleri (görsel, PDF, Excel, Word, metin): yalnız planlayıcı görür. */
+  attachments: Attachment[]
   ruleStats: { used: number; dropped: number; tokens: number }
   hooks: PageHooks
 }
@@ -621,7 +626,9 @@ export class PageController {
             tasks: [
               {
                 baslik: 'Sayfanın tamamı',
-                amac: 'Açık sorunları yeniden doğrula; listeleri, filtreleri, sıralamayı, "Yeni"/"Ekle" formlarını (kaydetmeden), pencereleri, sekmeleri ve sayfa genelinde tutarlılığı dene.',
+                amac:
+                  'Açık sorunları yeniden doğrula; listeleri, filtreleri, sıralamayı, "Yeni"/"Ekle" formlarını (kaydetmeden), pencereleri, sekmeleri ve sayfa genelinde tutarlılığı dene.' +
+                  (this.input.brief ? ` Kullanıcının talimatını önce karşıla: ${this.input.brief}` : ''),
               },
             ],
           }
@@ -674,6 +681,7 @@ export class PageController {
                   'Etkileşimle bakılacak açık sorun varsa onları ilgili göreve kat; ayrı bir "doğrulama" görevi açma. Liste/filtre/sıralama/sayfalama, "Yeni"/"Ekle" ile açılan formlar (kaydetmeden), ' +
                   'pencereler, sekmeler, menüler ve sayfa genelinde tutarlılığı kapsa. Ekranın ağacı ve görüntüsü aşağıda.',
               ),
+              ...this.briefBlocks(),
               ...(await this.screen(true)),
             ],
           },
@@ -690,6 +698,46 @@ export class PageController {
     }
   }
 
+  /**
+   * Kullanıcının talimatı ve ekleri, plan isteminde: planlayıcı görevleri önce talimatı karşılayacak biçimde kurar.
+   * Görsel ve PDF kendi bloğuyla, Excel / Word / metin adıyla birlikte metin olarak gider. Talimat ve ek yoksa hiçbir
+   * şey eklenmez (maliyet değişmez).
+   */
+  private briefBlocks(): ContentBlock[] {
+    const { brief, attachments } = this.input
+    if (!brief && !attachments.length) return []
+    return [
+      text(
+        'KULLANICININ TALİMATI (planı önce bunu karşılayacak biçimde kur; talimat sayfanın tamamını kapsamıyorsa kalan görevleri olağan kapsamla doldur):\n' +
+          (brief ?? '(yalnız dosya eklendi)') +
+          (attachments.length
+            ? `\nKullanıcı ${attachments.length} dosya ekledi (aşağıda: ${attachments.map((a) => a.name).join(', ')}); gösterdiği yer, gereksinim ve sorunlar önceliklidir.`
+            : ''),
+      ),
+      ...attachments.flatMap((file): ContentBlock[] => {
+        switch (file.kind) {
+          case 'image':
+            return [
+              text(`Ek: ${file.name}`),
+              { type: 'image', source: { type: 'base64', media_type: file.mediaType, data: file.data } },
+            ]
+          case 'pdf':
+            return [
+              {
+                type: 'document',
+                title: file.name,
+                source: { type: 'base64', media_type: 'application/pdf', data: file.data },
+              },
+            ]
+          default:
+            return [
+              text(`Ek: ${file.name}${file.truncated ? ' (uzun; başı)' : ''}\n<<<EK\n${file.text}\nEK>>>`),
+            ]
+        }
+      }),
+    ]
+  }
+
   private async runTask(
     task: { baslik: string; amac: string },
     notebook: string[],
@@ -699,6 +747,7 @@ export class PageController {
     const intro =
       `${facts()}\n\n` +
       (notebook.length ? `Bu sayfada önceki görevler:\n${notebook.join('\n')}\n\n` : '') +
+      (this.input.brief ? `Kullanıcının bu koşu için talimatı: ${this.input.brief}\n\n` : '') +
       `GÖREV: ${task.baslik}\n${task.amac}\nEn çok ${this.input.maxSteps} adımın var.` +
       (this.input.settings.inspector
         ? " Ulaştığın her yeni ekranı ayrı bir göz inceliyor: içerik ve tutarlılık sorunlarını o bulur. Senin işin görevdeki her maddeye ulaşmak (sekme, filtre, sıralama, pencere, form, detay) ve davranış sorunlarını bildirmek: tepki vermeyen düğme, açılmayan pencere, çalışmayan filtre, hata. Ulaşamadığın maddeyi gorevi_bitir'in eksik alanına yaz."

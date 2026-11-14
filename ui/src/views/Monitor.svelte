@@ -31,6 +31,7 @@
     type PointerMove,
   } from '$lib/monitor'
   import { live, subscribe } from '$lib/stream.svelte'
+  import { pageName } from '$lib/page-name.svelte'
 
   /**
    * Koşu monitörü (Stüdyo düzeni): solda video gibi izlenen kayıt — kenardan kenara sahne, hemen altında oynatma
@@ -412,6 +413,7 @@
         api<number[]>(`/kosular/${runId}/kareler`),
       ])
       run = info
+      pageName.current = info.code
       events = list
       frames = times
       // Paylaşılan an (`?t=<sn>`) varsa orada durulur; yoksa süren koşu canlıdan, biten koşu baştan oynatılır.
@@ -469,7 +471,11 @@
     >
       <!-- Üst şerit: sayfa başlığının yerini alır; adres "aşağısı bir tarayıcı ekranı" der. -->
       <div class="flex h-11 shrink-0 items-center gap-2.5 border-b pr-2.5 pl-3.5">
-        <h1 class="shrink-0 text-sm font-semibold">{running ? 'Canlı koşu' : 'Koşu kaydı'}</h1>
+        <h1 class="shrink-0 text-sm font-semibold">
+          {run?.code ?? 'Koşu'}<span class="text-muted-foreground ml-1.5 font-normal"
+            >{running ? 'canlı' : 'kayıt'}</span
+          >
+        </h1>
         <div
           class="bg-surface-alt text-muted-foreground flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border px-2.5 font-mono text-xs"
           title={pageUrl}

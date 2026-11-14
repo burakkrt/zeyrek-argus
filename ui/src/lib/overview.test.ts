@@ -8,6 +8,7 @@ const ago = (days: number, hours = 0) =>
 
 const run = (over: Partial<RunInfo>): RunInfo => ({
   id: 'r',
+  code: 'KOS-2026-0001',
   project: 'qm',
   application: 'web',
   environment: 'development',

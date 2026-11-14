@@ -107,10 +107,16 @@ export interface RunOptions {
   maxSteps: number
   /** Koşunun kimliği: uygulama hesabının kullanıcı adı; boşsa varsayılan hesap (yoksa platform jetonu). */
   user?: string | null
+  /** Kullanıcının talimatı: neye odaklanılsın, nerede sorun var (planlayıcı ve gezgin okur). */
+  brief?: string | null
+  /** Talimata eklenen görsellerin kimlikleri (`data/ekler/`); planlayıcı görür. */
+  attachments?: string[]
 }
 
 export interface RunInfo {
   id: string
+  /** Koşunun okunur kodu (`KOS-2026-0007`): yıl içinde sıralı, koşu başlatılınca atanır, değişmez. */
+  code: string
   project: string
   application: string
   environment: string

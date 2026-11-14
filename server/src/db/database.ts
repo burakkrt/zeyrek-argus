@@ -159,6 +159,16 @@ const MIGRATIONS: string[] = [
     select project, application, identifier, password, 1 from app_users;
   drop table app_users;
   `,
+  // Koşu kodu (KOS-<yıl>-<sıra>): mevcut koşulara oluşturulma sırasıyla, yıl başına sıralı atanır.
+  `
+  alter table runs add column code text;
+  update runs set code = 'KOS-' || substr(created_at, 1, 4) || '-' || printf('%04d', (
+    select count(*) from runs r
+    where substr(r.created_at, 1, 4) = substr(runs.created_at, 1, 4)
+      and (r.created_at < runs.created_at or (r.created_at = runs.created_at and r.id <= runs.id))
+  ));
+  create unique index runs_code on runs(code);
+  `,
 ]
 
 export function openDatabase(file: string): Database {

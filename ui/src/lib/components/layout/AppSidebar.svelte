@@ -173,7 +173,7 @@
         bind:this={searchInput}
         bind:value={query}
         onkeydown={(e) => e.key === 'Escape' && ((query = ''), searchInput?.blur())}
-        class="text-foreground placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent px-1 text-sm outline-none"
+        class="text-foreground placeholder:text-placeholder min-w-0 flex-1 bg-transparent px-1 text-sm outline-none"
         placeholder="Menüde ara…"
         aria-label="Menüde ara"
       />

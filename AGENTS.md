@@ -21,7 +21,7 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 ## Yapı
 
 - `shared/` türleri sunucu ve arayüz ortak kullanır; olay biçimi değişirse ikisi birlikte değişir.
-- Paylaşılan bilgi `memory/` dosyalarındadır (Git); yerel veri `data/argus.db` (SQLite) ve `data/runs/`.
+- Paylaşılan bilgi `memory/` dosyalarındadır (Git); yerel veri `data/argus.db` (SQLite), `data/runs/` ve talimat görselleri `data/ekler/` (planlayıcıya yalnız koşunun kendi ekleri gider; gezgin görmez).
   Karar dosyası kaynaktır; veritabanı aynadır (`IssueService.syncFromMemory`).
 - Sayaçlar (kural kullanımı) dosyaya değil veritabanına yazılır.
 - Kod adları İngilizce; arayüz, hata mesajı, hafıza ve doküman Türkçe. Model araçlarının adları Türkçedir (akışta
@@ -59,7 +59,7 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
   işaretleri (ok, arama, kapat …) Material Symbols Outlined. Yalnız `ui/src/lib/icons.ts`'te içe aktarılan SVG pakete
   girer, bileşen `Icon` ile çizer; başka ikon paketi eklenmez. Parçalar `ui/src/lib/components/` altındadır: `ui/` (shadcn; form ve
   menü kiti henüz kullanılmayan parçalarıyla birlikte), `layout/` (kabuk ve sayfa kalıbı), `form/` (alan, aramalı
-  seçim), `status/` (durum etiketleri).
+  seçim, ek alanı), `table/` (ortak veri tablosu), `status/` (durum etiketleri).
 - Renk: zemin `#F3F4F6`, kart beyaz, kenar `#E5E7EB`, form kenarı `#D8DBE0`, metin `#18181B` / `#52525B`. Vurgu tek
   mavi (`--brand` `#0C66E4`); seçili öğe açık mavi zemin + kenar + koyu mavi yazı. Durum renkleri (`--success`,
   `--warning`, `--destructive`, `--info`) yalnız durum bildirir; etiket ve uyarıda `success` / `warning` / `error` /
@@ -88,6 +88,19 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
   (koşular, dala göre) ya da `appQuery()` (bulgu, hafıza; uygulamaya göre) ile süzer. Seçim açılışta sorulmaz:
   sunucu kayıtlıyı, yoksa tahmini verir; değişince sayfa ağacı `{#key}` ile baştan kurulur ve açık sekmeler
   `calisma-alani` olayıyla aynı seçime geçer. Seçicinin tek yeri menünün dibindeki `WorkspaceSwitcher`'dır.
+- Tablo: her liste `table/DataTable` ile çizilir — Zeyrek platform tablosunun birebir görünümü (üstte mavi hap hazır
+  süzgeçler; kart şeridinde kayıt özeti ve "Kolon ayarları" menüsü: tutamaç + işaret kutusu, sürükle-bırak, Sıfırla;
+  büyük harf 40 px başlık; kolon altı süzgeç satırı, her kutu aynı 30 px / 12 px; 14 px hücre). Gelişmiş filtre yoktur
+  (kullanıcı kararı, 2026-11-14: yük). Mantık `lib/table.ts`'tedir; ölçüler bileşenin başındaki yorumda.
+- Ek alanı: `form/Attachments` — platformun kompakt sürükle-bırak eki (boşken tek satır, dolunca sayaç + Dosya ekle +
+  kartlar). Mantık `lib/attachments.ts`.
+- Koşu kodu `KOS-<yıl>-<sıra>` yalnız `createRun`'da atanır (`db/runs.ts` › `nextRunCode`); Yeni koşu `/kosular/siradaki-kod`'u
+  önizler, ayırmaz. Kayıttan açılan sayfa adını `lib/page-name.svelte.ts`'e yazar; iz ve sekme başlığı onu gösterir.
+- Bildirim: `notify.success|info|warning|error(başlık, açıklama)` (`lib/notify.svelte.ts`); kartları `Page` başlık
+  şeridinin hemen altında sağda `layout/Notifications` çizer (platform outlined toast: beyaz kart, tonda ikon, geri sayım
+  çizgisi, üzerine gelince durur, kapat; aynı bildirim tekrar gelirse ×n). Sayfa içi kırmızı Alert yerine bunu kullan.
+- Yazı Inter (kod JetBrains Mono), Google Fonts; yer tutucu her girdide `text-placeholder` (#94A3B8); odak çerçevesi
+  ince (2 px, %15).
 - Form: her kontrol `Field` ile sarılır (etiket, zorunlu işareti, açıklama, hata; etikete tıklamak açılır menüyü
   açmaz, odaklar). Seçim için yerel `<select>` kullanılmaz: aramalı `Combobox` / `MultiCombobox` (Türkçe harf
   duyarlı süzgeç), kısa sabit listede `Select`. Açılır menü standardı: açıkken tetik mavi kenar + halka; üzerine

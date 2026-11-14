@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs'
 import type { AppRef } from '@argus/shared'
 import { endpointKey } from '../browser/guard.ts'
 import type { BrowserSession } from '../browser/session.ts'
@@ -92,33 +91,4 @@ export async function endSuperLogin(
   const token = tokenOf(stopped.data, spec.tokenField)
   if (token) await session.setCookieValue(spec.cookie, token)
   return true
-}
-
-/**
- * Süper giriş kişi listesi, tarayıcı açmadan: asıl hesabın saklanan oturum çerezleriyle sunucudan okunur (Yeni koşu'da
- * "Test kullanıcısı" seçimi için). Saklanan oturum yoksa ya da liste okunamazsa boş döner; koşu yine hesapla açılır.
- */
-export async function peopleFromStoredSession(
-  origin: string,
-  app: AppRef,
-  spec: SuperLoginSpec,
-  stateFile: string,
-  environment: string,
-): Promise<Person[]> {
-  if (!existsSync(stateFile)) return []
-  try {
-    const state = JSON.parse(readFileSync(stateFile, 'utf8')) as {
-      cookies?: Array<{ name: string; value: string }>
-    }
-    const cookie = (state.cookies ?? []).map((c) => `${c.name}=${c.value}`).join('; ')
-    const response = await fetch(`${origin}${usersPath(app, spec)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', cookie, ...runtimeHeaders(environment, spec.page) },
-      body: JSON.stringify({ op: 'list', page: { limit: 1000, offset: 0 } }),
-      signal: AbortSignal.timeout(15_000),
-    })
-    return response.ok ? peopleOf(rowsOf(await response.json())) : []
-  } catch {
-    return []
-  }
 }

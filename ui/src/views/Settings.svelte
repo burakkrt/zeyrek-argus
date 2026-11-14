@@ -189,8 +189,8 @@
     <h2>Uygulama kullanıcıları</h2>
     <p class="muted small">
       Uygulama kendi giriş ekranını gösteriyorsa (ör. IMS Cortex) kontrolcü bu hesaplarla girer; oturum
-      saklanır, her koşu yeniden giriş yapmaz. Uygulama başına birden çok hesap olabilir: Yeni koşu'da
-      seçilmezse varsayılan hesapla girilir. Yalnız bu bilgisayarda saklanır, Git'e girmez.
+      saklanır, her koşu yeniden giriş yapmaz. Uygulama başına birden çok hesap olabilir; koşular varsayılan
+      hesapla girer (Yeni koşu özette gösterir). Yalnız bu bilgisayarda saklanır, Git'e girmez.
     </p>
     {#each appUsers as u (`${u.project}/${u.application}/${u.identifier}`)}
       <div class="row">

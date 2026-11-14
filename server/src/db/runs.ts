@@ -12,6 +12,7 @@ export const EMPTY_USAGE: Usage = {
 
 interface RunRow {
   id: string
+  code: string
   project: string
   application: string
   environment: string
@@ -40,6 +41,7 @@ function counts(db: Database, runId: string): RunInfo['counts'] {
 function toInfo(db: Database, row: RunRow): RunInfo {
   return {
     id: row.id,
+    code: row.code,
     project: row.project,
     application: row.application,
     environment: row.environment,
@@ -55,23 +57,43 @@ function toInfo(db: Database, row: RunRow): RunInfo {
   }
 }
 
+/**
+ * Koşu kodu: `KOS-<yıl>-<sıra>`, sıra yıl içinde 1'den başlar ve 4 hanelidir (`KOS-2026-0007`). Kod yalnız koşu
+ * oluşturulurken atanır; Yeni koşu ekranı bunu önizler ama ayırmaz — sayfa yenilenince ya da koşu başlatılmadan
+ * bırakılınca kod tükenmez.
+ */
+export const RUN_CODE_PREFIX = 'KOS'
+
+export function nextRunCode(db: Database, at: string = now()): string {
+  const year = at.slice(0, 4)
+  const row = db
+    .prepare(
+      `select max(cast(substr(code, ${RUN_CODE_PREFIX.length + 7}) as integer)) as seq from runs where code like ?`,
+    )
+    .get(`${RUN_CODE_PREFIX}-${year}-%`) as { seq: number | null }
+  return `${RUN_CODE_PREFIX}-${year}-${String((row.seq ?? 0) + 1).padStart(4, '0')}`
+}
+
 export function createRun(
   db: Database,
   input: { project: string; application: string; environment: string; pages: string[]; options: RunOptions },
 ): RunInfo {
   const id = newId()
+  const createdAt = now()
+  // Kod ve kayıt tek ifadede: sıra hesaplanıp aynı anda yazılır (SQLite yazmaları sıralar, iki koşu aynı kodu almaz).
   db.prepare(
-    `insert into runs (id, project, application, environment, pages, options, status, usage, created_at)
-     values (?, ?, ?, ?, ?, ?, 'sirada', ?, ?)`,
+    `insert into runs (id, code, project, application, environment, pages, options, status, usage, created_at)
+     values (?, ?, ?, ?, ?, ?, ?, 'sirada', ?, ?)`,
   ).run(
     id,
+    nextRunCode(db, createdAt),
     input.project,
     input.application,
     input.environment,
     JSON.stringify(input.pages),
     JSON.stringify(input.options),
     JSON.stringify(EMPTY_USAGE),
-    now(),
+    createdAt,
   )
   return getRun(db, id)!
 }

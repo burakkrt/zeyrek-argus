@@ -45,6 +45,16 @@ import replay from '@material-symbols/svg-400/outlined/replay.svg?raw'
 import webAsset from '@material-symbols/svg-400/outlined/web_asset.svg?raw'
 import sms from '@material-symbols/svg-400/outlined/sms.svg?raw'
 import zoomIn from '@material-symbols/svg-400/outlined/zoom_in.svg?raw'
+import viewColumn from '@material-symbols/svg-400/outlined/view_column.svg?raw'
+import arrowUp from '@material-symbols/svg-400/outlined/arrow_upward.svg?raw'
+import arrowDown from '@material-symbols/svg-400/outlined/arrow_downward.svg?raw'
+import add from '@material-symbols/svg-400/outlined/add.svg?raw'
+import dragIndicator from '@material-symbols/svg-400/outlined/drag_indicator.svg?raw'
+import warning from '@material-symbols/svg-400/outlined/warning.svg?raw'
+import firstPage from '@material-symbols/svg-400/outlined/first_page.svg?raw'
+import lastPage from '@material-symbols/svg-400/outlined/last_page.svg?raw'
+import upload from '@material-symbols/svg-400/outlined/upload.svg?raw'
+import download from '@material-symbols/svg-400/outlined/download.svg?raw'
 import link from '@material-symbols/svg-400/outlined/link.svg?raw'
 import skipPrevious from '@material-symbols/svg-400/outlined/skip_previous.svg?raw'
 import skipNext from '@material-symbols/svg-400/outlined/skip_next.svg?raw'
@@ -104,6 +114,16 @@ export const icons = {
   webAsset,
   sms,
   zoomIn,
+  viewColumn,
+  arrowUp,
+  arrowDown,
+  add,
+  upload,
+  warning,
+  firstPage,
+  lastPage,
+  dragIndicator,
+  download,
   link,
   skipPrevious,
   skipNext,

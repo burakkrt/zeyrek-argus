@@ -25,6 +25,8 @@
     invalid = false,
     loading = false,
     id,
+    size = 'default',
+    class: className,
     onchange,
   }: {
     options: Option[]
@@ -36,6 +38,10 @@
     invalid?: boolean
     loading?: boolean
     id?: string
+    /** `sm`: tablo kolon süzgeci kutusu (30 px, 12 px yazı, 6 px köşe). */
+    size?: 'default' | 'sm'
+    /** Tetiğe ek sınıf (ör. süzgeç uygulanmışken açık mavi). */
+    class?: string
     onchange?: (value: string) => void
   } = $props()
 
@@ -63,16 +69,26 @@
         aria-invalid={invalid || undefined}
         aria-busy={loading || undefined}
         disabled={disabled || loading}
-        class="border-input hover:border-muted-foreground/40 aria-expanded:border-brand aria-expanded:ring-brand/15 hover:bg-card aria-expanded:bg-card w-full justify-between px-3 font-normal aria-expanded:ring-3"
+        class={cn(
+          'border-input hover:border-muted-foreground/40 aria-expanded:border-brand aria-expanded:ring-brand/10 hover:bg-card aria-expanded:bg-card w-full justify-between px-3 font-normal aria-expanded:ring-2',
+          size === 'sm' && 'h-[30px] gap-1 rounded-[6px] pr-1.5 pl-2 text-xs',
+          className,
+        )}
       >
-        <span class={cn('truncate', !selected && 'text-muted-foreground')}
+        <span class={cn('truncate', !selected && 'text-placeholder')}
           >{selected?.label ?? (loading ? 'Yükleniyor…' : placeholder)}</span
         >
-        {#if loading}<Spinner />{:else}<Icon name="unfoldMore" class="text-muted-foreground" />{/if}
+        {#if loading}<Spinner />{:else if size === 'sm'}<Icon
+            name="keyboardArrowDown"
+            class="text-muted-foreground size-4"
+          />{:else}<Icon name="unfoldMore" class="text-muted-foreground" />{/if}
       </Button>
     {/snippet}
   </Popover.Trigger>
-  <Popover.Content class="w-(--bits-popover-anchor-width) min-w-60 gap-0 p-0" align="start">
+  <Popover.Content
+    class={cn('w-(--bits-popover-anchor-width) gap-0 p-0', size === 'sm' ? 'min-w-52' : 'min-w-60')}
+    align="start"
+  >
     <Command.Root filter={turkishFilter}>
       <Command.Input placeholder={searchPlaceholder} />
       <Command.List>

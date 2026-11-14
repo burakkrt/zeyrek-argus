@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import Spinner from '$lib/components/Spinner.svelte'
+  import Notifications from '$lib/components/layout/Notifications.svelte'
   import { pageLoad } from '$lib/page-load'
   import { cn } from '$lib/utils'
 
@@ -40,7 +41,11 @@
       {/if}
     </div>
     {#if actions}<div class="flex shrink-0 items-center gap-2">{@render actions()}</div>{/if}
+    <!-- Bildirimler: başlık şeridinin hemen altında, eylem düğmelerinin altında (şeritle birlikte yapışkan). -->
+    <div class="absolute top-full right-7 z-40 mt-3"><Notifications /></div>
   </div>
+{:else}
+  <div class="sticky top-14 z-40 h-0"><div class="absolute top-3 right-7"><Notifications /></div></div>
 {/if}
 
 {#if $pageLoad}

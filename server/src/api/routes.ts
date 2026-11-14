@@ -17,9 +17,8 @@ import {
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppContext } from '../context.ts'
-import { listEvents, listRuns, getRun, recentWorkspaces } from '../db/runs.ts'
+import { listEvents, listRuns, getRun, nextRunCode, recentWorkspaces } from '../db/runs.ts'
 import {
-  appSessionFile,
   deleteAppUser,
   forgetAppSessions,
   getAppUser,
@@ -41,8 +40,7 @@ import { describeAccess } from '../platform/credentials.ts'
 import { probe } from '../platform/probe.ts'
 import { KNOWN_MODELS } from '../agent/model.ts'
 import { confirmWorkspace, resolveWorkspace } from '../workspace/workspace.ts'
-import { parseSuperLogin, type Person } from '../identity/super-login.ts'
-import { peopleFromStoredSession } from '../identity/switch.ts'
+import { saveAttachment } from '../runs/attachments.ts'
 
 const bad = (message: string): never => {
   throw new ArgusError('BAD_REQUEST', message)
@@ -110,30 +108,10 @@ export function createApi(ctx: AppContext): Hono {
   api.get('/ayarlar', (c) => c.json({ settings: getSettings(ctx.db), appUsers: listAppUsers(ctx.db) }))
 
   // Koşunun kimlik seçenekleri: uygulamanın hesapları ve (süper giriş tanımlıysa) geçilebilecek kişiler.
-  api.get('/kimlik', async (c) => {
+  // Koşunun kimliği (Yeni koşu özetinde): uygulamanın hesapları; koşu varsayılan hesapla girer. Kimlik Ayarlar'dan yönetilir.
+  api.get('/kimlik', (c) => {
     const app = queryApp(c) ?? bad('proje ve uygulama gerekli.')
-    const accounts = listAppUsers(ctx.db, app)
-    const spec = parseSuperLogin(ctx.memory.identity(app))
-    const base = getAppUser(ctx.db, app)
-    let people: Person[] = []
-    if (spec && base) {
-      const origin = (() => {
-        try {
-          return new URL(ctx.platform.access().credentials.studioBaseUrl).origin
-        } catch {
-          return null
-        }
-      })()
-      if (origin)
-        people = await peopleFromStoredSession(
-          origin,
-          app,
-          spec,
-          appSessionFile(ctx.config.dataDir, app, base.identifier),
-          c.req.query('ortam') || 'development',
-        )
-    }
-    return c.json({ accounts, superLogin: spec !== null, people })
+    return c.json({ accounts: listAppUsers(ctx.db, app) })
   })
 
   api.put('/ayarlar', async (c) => {
@@ -242,14 +220,33 @@ export function createApi(ctx: AppContext): Hono {
     return c.json(listRuns(ctx.db, 100, app && environment ? { ...app, environment } : undefined))
   })
 
+  // Yeni koşu ekranının önizlediği kod: hesaplanır, ayrılmaz (koşu başlatılınca atanır).
+  api.get('/kosular/siradaki-kod', (c) => c.json({ code: nextRunCode(ctx.db) }))
+
   api.post('/kosular', async (c) => {
     const body = (await c.req.json()) as Record<string, unknown>
     const pages = Array.isArray(body.sayfalar)
       ? body.sayfalar.filter((p): p is string => typeof p === 'string')
       : []
-    const options = (body.secenekler ?? {}) as { maxTasks?: number; maxSteps?: number; user?: string | null }
+    const options = (body.secenekler ?? {}) as {
+      maxTasks?: number
+      maxSteps?: number
+      user?: string | null
+      brief?: string | null
+      attachments?: string[]
+    }
     const run = ctx.runs.create({ ...appOf(body), environment: str(body.ortam, 'ortam'), pages, options })
     return c.json(run)
+  })
+
+  /** Talimata eklenen dosya (çok parçalı `dosya`); kimliği döner, koşu oluşturulurken `secenekler.attachments`e yazılır. */
+  api.post('/ekler', async (c) => {
+    const form = await c.req.formData()
+    const file = form.get('dosya')
+    if (!(file instanceof File)) bad('dosya gerekli.')
+    const upload = file as File
+    const bytes = new Uint8Array(await upload.arrayBuffer())
+    return c.json({ id: saveAttachment(ctx.config.dataDir, bytes, upload.name, upload.type) })
   })
 
   api.get('/kosular/:id', (c) => {

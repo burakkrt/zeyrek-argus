@@ -64,15 +64,20 @@ function readRows(files: Record<string, Uint8Array>): string[][] {
   })
 }
 
-/** Müşteri bulgu Excel'ini okur. Başlık satırı adından tanınır; metni olmayan satırlar atlanır. */
-export function parseCustomerXlsx(file: Uint8Array, fileName: string): CustomerRow[] {
+/** Excel'in ilk çalışma sayfasının satırları (hücre metinleri; boş hücre `undefined` olabilir). */
+export function xlsxRows(file: Uint8Array): string[][] {
   let files: Record<string, Uint8Array>
   try {
     files = unzipSync(file)
   } catch {
     throw new ArgusError('XLSX', 'Dosya açılamadı; .xlsx biçiminde bir Excel dosyası yükleyin.')
   }
-  const rows = readRows(files)
+  return readRows(files)
+}
+
+/** Müşteri bulgu Excel'ini okur. Başlık satırı adından tanınır; metni olmayan satırlar atlanır. */
+export function parseCustomerXlsx(file: Uint8Array, fileName: string): CustomerRow[] {
+  const rows = xlsxRows(file)
   const headerAt = rows.findIndex((cells) => cells.filter((c) => c && HEADERS[normalize(c)]).length >= 2)
   if (headerAt < 0) throw new ArgusError('XLSX', 'Başlık satırı bulunamadı; en az "Modül" ve "Test Edilen Fonksiyon" sütunları olmalı.')
   const columns = new Map<Column, number>()

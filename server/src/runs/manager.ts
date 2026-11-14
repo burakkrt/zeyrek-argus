@@ -20,6 +20,7 @@ import { planIdentity } from '../identity/plan.ts'
 import { parseSuperLogin, type SuperLoginSpec } from '../identity/super-login.ts'
 import { endSuperLogin, reserveSuperLogin, switchUser } from '../identity/switch.ts'
 import { ArgusError, errorMessage } from '../errors.ts'
+import { loadAttachments, validAttachments } from './attachments.ts'
 import type { IssueService } from '../issues/issues.ts'
 import type { Learner } from '../memory/learn.ts'
 import { selectRules } from '../memory/select.ts'
@@ -51,6 +52,9 @@ interface ActiveRun {
 }
 
 /** Koşuları sırayla yürütür (aynı anda tek koşu). Sunucu açılırken yarım kalanlar "hata" ile kapanır. */
+/** Talimatın üst sınırı (karakter): isteme sınırsız metin girmesin. */
+const BRIEF_LIMIT = 2_000
+
 export class RunManager {
   private active: ActiveRun | null = null
   private kicking = false
@@ -77,6 +81,8 @@ export class RunManager {
       maxTasks: Math.min(Math.max(input.options?.maxTasks ?? settings.defaultOptions.maxTasks, 1), 12),
       maxSteps: Math.min(Math.max(input.options?.maxSteps ?? settings.defaultOptions.maxSteps, 3), 40),
       user: input.options?.user?.trim() || null,
+      brief: input.options?.brief?.trim().slice(0, BRIEF_LIMIT) || null,
+      attachments: validAttachments(this.deps.dataDir, input.options?.attachments),
     }
     const run = createRun(this.deps.db, { ...input, pages: [...new Set(input.pages)], options })
     this.deps.bus.runUpdated(run)
@@ -210,6 +216,8 @@ export class RunManager {
       if (synced)
         bus.publish(run.id, null, { type: 'bilgi', message: `Takımın ${synced} kararı hafızadan okundu.` })
 
+      // Talimatın ekleri bir kez okunur, her sayfanın planlayıcısına gider.
+      const attachments = loadAttachments(this.deps.dataDir, run.options.attachments ?? [])
       for (const page of run.pages) {
         if (active.stop) break
         const url = urlOf(page)
@@ -246,6 +254,8 @@ export class RunManager {
           settings,
           maxTasks: run.options.maxTasks,
           maxSteps: run.options.maxSteps,
+          brief: run.options.brief ?? null,
+          attachments,
           ruleStats: {
             used: selection.used.length,
             dropped: selection.dropped.length,

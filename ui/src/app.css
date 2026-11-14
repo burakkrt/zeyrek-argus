@@ -1,7 +1,5 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@import '@fontsource-variable/geist';
-@import '@fontsource-variable/geist-mono';
 
 /*
  * Tek tema: `dark:` yalnız .dark sınıfında eşleşir ve bu sınıf kullanılmaz. (Varsayılanı işletim sisteminin koyu tema
@@ -115,8 +113,10 @@
 }
 
 @theme inline {
-  --font-sans: 'Geist Variable', system-ui, sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* Yer tutucu: her girdide aynı soluk ton (platformun --ng-text-disabled'ı); yazılı metinden açıkça ayrılır. */
+  --color-placeholder: #94a3b8;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -166,6 +166,10 @@
 }
 
 @layer base {
+  ::placeholder {
+    color: var(--color-placeholder);
+    opacity: 1;
+  }
   * {
     @apply border-border outline-ring/50;
   }

@@ -8,6 +8,7 @@
   import * as Card from '$lib/components/ui/card/index.js'
   import { api } from '$lib/api'
   import { crumbsFor, documentTitle } from '$lib/nav'
+  import { pageName } from '$lib/page-name.svelte'
   import { route } from '$lib/router.svelte'
   import { connect, live } from '$lib/stream.svelte'
   import { loadWorkspace, workspace } from '$lib/workspace.svelte'
@@ -47,9 +48,15 @@
       : []),
   ])
 
-  // Sekme başlığı sayfayla değişir.
+  // Kayıttan açılan sayfanın adı adres değişince silinir; sayfa yükleyince yeniden yazar.
+  $effect.pre(() => {
+    void route.parts.join('/')
+    pageName.current = null
+  })
+
+  // Sekme başlığı sayfayla (kayıt sayfasında kaydın adıyla) değişir.
   $effect(() => {
-    document.title = documentTitle(route.parts[0])
+    document.title = documentTitle(route.parts[0], pageName.current)
   })
 
   onMount(() => {
@@ -61,7 +68,7 @@
   })
 </script>
 
-<AppShell crumbs={crumbsFor(route.parts[0])}>
+<AppShell crumbs={crumbsFor(route.parts[0], pageName.current)}>
   {#snippet sidebar()}<AppSidebar {activeRunId} status={statusLines} />{/snippet}
 
   {#if workspace.notice}
@@ -102,15 +109,15 @@
     {#key workspace.key}
       {#if route.parts[0] === 'baslat'}
         <Start />
+      {:else if route.parts[0] === 'kosular'}
+        <Runs />
       {:else if route.parts[0] === 'monitor' && route.parts[1]}
         {#key route.parts[1]}<Monitor runId={route.parts[1]} />{/key}
-      {:else if ['kosular', 'bulgular', 'hafiza', 'ayarlar'].includes(route.parts[0] ?? '')}
+      {:else if ['bulgular', 'hafiza', 'ayarlar'].includes(route.parts[0] ?? '')}
         <!-- Henüz yeni kalıba taşınmamış sayfalar: başlık şeridi yok, eski stiller .legacy içinde. -->
         <Page>
           <div class="legacy">
-            {#if route.parts[0] === 'kosular'}
-              <Runs />
-            {:else if route.parts[0] === 'bulgular'}
+            {#if route.parts[0] === 'bulgular'}
               <Issues selectedId={route.parts[1] ?? null} />
             {:else if route.parts[0] === 'hafiza'}
               <Memory />

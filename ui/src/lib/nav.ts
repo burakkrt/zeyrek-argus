@@ -39,7 +39,7 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: 'playCircle',
         children: [
           { path: 'baslat', label: 'Yeni koşu' },
-          { path: 'kosular', label: 'Koşu geçmişi' },
+          { path: 'kosular', label: 'Koşular' },
         ],
       },
       { path: 'bulgular', label: 'Bulgular', icon: 'bug' },
@@ -74,15 +74,20 @@ export function locate(
   return { label: HOME_LABEL }
 }
 
-/** İz her zaman ana sayfadan başlar: Ana sayfa › modül › sayfa (ana sayfada yalnız kendisi). */
-export function crumbsFor(path: string | undefined): string[] {
+/**
+ * İz her zaman ana sayfadan başlar: Ana sayfa › modül › sayfa (ana sayfada yalnız kendisi). `name` kayıttan açılan
+ * sayfanın adıdır (koşu detayında koşu kodu); verilirse son halka odur. Modülle aynı adlı sayfa modülü tekrarlamaz.
+ */
+export function crumbsFor(path: string | undefined, name?: string | null): string[] {
   const place = locate(path)
-  if (!place.module && place.label === HOME_LABEL) return [HOME_LABEL]
-  return [HOME_LABEL, ...(place.module ? [place.module] : []), place.label]
+  const label = name || place.label
+  if (!place.module && label === HOME_LABEL) return [HOME_LABEL]
+  return [HOME_LABEL, ...(place.module && place.module !== label ? [place.module] : []), label]
 }
 
-/** Tarayıcı sekmesinin başlığı, tek biçim: "Sayfa | Zeyrek Argus". */
-export const documentTitle = (path: string | undefined) => `${locate(path).label} | ${APP_NAME}`
+/** Tarayıcı sekmesinin başlığı, tek biçim: "Sayfa | Zeyrek Argus" (kayıttan açılan sayfada kaydın adı). */
+export const documentTitle = (path: string | undefined, name?: string | null) =>
+  `${name || locate(path).label} | ${APP_NAME}`
 
 /**
  * Menü araması: modül adı eşleşirse bütün alt sayfalarıyla, değilse yalnız eşleşen alt sayfalarıyla kalır; boş kalan

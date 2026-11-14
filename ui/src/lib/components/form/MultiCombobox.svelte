@@ -48,9 +48,9 @@
         aria-expanded={open}
         aria-busy={loading || undefined}
         disabled={disabled || loading}
-        class="border-input hover:border-muted-foreground/40 aria-expanded:border-brand aria-expanded:ring-brand/15 hover:bg-card aria-expanded:bg-card w-full justify-between px-3 font-normal aria-expanded:ring-3"
+        class="border-input hover:border-muted-foreground/40 aria-expanded:border-brand aria-expanded:ring-brand/10 hover:bg-card aria-expanded:bg-card w-full justify-between px-3 font-normal aria-expanded:ring-2"
       >
-        <span class={cn('truncate', !value.length && 'text-muted-foreground')}
+        <span class={cn('truncate', !value.length && 'text-placeholder')}
           >{loading && !value.length ? 'Yükleniyor…' : label}</span
         >
         {#if loading}<Spinner />{:else}<Icon name="unfoldMore" class="text-muted-foreground" />{/if}

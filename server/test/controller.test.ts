@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { listEvents } from '../src/db/runs.ts'
+import { saveAttachment } from '../src/runs/attachments.ts'
 import { appSessionFile, deleteAppUser, forgetAppSessions, saveAppUser } from '../src/db/settings.ts'
 import { refOf, startHarness, type Harness, type Script } from './support/harness.ts'
 import { APP_USER, overrides } from './support/site.ts'
@@ -456,6 +457,62 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
     const started = listEvents(h.ctx.db, branch.id).find((e) => e.type === 'sayfa-basladi')
     expect(started && 'url' in started ? started.url : '').toBe(
       `${h.site.url}/branch/feature-yeni-ekran/qm/web/egt-temiz`,
+    )
+  })
+  it('kullanıcının talimatı planlayıcıya ve gezgine, eklediği dosyalar yalnız planlayıcıya gider', async () => {
+    const image = saveAttachment(
+      h.ctx.config.dataDir,
+      new Uint8Array([137, 80, 78, 71, 1, 2, 3]),
+      'ekran.png',
+    )
+    const sheet = saveAttachment(
+      h.ctx.config.dataDir,
+      new TextEncoder().encode('no;bulgu\n7;Toplam tutmuyor'),
+      'musteri.csv',
+    )
+    const data = Buffer.from([137, 80, 78, 71, 1, 2, 3]).toString('base64')
+    const before = h.calls.length
+    const run = await h.waitFor(
+      h.ctx.runs.create({
+        ...app,
+        environment: 'development',
+        pages: ['egt-temiz'],
+        options: {
+          maxTasks: 2,
+          maxSteps: 3,
+          brief: '  Kaydet düğmesinin yerine bak  ',
+          attachments: [image, sheet, 'yok.png'],
+        },
+      }).id,
+    )
+    expect(run.options).toMatchObject({ brief: 'Kaydet düğmesinin yerine bak', attachments: [image, sheet] })
+    const calls = h.calls.slice(before).map((c) => JSON.stringify(c.messages))
+    const planner = calls.filter((c) => c.includes('KULLANICININ TALİMATI'))
+    expect(planner).toHaveLength(1)
+    expect(planner[0]).toContain('Kaydet düğmesinin yerine bak')
+    expect(planner[0]).toContain(data)
+    expect(planner[0]).toContain('Ek: musteri.csv')
+    expect(planner[0]).toContain('7;Toplam tutmuyor')
+    const explorer = calls.filter((c) => c.includes('GÖREV: '))
+    expect(explorer.length).toBeGreaterThan(0)
+    expect(
+      explorer.every((c) => c.includes('Kullanıcının bu koşu için talimatı: Kaydet düğmesinin yerine bak')),
+    ).toBe(true)
+    expect(explorer.some((c) => c.includes(data) || c.includes('7;Toplam tutmuyor'))).toBe(false)
+
+    const single = h.calls.length
+    await h.waitFor(
+      h.ctx.runs.create({
+        ...app,
+        environment: 'development',
+        pages: ['egt-temiz'],
+        options: { maxTasks: 1, maxSteps: 3, brief: 'Tarih alanını dene' },
+      }).id,
+    )
+    const singleCalls = h.calls.slice(single).map((c) => JSON.stringify(c.messages))
+    expect(singleCalls.some((c) => c.includes('KULLANICININ TALİMATI'))).toBe(false)
+    expect(singleCalls.find((c) => c.includes('GÖREV: '))).toContain(
+      'talimatını önce karşıla: Tarih alanını dene',
     )
   })
 })
