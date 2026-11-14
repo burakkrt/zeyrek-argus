@@ -1,336 +1,153 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+/*
+ * Tek tema: `dark:` yalnız .dark sınıfında eşleşir ve bu sınıf kullanılmaz. (Varsayılanı işletim sisteminin koyu tema
+ * tercihidir; koyu temalı makinede light arayüze koyu stiller karışıyordu.)
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * shadcn bileşenlerinin durum varyantları: bits-ui durumu `data-state="…"`, yönü `data-orientation="…"` ile yazar.
+ * `data-x` öznitelik olarak gelirse "false" değeri eşleşmez.
+ */
+@custom-variant data-open (&:where([data-state='open'], [data-open]:not([data-open='false'])));
+@custom-variant data-closed (&:where([data-state='closed'], [data-closed]:not([data-closed='false'])));
+@custom-variant data-checked (&:where([data-state='checked'], [data-checked]:not([data-checked='false'])));
+@custom-variant data-unchecked (&:where([data-state='unchecked'], [data-unchecked]:not([data-unchecked='false'])));
+@custom-variant data-active (&:where([data-state='active'], [data-active]:not([data-active='false'])));
+@custom-variant data-selected (&:where([data-selected]:not([data-selected='false']), [aria-selected='true']));
+@custom-variant data-disabled (&:where([data-disabled]:not([data-disabled='false'])));
+@custom-variant data-highlighted (&:where([data-highlighted]:not([data-highlighted='false'])));
+@custom-variant data-placeholder (&:where([data-placeholder]:not([data-placeholder='false'])));
+@custom-variant data-inset (&:where([data-inset]:not([data-inset='false'])));
+@custom-variant data-horizontal (&:where([data-orientation='horizontal']));
+@custom-variant data-vertical (&:where([data-orientation='vertical']));
+
+/*
+ * Renk ve ölçü Zeyrek platformunun (IMS Cortex) kabuk standardından alınır: docs/apps/qm/kabuk-ve-tasarim-standardi.md §1.
+ * Zemin soğuk gri, kart beyaz, vurgu tek mavi. Seçili öğe = açık mavi zemin + kenar + koyu mavi yazı. Durum renkleri
+ * yalnız durum bildirir; yazı, %10 zemin ve %30 kenar olarak kullanılır. Sayfada renk kodu yazılmaz.
+ */
 :root {
-  --bg: #f6f7fb;
-  --panel: #ffffff;
-  --panel-2: #f1f3f9;
-  --border: #e3e6ef;
-  --text: #171a26;
-  --muted: #646b80;
-  --accent: #4f46e5;
-  --accent-soft: #eef0ff;
-  --ok: #0f8a5f;
-  --ok-soft: #e4f6ee;
-  --warn: #b26a00;
-  --warn-soft: #fff4dc;
-  --fail: #c62a47;
-  --fail-soft: #fde8ec;
-  --info: #2563eb;
-  --info-soft: #e7efff;
-  --shadow: 0 1px 2px rgba(16, 20, 40, 0.06), 0 4px 16px rgba(16, 20, 40, 0.05);
-  --radius: 10px;
-  --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
   color-scheme: light;
+  --radius: 10px;
+
+  --brand: #0c66e4;
+  --brand-strong: #0055cc;
+  --brand-soft: #e9f2ff;
+  --brand-border: #cce0ff;
+
+  --background: #f3f4f6;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: var(--brand);
+  --primary-foreground: #ffffff;
+  --secondary: #f3f4f6;
+  --secondary-foreground: #18181b;
+  --muted: #f3f4f6;
+  --muted-foreground: #52525b;
+  --accent: #f3f4f6;
+  --accent-foreground: #18181b;
+  --surface-alt: #f9fafb;
+  --border: #e5e7eb;
+  --input: #d8dbe0;
+  --ring: var(--brand);
+  --overlay: rgb(54 75 118 / 0.3);
+
+  --destructive: #d92d20;
+  --success: #067647;
+  --warning: #b54708;
+  --info: #0055cc;
+
+  --chart-1: var(--brand);
+  --chart-2: #84adff;
+  --chart-3: #0e9384;
+  --chart-4: #f79009;
+  --chart-5: #98a2b3;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #3f3f46;
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f3f4f6;
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-border: #e5e7eb;
+  --sidebar-ring: var(--brand);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f111a;
-    --panel: #171a26;
-    --panel-2: #1e2232;
-    --border: #2a2f43;
-    --text: #e6e8f0;
-    --muted: #949bb3;
-    --accent: #8b85ff;
-    --accent-soft: #24234a;
-    --ok: #3ccf91;
-    --ok-soft: #12322a;
-    --warn: #f0b44c;
-    --warn-soft: #3a2c10;
-    --fail: #ff6b85;
-    --fail-soft: #3d1621;
-    --info: #6ea3ff;
-    --info-soft: #172a4d;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-    color-scheme: dark;
+@theme inline {
+  --font-sans: 'Geist Variable', system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-border: var(--brand-border);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-surface-alt: var(--surface-alt);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-overlay: var(--overlay);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font:
-    14px/1.5 system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-}
-
-a {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
-h1 {
-  font-size: 20px;
-  margin: 0 0 4px;
-}
-
-h2 {
-  font-size: 15px;
-  margin: 0 0 8px;
-}
-
-h3 {
-  font-size: 13px;
-  margin: 0 0 6px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-code,
-.mono {
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
-.muted {
-  color: var(--muted);
-}
-
-.small {
-  font-size: 12px;
-}
-
-.card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 14px 16px;
-}
-
-.row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.stack {
-  display: grid;
-  gap: 12px;
-}
-
-.spacer {
-  flex: 1;
-}
-
-button,
-.button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-button.danger {
-  color: var(--fail);
-}
-
-button.small {
-  height: 26px;
-  padding: 0 8px;
-  font-size: 12px;
-}
-
-button.ghost {
-  border-color: transparent;
-  background: transparent;
-}
-
-input,
-select,
-textarea {
-  font: inherit;
-  color: var(--text);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
-  min-height: 32px;
-}
-
-textarea {
-  width: 100%;
-  resize: vertical;
-}
-
-input:focus,
-select:focus,
-textarea:focus {
-  outline: 2px solid var(--accent-soft);
-  border-color: var(--accent);
-}
-
-label.field {
-  display: grid;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--panel-2);
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.badge.ok {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-
-.badge.warn {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
-.badge.fail {
-  background: var(--fail-soft);
-  color: var(--fail);
-}
-
-.badge.info {
-  background: var(--info-soft);
-  color: var(--info);
-}
-
-.badge.accent {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.notice {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
-.error {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--fail-soft);
-  color: var(--fail);
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  text-align: left;
-  padding: 7px 8px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-th {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-tr.clickable {
-  cursor: pointer;
-}
-
-tr.clickable:hover td {
-  background: var(--panel-2);
-}
-
-.tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 12px;
-}
-
-.tabs button {
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted);
-}
-
-.tabs button.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
-
-.thumb {
-  display: block;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  cursor: zoom-in;
-  object-fit: cover;
-  background: var(--panel-2);
-}
-
-.chip {
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: 12px;
-}
-
-.chip.on {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-pre.block {
-  white-space: pre-wrap;
-  background: var(--panel-2);
-  border-radius: 8px;
-  padding: 10px;
-  margin: 0;
-  font-family: var(--mono);
-  font-size: 12px;
+  /* Tıklanan her şeyde el imleci (Tailwind v4 düğmeye varsayılan imleci verir). */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  label:has(> input[type='checkbox']) {
+    cursor: pointer;
+  }
+  /* Kök 16 px kalır (bileşen ölçüleri rem): gövde metni 14 px'tir. */
+  body {
+    @apply bg-background text-foreground font-sans text-sm antialiased;
+  }
+  /* Sayılar hizalı dursun: tablo, gösterge ve süre/maliyet hücreleri. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
 }

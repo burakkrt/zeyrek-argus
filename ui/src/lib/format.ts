@@ -13,15 +13,23 @@ export const formatDate = (iso: string | null | undefined) =>
 export const formatTime = (iso: string) =>
   new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-export function formatDuration(from: string | null, to: string | null): string {
-  if (!from) return '—'
-  const ms = (to ? new Date(to).getTime() : Date.now()) - new Date(from).getTime()
-  const s = Math.max(0, Math.round(ms / 1000))
+/** Saniye → "45 sn" / "3 dk 19 sn"; bilinmiyorsa "—". */
+export function formatSeconds(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return '—'
+  const s = Math.max(0, Math.round(seconds))
   return s < 60 ? `${s} sn` : `${Math.floor(s / 60)} dk ${s % 60} sn`
 }
 
-export const formatCost = (usage: Usage | null | undefined) =>
-  usage?.costUsd === null || usage?.costUsd === undefined ? '—' : `$${usage.costUsd.toFixed(2)}`
+export function formatDuration(from: string | null, to: string | null): string {
+  if (!from) return '—'
+  return formatSeconds(((to ? new Date(to).getTime() : Date.now()) - new Date(from).getTime()) / 1000)
+}
+
+/** Dolar tutarı, Türkçe ondalık virgülle ("$1,48"); bilinmiyorsa "—". */
+export const formatMoney = (usd: number | null | undefined) =>
+  usd === null || usd === undefined ? '—' : `$${usd.toFixed(2).replace('.', ',')}`
+
+export const formatCost = (usage: Usage | null | undefined) => formatMoney(usage?.costUsd)
 
 export const formatTokens = (usage: Usage) => {
   const input = usage.input + usage.cacheWrite + usage.cacheRead

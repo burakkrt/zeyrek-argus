@@ -1,5 +1,15 @@
-/** Sunucu uçlarına küçük yardımcılar. Hata yanıtında sunucunun Türkçe mesajı fırlatılır. */
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+import { pageLoad } from './page-load'
+
+/**
+ * Sunucu uçlarına küçük yardımcılar. Hata yanıtında sunucunun Türkçe mesajı fırlatılır. Okuma istekleri sayfa açılış
+ * yüklemesine sayılır (`page-load.ts`).
+ */
+export function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const request = send<T>(path, init)
+  return !init.method || init.method === 'GET' ? pageLoad.track(request) : request
+}
+
+async function send<T>(path: string, init: RequestInit): Promise<T> {
   const headers: Record<string, string> = {}
   if (init.body && !(init.body instanceof FormData)) headers['content-type'] = 'application/json'
   const response = await fetch(`/api${path}`, {

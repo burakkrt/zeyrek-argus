@@ -8,6 +8,7 @@
     Settings,
   } from '@argus/shared'
   import { onMount } from 'svelte'
+  import Page from '$lib/components/layout/Page.svelte'
   import { api, post, qs } from '../lib/api'
   import { go } from '../lib/router.svelte'
 
@@ -142,113 +143,107 @@
   })
 </script>
 
-<div class="head">
-  <div>
-    <h1>Yeni keşif</h1>
-    <p class="muted">
-      Uygulamayı, ortamı (dalı) ve sayfaları seç; kontrolcü sayfaları gezsin, sen monitörden izle.
-    </p>
-  </div>
-</div>
+<Page
+  title="Yeni koşu"
+  description="Uygulamayı, ortamı (dalı) ve sayfaları seç; kontrolcü sayfaları gezsin, sen monitörden izle"
+>
+  <div class="legacy">
+    {#if error}<p class="error">{error}</p>{/if}
 
-{#if error}<p class="error">{error}</p>{/if}
-
-<div class="grid">
-  <section class="card stack">
-    <label class="field">
-      Proje
-      <select value={project} onchange={(e) => pickProject((e.target as HTMLSelectElement).value)}>
-        <option value="">Seç…</option>
-        {#each projects as p (p.id)}<option value={p.slug}>{p.name} ({p.slug})</option>{/each}
-      </select>
-    </label>
-    <label class="field">
-      Uygulama
-      <select bind:value={application} onchange={loadPages} disabled={!applications.length}>
-        {#each applications as a (a.id)}<option value={a.slug}>{a.name} ({a.slug})</option>{/each}
-      </select>
-    </label>
-    <label class="field">
-      Ortam / dal
-      <select bind:value={environment} onchange={loadPages} disabled={!environments.length}>
-        {#each environments as env (env.name)}
-          <option value={env.name} disabled={env.state !== 'ready'}
-            >{env.name}{env.state !== 'ready' ? ` (${env.state})` : ''}</option
+    <div class="grid">
+      <section class="card stack">
+        <label class="field">
+          Proje
+          <select value={project} onchange={(e) => pickProject((e.target as HTMLSelectElement).value)}>
+            <option value="">Seç…</option>
+            {#each projects as p (p.id)}<option value={p.slug}>{p.name} ({p.slug})</option>{/each}
+          </select>
+        </label>
+        <label class="field">
+          Uygulama
+          <select bind:value={application} onchange={loadPages} disabled={!applications.length}>
+            {#each applications as a (a.id)}<option value={a.slug}>{a.name} ({a.slug})</option>{/each}
+          </select>
+        </label>
+        <label class="field">
+          Ortam / dal
+          <select bind:value={environment} onchange={loadPages} disabled={!environments.length}>
+            {#each environments as env (env.name)}
+              <option value={env.name} disabled={env.state !== 'ready'}
+                >{env.name}{env.state !== 'ready' ? ` (${env.state})` : ''}</option
+              >
+            {/each}
+          </select>
+        </label>
+        <div class="row">
+          <label class="field"
+            >Sayfa başına görev<input type="number" min="1" max="12" bind:value={maxTasks} /></label
           >
+          <label class="field"
+            >Görev başına adım<input type="number" min="3" max="40" bind:value={maxSteps} /></label
+          >
+        </div>
+        <p class="muted small">
+          Kontrolcü yalnız okur: kayıt açmaz, kaydetmez, silmez. Filtre ve arama alanlarına yazabilir; veri
+          yazan istekler engellenir. production listelenmez.
+        </p>
+        <div class="row">
+          <button class="primary" disabled={!selected.length || starting} onclick={start}
+            >Keşfi başlat ({selected.length})</button
+          >
+          <span class="muted small">{estimate}</span>
+        </div>
+        {#if loading}<p class="muted small">{loading}</p>{/if}
+      </section>
+
+      <section class="card pages">
+        <div class="row">
+          <h2>Sayfalar</h2>
+          <span class="muted small">{groups.reduce((n, g) => n + g.pages.length, 0)} sayfa</span>
+          <span class="spacer"></span>
+          <input placeholder="Sayfa ara…" bind:value={filter} />
+        </div>
+        {#if !groups.length}
+          <p class="muted">Sayfaları görmek için proje, uygulama ve ortam seç.</p>
+        {/if}
+        {#each visibleGroups as group (group.key)}
+          {@const slugs = group.pages.map((p) => p.slug)}
+          <details open={visibleGroups.length <= 3 || !!filter}>
+            <summary>
+              <input
+                type="checkbox"
+                checked={slugs.every((s) => selected.includes(s))}
+                onclick={(e) => e.stopPropagation()}
+                onchange={(e) => toggle(slugs, (e.target as HTMLInputElement).checked)}
+              />
+              <strong>{group.key}</strong>
+              <span class="muted small"
+                >{group.pages.length} sayfa · {slugs.filter((s) => selected.includes(s)).length} seçili</span
+              >
+            </summary>
+            <ul>
+              {#each group.pages as page (page.id)}
+                <li>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(page.slug)}
+                      onchange={(e) => toggle([page.slug], (e.target as HTMLInputElement).checked)}
+                    />
+                    <span>{page.name}</span>
+                    <code class="muted">{page.slug}</code>
+                  </label>
+                </li>
+              {/each}
+            </ul>
+          </details>
         {/each}
-      </select>
-    </label>
-    <div class="row">
-      <label class="field"
-        >Sayfa başına görev<input type="number" min="1" max="12" bind:value={maxTasks} /></label
-      >
-      <label class="field"
-        >Görev başına adım<input type="number" min="3" max="40" bind:value={maxSteps} /></label
-      >
+      </section>
     </div>
-    <p class="muted small">
-      Kontrolcü yalnız okur: kayıt açmaz, kaydetmez, silmez. Filtre ve arama alanlarına yazabilir; veri yazan
-      istekler engellenir. production listelenmez.
-    </p>
-    <div class="row">
-      <button class="primary" disabled={!selected.length || starting} onclick={start}
-        >Keşfi başlat ({selected.length})</button
-      >
-      <span class="muted small">{estimate}</span>
-    </div>
-    {#if loading}<p class="muted small">{loading}</p>{/if}
-  </section>
-
-  <section class="card pages">
-    <div class="row">
-      <h2>Sayfalar</h2>
-      <span class="muted small">{groups.reduce((n, g) => n + g.pages.length, 0)} sayfa</span>
-      <span class="spacer"></span>
-      <input placeholder="Sayfa ara…" bind:value={filter} />
-    </div>
-    {#if !groups.length}
-      <p class="muted">Sayfaları görmek için proje, uygulama ve ortam seç.</p>
-    {/if}
-    {#each visibleGroups as group (group.key)}
-      {@const slugs = group.pages.map((p) => p.slug)}
-      <details open={visibleGroups.length <= 3 || !!filter}>
-        <summary>
-          <input
-            type="checkbox"
-            checked={slugs.every((s) => selected.includes(s))}
-            onclick={(e) => e.stopPropagation()}
-            onchange={(e) => toggle(slugs, (e.target as HTMLInputElement).checked)}
-          />
-          <strong>{group.key}</strong>
-          <span class="muted small"
-            >{group.pages.length} sayfa · {slugs.filter((s) => selected.includes(s)).length} seçili</span
-          >
-        </summary>
-        <ul>
-          {#each group.pages as page (page.id)}
-            <li>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={selected.includes(page.slug)}
-                  onchange={(e) => toggle([page.slug], (e.target as HTMLInputElement).checked)}
-                />
-                <span>{page.name}</span>
-                <code class="muted">{page.slug}</code>
-              </label>
-            </li>
-          {/each}
-        </ul>
-      </details>
-    {/each}
-  </section>
-</div>
+  </div>
+</Page>
 
 <style>
-  .head {
-    margin-bottom: 14px;
-  }
-
   .grid {
     display: grid;
     grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);

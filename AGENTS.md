@@ -35,3 +35,49 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 - `pnpm check` ve `pnpm test:e2e` yeşil olmadan iş bitmiş sayılmaz.
 - Sürümler tam sabitlenir; kullanılmayan bağımlılık eklenmez.
 - Commit'i insan atar.
+
+## Arayüz
+
+- **Kalıp Zeyrek platformunun kabuğudur** (IMS Cortex): ölçü ve renk kaynağı Zeyrek App reposundaki
+  `docs/apps/qm/kabuk-ve-tasarim-standardi.md` §1, §2, §5. Yeni bir kalıp kararı önce orada aranır; Argus'ta tahminle
+  ölçü yazılmaz.
+- Kit shadcn-svelte (Bits UI + Tailwind v4), grafik LayerChart. Font Geist + Geist Mono (IMS Cortex'in fontu, pakete
+  gömülü). İkon IMS Cortex'in dili: menü ikonları Phosphor Duotone, menü daraltma Phosphor `sidebar-simple`, arayüz
+  işaretleri (ok, arama, kapat …) Material Symbols Outlined. Yalnız `ui/src/lib/icons.ts`'te içe aktarılan SVG pakete
+  girer, bileşen `Icon` ile çizer; başka ikon paketi eklenmez. Parçalar `ui/src/lib/components/` altındadır: `ui/` (shadcn; form ve
+  menü kiti henüz kullanılmayan parçalarıyla birlikte), `layout/` (kabuk ve sayfa kalıbı), `form/` (alan, aramalı
+  seçim), `status/` (durum etiketleri).
+- Renk: zemin `#F3F4F6`, kart beyaz, kenar `#E5E7EB`, form kenarı `#D8DBE0`, metin `#18181B` / `#52525B`. Vurgu tek
+  mavi (`--brand` `#0C66E4`); seçili öğe açık mavi zemin + kenar + koyu mavi yazı. Durum renkleri (`--success`,
+  `--warning`, `--destructive`, `--info`) yalnız durum bildirir; etiket ve uyarıda `success` / `warning` / `error` /
+  `info` türleri. Renkler `ui/src/app.css`'teki değişkenlerdir; sayfada ve bileşende renk kodu yazılmaz.
+- Ölçü: kök 16 px, gövde 14 px. Düğme ve giriş 38 px (varsayılan), araç çubuğu 32 px (sm), 28 px (xs), 40 px (lg);
+  düğme 14/600, yan dolgu 24 px. Köşe: düğme/giriş 10, kart 14, durum etiketi tam yuvarlak (22 px, renkli nokta).
+- Kabuk: kenar menü IMS Cortex menüsünün birebir karşılığıdır (`AppSidebar.svelte`; ölçüler Zeyrek App reposunda
+  `zeyrek-frontend/packages/ng-apps-ui/src/components/navigations/`, görünüm IMS Cortex ekranıyla yan yana denetlenir):
+  264 px, 64 px şeride daralır (tercih çerezde). Başlık üst çubukla aynı 56 px; daraltma düğmesi başlığın sağında
+  yalnız ikon, şeritte açma düğmesi başlık çizgisiyle kenarın kesiştiği 24 px yuvarlak. "Menüde ara…" kutusu (`/`).
+  Satır 40 px, panelden 8 px içeride, sol dolgu 10.4, ikon 18 (yazı renginde), ikon-etiket 10, 14 px; ağırlık üst
+  düzey 500, alt sayfa 400, aktif sayfa ve aktif yol 600. Üzerine gelince açık gri; aktif sayfa açık mavi zemin + koyu
+  yazı + mavi ikon. Modül akordeondur (tek açık, 180 ms, ok döner); alt sayfalar 28 px girintili, kılavuz çizgili.
+  Grup başlığı büyük harf 11.2/500 soluk; üstte Kalite kontrol, dipte Sistem (`placement: 'bottom'`). Şeritte satır
+  48×44 ortalı, ikon 22.5, modül yana açılan panelde, grup başlığı yerine ayraç. Menü ağacı `nav.ts`. Üst çubuk 56 px
+  yapışkan (iz 14 px ikincil renk "/" ayraçlı; sağda 36 px Ctrl+K arama). `Page`: üst çubuğun altında yapışkan 68 px
+  başlık şeridi (başlık 22/600/28, açıklama 12.5/18 ikincil, sağda eylemler) ve içerik kapsayıcısı (en çok 1480 px,
+  28/24 px dolgu, bölüm aralığı 20 px). Sayfa değişince içerik, açılış okuma istekleri bitene kadar gizlenir ve ortada
+  spinner döner (`page-load.ts`; platformun sayfa kabı yükleniyor hâli). Sayfa kendi iskeletini ya da yükleniyor yazısını
+  çizmez. İçerik `Grid` içinde `StatCard` / `Panel`; boş durum
+  `EmptyState` (kesik çizgili kutu). Menü, iz, komut paleti ve sekme başlığı `ui/src/lib/nav.ts`'ten okunur. Sayfa kendi
+  kenar boşluğunu, ızgarasını ya da kart çerçevesini yazmaz; yeni bir düzen gerekirse `layout/` altına eklenir.
+- Form: her kontrol `Field` ile sarılır (etiket, zorunlu işareti, açıklama, hata). Seçim için yerel `<select>`
+  kullanılmaz: aramalı `Combobox` / `MultiCombobox` (Türkçe harf duyarlı süzgeç), kısa sabit listede `Select`.
+- shadcn bileşeni `pnpm dlx shadcn-svelte@1.7.2 add <ad> --no-deps-install` ile eklenir. CLI canlı kayıttan çeker ve
+  sürümleri değiştirir: `package.json` elle tam sürüme geri sabitlenir; bileşenin Lucide ikonları `Icon`'a çevrilir.
+  Durum varyantları (`data-open`, `data-checked` …) `app.css`'te bits-ui'nin `data-state` / `data-orientation`
+  özniteliklerine eşlenir; yeni bir `data-*` varyantı gelirse oraya eklenir. `dark:` hiç eşleşmez (tek tema).
+- `ui/src/lib/components/ui/` kopyalanmış koddur, lint dışındadır; ölçek, köşe, ikon ve durum türleri dışında
+  değişiklik gerekirse satırına nedeni yazılır.
+- Ekrandaki hesap (`overview.ts`, `format.ts`, `form/options.ts`) bileşende değil test edilen `.ts` modülündedir.
+- Bir kalıp kararı değişince öncekinin izi aynı değişiklikte silinir (eski bileşen, paket, değişken, sınıf).
+- `ui/src/legacy.css` geçiş katmanıdır: henüz taşınmamış sayfalar başlık şeridi olmadan `.legacy` içinde açılır. Sayfa
+  taşınınca sarmalayıcı kaldırılır; son sayfa taşınınca dosya silinir.
