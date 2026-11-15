@@ -84,6 +84,23 @@ export async function ariaTree(page: Page): Promise<string> {
     .catch((error: unknown) => `(ağaç okunamadı: ${String(error)})`)
 }
 
+/**
+ * Sayfanın kaydırma konumu (0 üst, 1 alt): en çok kayan alan (pencere ya da uygulamanın iç kaydırma kutusu) ölçülür.
+ * Gezginin ağaç penceresi buna göre seçilir.
+ */
+export async function scrollFraction(page: Page): Promise<number> {
+  return page
+    .evaluate(() => {
+      const boxes = [
+        document.scrollingElement,
+        ...Array.from(document.querySelectorAll<HTMLElement>('*')),
+      ].filter((el): el is Element => !!el && el.scrollHeight - el.clientHeight > 20)
+      const box = boxes.sort((a, b) => b.scrollHeight - b.clientHeight - (a.scrollHeight - a.clientHeight))[0]
+      return box ? box.scrollTop / (box.scrollHeight - box.clientHeight) : 0
+    })
+    .catch(() => 0)
+}
+
 /** Ekrandaki görünür metin (alıntı doğrulaması için). */
 export async function visibleText(page: Page): Promise<string> {
   return page

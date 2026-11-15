@@ -31,9 +31,17 @@ afterEach(() => dir && rmSync(dir, { recursive: true, force: true }))
 
 describe('yerel depolama', () => {
   it('plan: hedefe inene kadar önce en eski kayıtlar, sonra en eski kanıtlar; süren koşuya dokunulmaz', () => {
-    const runs = [run('yeni', 1, 400, 50), run('orta', 5, 400, 50), run('eski', 9, 400, 50, true), run('ilk', 20, 400, 50)]
+    const runs = [
+      run('yeni', 1, 400, 50),
+      run('orta', 5, 400, 50),
+      run('eski', 9, 400, 50, true),
+      run('ilk', 20, 400, 50),
+    ]
     expect(planCleanup(runs, 1800, 1000)).toEqual({ recordings: ['ilk', 'orta'], evidence: [] })
-    expect(planCleanup(runs, 1800, 500)).toEqual({ recordings: ['ilk', 'orta', 'yeni'], evidence: ['ilk', 'orta'] })
+    expect(planCleanup(runs, 1800, 500)).toEqual({
+      recordings: ['ilk', 'orta', 'yeni'],
+      evidence: ['ilk', 'orta'],
+    })
     expect(planCleanup(runs, 900, 1000)).toEqual({ recordings: [], evidence: [] })
   })
 
@@ -76,7 +84,8 @@ describe('yerel depolama', () => {
        values ('o1', 'i1', 'eski', 'p', 'gorev', 'kesin', 'yeni', '', '', '', 'kanit/0001.png', '[]', ?)`,
     ).run(daysAgo(120))
     mkdirSync(join(dir, 'ekler'), { recursive: true })
-    for (const name of ['ek-eski.png', 'sahipsiz.png', 'taze.png']) writeFileSync(join(dir, 'ekler', name), 'x')
+    for (const name of ['ek-eski.png', 'sahipsiz.png', 'taze.png'])
+      writeFileSync(join(dir, 'ekler', name), 'x')
     const old = new Date(NOW - 3 * 86_400_000)
     for (const name of ['ek-eski.png', 'sahipsiz.png']) utimesSync(join(dir, 'ekler', name), old, old)
     utimesSync(join(dir, 'ekler', 'taze.png'), new Date(NOW), new Date(NOW))

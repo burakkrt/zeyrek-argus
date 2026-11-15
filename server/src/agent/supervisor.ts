@@ -1,30 +1,55 @@
-import type { AnswerStatus, RunAnswer, RunStrategy } from '@argus/shared'
+import type { CoverageStatus, FindingKind, RunCoverage, RunStrategy } from '@argus/shared'
+import type { DefinitionFinding } from './investigator.ts'
 import { jsonOf, type CreateMessage, type MessageParams, type UsageMeter } from './model.ts'
 
 /**
- * Gözetmen: girdili koşuda kalemler bitince güçlü model sonucu stratejinin başarı ölçütüyle karşılaştırır — soru
- * cevaplandı mı, cevap ve kanıtları, cevaplanamayan kısım. Cevap eksikse ve kanıt toplanabilecek bir yol kaldıysa ek
- * kalem önerir (koşu onları yürütüp yeniden sorar; en çok `SUPERVISE_ROUNDS` tur). Engellenen ya da salt okumada
- * yapılamayan iş için ek kalem önermez: "yapılamaz" demek de cevaptır.
+ * Gözetmen (kapsam denetçisi): girdili koşuda kalemler bitince güçlü model test planını yapılanla karşılaştırır.
+ * Argus bulgu uygulamasıdır; gözetmenin çıktısı bir cevap değil:
+ * - kapsam raporu: hangi senaryolar test edildi, hangileri edilemedi ve neden (ör. "aşama ilerletmek veri yazar"),
+ * - kaçmış bulgular: kalem sonuçlarında geçip bulgu olarak kaydedilmemiş hata, tutarsızlık ya da risk (kaynağıyla),
+ * - kapsam boşluğu kaldıysa ve test edilebilir bir yol varsa ek kalemler (koşu yürütüp yeniden sorar; en çok
+ *   `SUPERVISE_ROUNDS` tur). Bu koşuda test edilemeyen iş için ek kalem önermez.
  */
 export const SUPERVISE_MARKER = 'GÖZETMEN GÖREVİ'
 export const SUPERVISE_ROUNDS = 2
 
-const STATUSES: AnswerStatus[] = ['cevaplandi', 'kismen', 'cevaplanamadi']
+const STATUSES: CoverageStatus[] = ['tam', 'kismen', 'eksik']
+const KINDS: FindingKind[] = ['kesin', 'tutarsizlik', 'not']
+const strings = { type: 'array', items: { type: 'string' } } as const
 
 const SUPERVISE_SCHEMA = {
   type: 'object',
   properties: {
     durum: { type: 'string', enum: STATUSES },
-    cevap: {
-      type: 'string',
-      description: 'İsteğin cevabı, kullanıcıya doğrudan; yapılamayan da açıkça söylenir.',
+    ozet: { type: 'string', description: 'Kapsamın ne kadarı test edildi, 1-3 cümle.' },
+    test_edilen: { ...strings, description: 'Test edilen senaryolar.' },
+    test_edilemeyen: { ...strings, description: 'Test edilemeyen senaryolar, her biri nedeniyle.' },
+    kacmis_bulgular: {
+      type: 'array',
+      description:
+        'Kalem sonuçlarında geçen ama BU KOŞUNUN BULGULARI listesinde olmayan hata/tutarsızlık/risk.',
+      items: {
+        type: 'object',
+        properties: {
+          tur: { type: 'string', enum: KINDS },
+          baslik: { type: 'string' },
+          senaryo: { type: 'string' },
+          beklenen: { type: 'string' },
+          gozlenen: { type: 'string' },
+          kaynak: { type: 'string', description: 'Kanıt: araç, kayıt, alan (ya da ekran gözlemi).' },
+          anahtar: {
+            type: 'string',
+            description:
+              'Bilinen ya da bu koşuda kaydedilmiş bir sorunla aynı kök nedense onun anahtarı (listeden, ör. yz:...); yeni sorunsa boş.',
+          },
+        },
+        required: ['tur', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'kaynak', 'anahtar'],
+        additionalProperties: false,
+      },
     },
-    kanitlar: { type: 'array', items: { type: 'string' }, description: 'Her biri: iddia — kaynak.' },
-    eksik: { type: 'string', description: 'Cevaplanamayan kısım ve nedeni; yoksa boş.' },
     ek_kalemler: {
       type: 'array',
-      description: 'Cevabı tamamlamak için yürütülecek kalemler; gerekmiyorsa boş.',
+      description: 'Kapsam boşluğunu kapatmak için yürütülecek kalemler; gerekmiyorsa boş.',
       items: {
         type: 'object',
         properties: {
@@ -39,12 +64,13 @@ const SUPERVISE_SCHEMA = {
       },
     },
   },
-  required: ['durum', 'cevap', 'kanitlar', 'eksik', 'ek_kalemler'],
+  required: ['durum', 'ozet', 'test_edilen', 'test_edilemeyen', 'kacmis_bulgular', 'ek_kalemler'],
   additionalProperties: false,
 } as const
 
 export interface Verdict {
-  answer: RunAnswer
+  coverage: RunCoverage
+  missed: DefinitionFinding[]
   extra: Array<{ baslik: string; amac: string; kaynak: string; sayfa: string; tam_tarama: boolean }>
 }
 
@@ -71,14 +97,15 @@ export async function supervise(input: {
         {
           role: 'user',
           content:
-            `${SUPERVISE_MARKER}: Koşu kalemleri bitti. Sonucu kullanıcının isteğiyle ve başarı ölçütüyle karşılaştır, ` +
-            'isteğin cevabını yaz. Yalnız aşağıdaki sonuçlara ve kanıtlara dayan; kanıtı olmayan iddiada bulunma. ' +
+            `${SUPERVISE_MARKER}: Koşu kalemleri bitti. Test planını yapılanla karşılaştır: hangi senaryolar test edildi, ` +
+            'hangileri edilemedi (nedeniyle). Kalem sonuçlarında geçen ama bulgu olarak kaydedilmemiş her hata, tutarsızlık ' +
+            've riski kaynağıyla "kacmis_bulgular"a yaz (kayıtlı bulguyu tekrarlama; kanıtsız iddia yazma). ' +
             (input.lastRound
               ? 'Bu son tur: ek kalem önerme.'
-              : 'Cevap eksikse ve kanıt toplanabilecek bir yol kaldıysa ek kalem öner; engellenen ya da salt okumada ' +
-                'yapılamayan iş için önerme.') +
-            `\n\nİSTEK: ${input.brief ?? '(yalnız dosya eklendi)'}\nANLAŞILAN: ${s.understood}\nSORULAR:\n${list(s.questions)}\n` +
-            `BAŞARI ÖLÇÜTÜ: ${s.success}\nSALT OKUMADA YAPILAMAYAN:\n${list(s.infeasible)}\n\n` +
+              : 'Kapsam boşluğu kaldıysa ve test edilebilir bir yol varsa ek kalem öner; bu koşuda test edilemeyen iş ' +
+                'için önerme (veri yazan senaryo platform_yaz ile test edilebilir).') +
+            `\n\nTEST İSTEĞİ: ${input.brief ?? '(yalnız dosya eklendi)'}\nKAPSAM: ${s.understood}\nSENARYOLAR:\n${list(s.scenarios)}\n` +
+            `KAPSAM TAMAM SAYILIR: ${s.doneWhen}\nBU KOŞUDA TEST EDİLEMEYEN:\n${list(s.infeasible)}\n\n` +
             `KALEM SONUÇLARI (tanım ve ekran):\n${list(input.results)}\n\nBU KOŞUNUN BULGULARI:\n${list(input.findings)}\n\n` +
             `TEST EDİLEN SAYFALAR: ${input.pages.join(', ') || '(yok)'}`,
         },
@@ -92,23 +119,26 @@ export async function supervise(input: {
   input.meter.add(input.model, message, 'planner')
   const raw = jsonOf<{
     durum: string
-    cevap: string
-    kanitlar: string[]
-    eksik: string
+    ozet: string
+    test_edilen: string[]
+    test_edilemeyen: string[]
+    kacmis_bulgular: DefinitionFinding[]
     ek_kalemler: Verdict['extra']
   }>(message)
   if (!raw)
     return {
-      answer: { status: 'cevaplanamadi', answer: 'Gözetmen sonucu okuyamadı.', evidence: [], missing: '' },
+      coverage: { status: 'eksik', summary: 'Gözetmen sonucu okuyamadı.', tested: [], untested: [] },
+      missed: [],
       extra: [],
     }
   return {
-    answer: {
-      status: STATUSES.includes(raw.durum as AnswerStatus) ? (raw.durum as AnswerStatus) : 'kismen',
-      answer: raw.cevap,
-      evidence: raw.kanitlar,
-      missing: raw.eksik,
+    coverage: {
+      status: STATUSES.includes(raw.durum as CoverageStatus) ? (raw.durum as CoverageStatus) : 'kismen',
+      summary: raw.ozet,
+      tested: raw.test_edilen,
+      untested: raw.test_edilemeyen,
     },
+    missed: raw.kacmis_bulgular.filter((f) => KINDS.includes(f.tur) && f.kaynak.trim()),
     extra: input.lastRound ? [] : raw.ek_kalemler,
   }
 }

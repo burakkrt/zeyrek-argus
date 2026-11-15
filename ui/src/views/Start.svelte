@@ -149,10 +149,7 @@
   </div>
 {/snippet}
 
-<Page
-  title="Yeni koşu"
-  description="Sayfa seç ya da ne test edileceğini yaz; koşuyu monitörden izle"
->
+<Page title="Yeni koşu" description="Sayfa seç ya da ne test edileceğini yaz; koşuyu monitörden izle">
   {#snippet actions()}
     <Button disabled={starting} onclick={start}>
       <Icon name="mediaPlay" />
@@ -165,7 +162,10 @@
     <div class="bg-card text-card-foreground min-w-0 rounded-xl border">
       <div class="flex min-w-0 flex-col gap-8 p-6">
         <section class="flex flex-col gap-3">
-          {@render heading('Girdi', 'Ne test edileceğini ya da neye dikkat edileceğini yaz; boş bırakabilirsin.')}
+          {@render heading(
+            'Girdi',
+            'Ne test edileceğini ya da neye dikkat edileceğini yaz; boş bırakabilirsin.',
+          )}
           <div class="flex flex-col gap-3">
             <div class="relative">
               <textarea
@@ -255,7 +255,11 @@
             <dd class="text-right font-mono text-xs" title="Koşu başlatılınca atanır">{nextCode ?? '—'}</dd>
             <dt class="text-muted-foreground">Sayfalar</dt>
             <dd class={cn('text-right', !selected.length && 'text-muted-foreground')}>
-              {selected.length ? `${selected.length} sayfa` : brief.trim() || files.length ? 'Girdiden seçilecek' : 'Seçilmedi'}
+              {selected.length
+                ? `${selected.length} sayfa`
+                : brief.trim() || files.length
+                  ? 'Girdiden seçilecek'
+                  : 'Seçilmedi'}
             </dd>
             <dt class="text-muted-foreground">Dal</dt>
             <dd

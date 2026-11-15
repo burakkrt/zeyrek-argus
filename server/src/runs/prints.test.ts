@@ -25,6 +25,18 @@ describe('değişiklik izi', () => {
     expect(maskTree('- row "x 12" [ref=e9]')).toBe('- row "…"')
   })
 
+  it('yalnız odağı değişen ekranın izi aynıdır (değişiklik izi odakla oynamaz)', () => {
+    const screen = tree(
+      ['Yangın eğitimi 2024'],
+      '- link "Ana sayfa" [cursor=pointer] [ref=e50]:\n  - generic',
+    )
+    const focused = tree(
+      ['Yangın eğitimi 2024'],
+      '- link "Ana sayfa" [active] [cursor=pointer] [ref=e61]:\n    ',
+    )
+    expect(uiPrint(focused)).toBe(uiPrint(screen))
+  })
+
   it('veri izi kimliklere ve sıraya bakmaz, uç kümesine bakar', () => {
     const get = (url: string) => ({ method: 'GET', url, status: 200, ms: 1 })
     expect(apiPrint([get('http://x/api/row/list'), get('http://x/api/row/5')])).toBe(

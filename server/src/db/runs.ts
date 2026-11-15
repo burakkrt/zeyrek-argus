@@ -2,7 +2,7 @@ import {
   RUN_CEILINGS,
   type RunEvent,
   type RunEventBody,
-  type RunAnswer,
+  type RunCoverage,
   type RunInfo,
   type RunOptions,
   type RunStatus,
@@ -34,7 +34,7 @@ interface RunRow {
   created_at: string
   started_at: string | null
   finished_at: string | null
-  answer: string | null
+  coverage: string | null
 }
 
 function counts(db: Database, runId: string): RunInfo['counts'] {
@@ -65,7 +65,7 @@ function toInfo(db: Database, row: RunRow): RunInfo {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     counts: counts(db, row.id),
-    answer: json<RunAnswer | null>(row.answer, null),
+    coverage: json<RunCoverage | null>(row.coverage, null),
   }
 }
 
@@ -143,8 +143,8 @@ export function nextQueuedRun(db: Database): RunInfo | null {
   return row ? toInfo(db, row) : null
 }
 
-export function setRunAnswer(db: Database, id: string, answer: RunAnswer): void {
-  db.prepare('update runs set answer = ? where id = ?').run(JSON.stringify(answer), id)
+export function setRunCoverage(db: Database, id: string, coverage: RunCoverage): void {
+  db.prepare('update runs set coverage = ? where id = ?').run(JSON.stringify(coverage), id)
 }
 
 /** Koşunun sayfaları: stratejinin (ve gözetmenin ek kalemlerinin) ekran kalemlerinden gelince yazılır. */

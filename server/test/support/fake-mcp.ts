@@ -70,6 +70,37 @@ server.registerTool(
   async ({ pageId }) => json({ pageId, version: 7, schema: { root: { type: 'stack', children: [pageId] } } }),
 )
 server.registerTool('page_schema_patch', { description: 'sahte yazan araç' }, async () => json({ ok: true }))
+// Veri yazan araç (yazma kapısından geçer) ve tanımı değiştiren araç (geçmez).
+server.registerTool(
+  'row_create',
+  {
+    description: 'Kayıt oluşturur.',
+    inputSchema: {
+      entityId: z.string(),
+      values: z.record(z.string(), z.unknown()),
+      environment: z.string().optional(),
+    },
+  },
+  async ({ entityId, values, environment }) =>
+    json({ data: { id: 7, entityId, values, environment: environment ?? null } }),
+)
+server.registerTool(
+  'row_delete',
+  {
+    description: 'Kayıt siler.',
+    inputSchema: {
+      entityId: z.string(),
+      id: z.string().optional(),
+      ids: z.array(z.string()).optional(),
+      environment: z.string().optional(),
+      project: z.string().optional(),
+    },
+  },
+  async () => json({ success: true }),
+)
+server.registerTool('workflow_update', { description: 'Akış tanımını değiştirir.' }, async () =>
+  json({ ok: true }),
+)
 // Tanım okuma: dönem akışı (kalibrasyon aşaması atlanabilir mi). Okuma işaretli; kara listedeki araç da okuma işaretli.
 server.registerTool(
   'workflow_get',

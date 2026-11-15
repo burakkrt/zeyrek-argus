@@ -11,8 +11,12 @@ import { json, type Database } from './database.ts'
  * Sonnet gezgin içerik çelişkilerini kaçırıyordu: göz kapatılırsa gezgin Opus seçilmeli.
  */
 export const DEFAULT_SETTINGS: Settings = {
+  provider: 'abonelik',
   models: {
     planner: 'claude-opus-5-5',
+    // Tanım kalemleri (platform okuması) koşu maliyetinin çoğuydu (KOS-2026-0038: %71, Opus'la 86 tur); kanıtı
+    // gözetmen (Opus) denetler.
+    investigator: 'claude-sonnet-5-5',
     explorer: 'claude-sonnet-5-5',
     inspector: 'claude-opus-5-5',
     judge: 'claude-opus-5-5',
@@ -39,7 +43,14 @@ export function getSettings(db: Database): Settings {
     retention: _retention,
     defaultOptions: _defaultOptions,
     ...saved
-  } = json<Partial<Settings> & { model?: string; experiments?: unknown; retention?: unknown; defaultOptions?: unknown }>(row?.value, {})
+  } = json<
+    Partial<Settings> & {
+      model?: string
+      experiments?: unknown
+      retention?: unknown
+      defaultOptions?: unknown
+    }
+  >(row?.value, {})
   return {
     ...DEFAULT_SETTINGS,
     ...saved,

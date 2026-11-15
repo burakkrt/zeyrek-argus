@@ -86,10 +86,14 @@ describe('yeni koşu', () => {
 
   it('başlatma engeli: sayfa da girdi de yoksa; sonra süren yükleme', () => {
     expect(startProblem({ pages: 0, brief: '  ', files: 0, uploading: true })?.title).toBe('Ne test edilsin?')
-    expect(startProblem({ pages: 2, brief: '', files: 0, uploading: true })?.title).toBe('Dosyalar yükleniyor')
+    expect(startProblem({ pages: 2, brief: '', files: 0, uploading: true })?.title).toBe(
+      'Dosyalar yükleniyor',
+    )
     expect(startProblem({ pages: 2, brief: '', files: 0, uploading: false })).toBeNull()
     // Sayfa seçmeden yalnız girdi ya da ek yeter: sayfalar girdiden seçilir.
-    expect(startProblem({ pages: 0, brief: 'Performans modülünü test et', files: 0, uploading: false })).toBeNull()
+    expect(
+      startProblem({ pages: 0, brief: 'Performans modülünü test et', files: 0, uploading: false }),
+    ).toBeNull()
     expect(startProblem({ pages: 0, brief: '', files: 1, uploading: false })).toBeNull()
   })
 })

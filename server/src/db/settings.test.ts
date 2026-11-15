@@ -36,7 +36,13 @@ describe('ayarlar', () => {
   it('eski kayıttaki kaldırılmış alanlar (tek model, motor deneyleri, gün/koşu sayılı saklama, koşu derinliği) okunurken atılır', () => {
     const db = openDatabase(':memory:')
     db.prepare(`insert into settings (key, value) values ('settings', ?)`).run(
-      JSON.stringify({ model: 'eski', experiments: { knowledge: true }, retention: { recordingDays: 14 }, defaultOptions: { maxTasks: 2 }, inspector: false }),
+      JSON.stringify({
+        model: 'eski',
+        experiments: { knowledge: true },
+        retention: { recordingDays: 14 },
+        defaultOptions: { maxTasks: 2 },
+        inspector: false,
+      }),
     )
     const settings = getSettings(db) as unknown as Record<string, unknown>
     expect(settings.inspector).toBe(false)

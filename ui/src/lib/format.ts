@@ -42,7 +42,9 @@ export function formatBytes(bytes: number): string {
   return `${value.toLocaleString('tr-TR', { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${units[unit]}`
 }
 
-export const formatCost = (usage: Usage | null | undefined) => formatMoney(usage?.costUsd)
+/** Koşunun maliyeti; Claude hesabıyla (abonelik) koşuda dolar yoktur, planın kullanım hakkından düşer. */
+export const formatCost = (usage: Usage | null | undefined) =>
+  usage?.provider === 'abonelik' ? 'Abonelik' : formatMoney(usage?.costUsd)
 
 export const formatTokens = (usage: Usage) => {
   const input = usage.input + usage.cacheWrite + usage.cacheRead

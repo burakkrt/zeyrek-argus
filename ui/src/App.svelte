@@ -27,6 +27,7 @@
   interface Status {
     mcp: { ok: boolean; detail: string }
     anthropic: { set: boolean; source: string | null; hint: string | null }
+    provider: 'abonelik' | 'api'
     activeRunId: string | null
   }
 
@@ -46,10 +47,12 @@
             label: status.mcp.ok ? `Platform · ${status.mcp.detail}` : 'Platform ayarlı değil',
             title: status.mcp.detail,
           },
-          {
-            ok: status.anthropic.set,
-            label: status.anthropic.set ? 'Yapay zekâ anahtarı hazır' : 'Yapay zekâ anahtarı yok',
-          },
+          status.provider === 'abonelik'
+            ? { ok: true, label: 'Model: Claude hesabı (abonelik)' }
+            : {
+                ok: status.anthropic.set,
+                label: status.anthropic.set ? 'Model: API anahtarı hazır' : 'Model: API anahtarı yok',
+              },
         ]
       : []),
   ])
@@ -105,11 +108,15 @@
   {/if}
 
   {#if storageNotice}
-    <div class="bg-warning/10 text-warning flex items-center gap-2 border-b px-7 py-2 text-[13px]" role="status">
+    <div
+      class="bg-warning/10 text-warning flex items-center gap-2 border-b px-7 py-2 text-[13px]"
+      role="status"
+    >
       <Icon name="error" class="size-[18px]" />
       <span class="text-foreground flex-1">
-        Yerel veriler {formatBytes(storageNotice.usage.total)} oldu; sınır {formatBytes(storageNotice.limitBytes)}.
-        Eski koşu kayıtlarını temizleyebilir ya da sınırı yükseltebilirsin.
+        Yerel veriler {formatBytes(storageNotice.usage.total)} oldu; sınır {formatBytes(
+          storageNotice.limitBytes,
+        )}. Eski koşu kayıtlarını temizleyebilir ya da sınırı yükseltebilirsin.
       </span>
       <button
         type="button"

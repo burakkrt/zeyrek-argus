@@ -4,10 +4,14 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 
 ## Değişmez ilkeler
 
-1. **Platforma yazılmaz.** MCP istemcisi (`server/src/platform/mcp.ts`) yalnız sunucunun `readOnlyHint: true`
-   işaretli araçlarını, `DENIED_TOOLS` kara listesi (kimlik bilgisi, kişisel veri) hariç çağırır; işaretsiz araç geçmez.
-   Modelin okuma kapısı `server/src/platform/reader.ts`: ortam koşununkine sabitlenir. Tarayıcıda yazma korumaları
-   (`server/src/browser/guard.ts`) testle kanıtlıdır; gevşetilmez. production'a koşulmaz.
+1. **production'a asla yazılmaz.** Kullanıcının seçtiği ortamda ya da dalda (development, feature dalları) MCP ile
+   okunur ve test verisi yazılır; yazma yalnız veri/çalıştırma araçlarıyladır, uygulamanın tanımı değiştirilmez. MCP istemcisi (`server/src/platform/mcp.ts`) okumada sunucunun `readOnlyHint: true` işaretli
+   araçlarını, yazmada yalnız `WRITE_TOOLS` listesini (kayıt yazma, süreç/akış/mikroservis çalıştırma, önizleme) çağırır;
+   `DENIED_TOOLS` (kimlik bilgisi, kişisel veri) ikisinde de kapalı. Sayfa, varlık, akış/süreç tanımı, yayın, dağıtım,
+   kullanıcı ve yetki araçları listeye eklenmez: Argus test ettiği uygulamayı değiştirmez. Kapı
+   `server/src/platform/reader.ts`: ortam koşununkine sabitlenir, production koşusunda yazma kapalıdır (kullanıcı kararı
+   2026-11-15: test verisi oluşturabilmek sağlıklı testin koşulu). Tarayıcıda yazma korumaları (`server/src/browser/guard.ts`) testle kanıtlıdır; gevşetilmez. production'a
+   koşulmaz.
 2. **Karar kanıta bağlıdır.** Bulgu türü: kesin (görüldü), tutarsızlık (neyle çeliştiği yazılı), not (bulgu
    sayılmaz). Alıntısı ekranda bulunmayan bulgu kesin olamaz. Giriş ekranında kalan ya da başka sayfaya yönlenen
    (kimliksiz açılan kayıt sayfası) sayfaya "bakılamadı" denir; model çağrılmaz, bulgu yazılmaz.
@@ -24,7 +28,7 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 
 - `shared/` türleri sunucu ve arayüz ortak kullanır; olay biçimi değişirse ikisi birlikte değişir.
 - Paylaşılan bilgi `memory/` dosyalarındadır (Git); yerel veri `data/argus.db` (SQLite), `data/runs/`, talimat görselleri `data/ekler/` (planlayıcıya yalnız koşunun kendi ekleri gider; gezgin görmez). Yerel veri toplam boyutla sınırlanır (`server/src/runs/storage.ts`): aşılınca üç günde bir bildirim, silme yalnız kullanıcı isteyince; `memory/` hiç silinmez.
-- `memory/` altında Git çakışması çıkmaz: Argus'un yazdığı paylaşılan dosyalar kişi başınadır (`findings/<yazar>.md`, `pages/<sayfa>/<yazar>.md`, `screens/<sayfa>/<yazar>.json`), karar dosyalarını yalnız insan yazar ve `memory/.gitattributes` onları union ile birleştirir. Yeni bir paylaşılan dosya türü eklerken ya tek yazarlı yap ya da birleşmesini tanımla ve test et.
+- `memory/` altında Git çakışması çıkmaz: Argus'un yazdığı paylaşılan dosyalar kişi başınadır (`findings/<yazar>.md`, `pages/<sayfa>/<yazar>.md`), karar dosyalarını yalnız insan yazar ve `memory/.gitattributes` onları union ile birleştirir. Yeni bir paylaşılan dosya türü eklerken ya tek yazarlı yap ya da birleşmesini tanımla ve test et.
 - **Motor değişikliği ölçülmeden varsayılan olmaz:** aynı sayfalarda ardışık koşu serisi, bulgular kanıt görüntüsüyle kör
   doğrulanır; kabul ölçütü yakalanan gerçek sorunun düşmemesi, yanlış bulgunun artmaması. Görev/adım/bütçe sınırıyla
   tasarruf yapılmaz. Ölçümü kaybeden kod aynı işte silinir.
@@ -50,6 +54,10 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 - Uygulama oturumu koşular arasında saklanır (`data/oturumlar/`, hesap başına dosya 0600, Git dışı; platform jetonu
   yazılmaz): her koşu yeniden giriş yapmaz, süresi dolunca yeniden girilir. Parola değişince, hesap silinince ya da
   giriş tutmayınca saklanan oturum silinir; bozuk dosya koşuyu düşürmez. Kanıt: `controller.test.ts`.
+- Model sağlayıcısı iki yoldur: API anahtarı (`agent/model.ts`) ya da Claude hesabı (`agent/subscription.ts`, resmi
+  Agent SDK, kullanıcının kendi Claude Code oturumu). **Claude.ai kimlik bilgisine dokunulmaz:** jeton okunmaz,
+  saklanmaz, iletilmez, giriş Argus'ta sunulmaz (Anthropic kuralı). İkisi de aynı `CreateMessage` sözleşmesini uygular;
+  motor sağlayıcıyı bilmez.
 - Model çağrısı yalnız `CreateMessage` üzerinden, rolüyle; testler senaryolu sahte modelle koşar, gerçek API'ye
   gitmez. Koşunun her model çağrısı ve platform okuması `data/runs/<id>/iz/iz.jsonl`'e yazılır (`runs/trace.ts`);
   koşu sonrası inceleme oradan yapılır.

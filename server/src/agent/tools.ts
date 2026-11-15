@@ -19,8 +19,34 @@ const tool = (name: string, description: string, properties: Record<string, unkn
  * Platform okuma araçları: uygulamanın tanımı (ekranda görünmeyen kural, akış, koşul, alan, yetki). Açıklama koşunun
  * bağlamını ve okunabilecek araçların dizinini taşır; araç listesi önbellekte durur.
  */
-export function platformTools(platform: { index(): string; contextLine(): string }): Tool[] {
+export function platformTools(
+  platform: { index(): string; writeIndex(): string; contextLine(): string },
+  options: { write: boolean } = { write: true },
+): Tool[] {
+  const writes = options.write ? platform.writeIndex() : ''
   return [
+    ...(writes
+      ? [
+          tool(
+            'platform_yaz',
+            'Koşunun ortamında (kullanıcının seçtiği development ya da dal) test verisi yazar ya da uygulamanın akışını, sürecini, mikroservisini çalıştırır (ortam ' +
+              'koşununkine sabittir; uygulamanın tanımı değiştirilemez). Ekranda yapılamayan senaryoyu test etmek için ' +
+              'kullan: kayıt oluşturup kuralın davranışına bakmak, aşamayı ilerletip sonucunu görmek, doğrulamayı denemek. ' +
+              'Kendi test kaydını oluştur (adına "Argus test" yaz); var olan kayıtları değiştirme ya da silme, işin bitince ' +
+              `kendi test kayıtlarını sil. Bağlam: ${platform.contextLine()}.
+Yazma araçları:
+${writes}`,
+            {
+              arac: { type: 'string', description: 'Dizindeki yazma aracı, ör. row_create' },
+              girdi: {
+                type: 'string',
+                description: 'Aracın girdisi, JSON nesnesi (ayrıntı için platform_arac)',
+              },
+              neden: reason,
+            },
+          ),
+        ]
+      : []),
     tool(
       'platform_oku',
       'Uygulamanın tanımını platformdan okur (yalnız okuma; ortam koşunun ortamına sabittir). Ekranda görünmeyen ' +
@@ -42,7 +68,7 @@ ${platform.index()}`,
         neden: reason,
       },
     ),
-    tool('platform_arac', 'Bir okuma aracının açıklamasını ve girdi şemasını döner.', {
+    tool('platform_arac', 'Bir platform aracının (okuma ya da yazma) açıklamasını ve girdi şemasını döner.', {
       arac: { type: 'string' },
       neden: reason,
     }),

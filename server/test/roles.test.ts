@@ -44,6 +44,20 @@ const script: Script = {
           notlar: ['"Onaylı ölçüm" etiketi açılış ekranında'],
         }
       : { bulgular: [], notlar: ['"Eğitim ayrıntısı" penceresi açık'] },
+  terms: () => ({
+    bulgular: [
+      {
+        tur: 'tutarsizlik',
+        anahtar: 'ayrinti-liste-adi-farkli',
+        baslik: 'Aynı kayıt listede ve pencerede farklı adla geçiyor',
+        senaryo: 'Ayrıntılar penceresini aç',
+        beklenen: 'Aynı adla geçmeli',
+        gozlenen: 'Liste "Eğitim listesi" (ekran 1), pencere "Eğitim ayrıntısı" (ekran 2)',
+        alinti: 'Durum: undefined',
+      },
+    ],
+    notlar: [],
+  }),
   task: (conversation, task, turn) => {
     if (task === 'Göz turu') {
       if (turn === 1)
@@ -117,8 +131,10 @@ describe('model rolleri, yargıç ve modelsiz doğrulama', () => {
     const judge = h.calls.filter((c) => JSON.stringify(c.messages).includes('YARGIÇ GÖREVİ'))
     expect(judge.map((c) => c.model)).toEqual(['claude-opus-5-5', 'claude-opus-5-5'])
     expect(judge.every((c) => c.cache_control === undefined)).toBe(true)
-    expect(JSON.stringify(judge[0]!.messages)).toContain('dediği sorunlar (aynısıysa reddet)')
-    expect(explorer.some((c) => JSON.stringify(c.messages).includes('dediği sorunlar'))).toBe(false)
+    expect(JSON.stringify(judge[0]!.system)).toContain('dediği sorunlar (aynısıysa reddet)')
+    expect(explorer.some((c) => JSON.stringify([c.system, c.messages]).includes('dediği sorunlar'))).toBe(
+      false,
+    )
 
     const keys = h.ctx.issues.list({ app, includeSuppressed: true }).map((i) => i.key)
     expect(keys).toContain('yz:toplam-kayit-sayisi')
@@ -183,6 +199,35 @@ describe('model rolleri, yargıç ve modelsiz doğrulama', () => {
     // Önceki ekranın notu sonraki incelemeye taşınır.
     expect(JSON.stringify(dialog.messages)).toContain('Önceki ekranların notları')
     expect(JSON.stringify(dialog.messages)).toContain('etiketi açılış ekranında')
+    // Notlar ekran başına önbellek işaretli bloktadır (ön ek yalnız artar); ekranın kendisi işaretsiz sonda durur.
+    const blocks = (
+      dialog.messages as Array<{ content: Array<{ type: string; text?: string; cache_control?: unknown }> }>
+    )[0]!.content
+    const notes = blocks.find((b) => b.text?.includes('etiketi açılış ekranında'))!
+    expect(notes.cache_control).toEqual({ type: 'ephemeral' })
+    expect(blocks.indexOf(notes)).toBeLessThan(
+      blocks.findIndex((b) => b.text?.includes('Tıklandı: "Ayrıntılar"')),
+    )
+    expect(blocks.filter((b) => b.cache_control)).toHaveLength(1)
+    // Sayfanın taban ağacı (açılış ekranı) önbellekli ön ektedir; pencere ekranı ona göre yalnız fark olarak gider.
+    const base = blocks.find((b) => b.text?.startsWith('Sayfanın taban ağacı'))!
+    expect(base.text).toContain('Yangın eğitimi')
+    expect(blocks.indexOf(base)).toBeLessThan(blocks.indexOf(notes))
+    const current = blocks.find((b) => b.text?.includes('Bu ekranın ağacı'))!
+    expect(current.text).toContain('Yalnız değişen kısım')
+    expect(current.text).toContain('Eğitim ayrıntısı')
+    expect(current.text).not.toContain('Yangın eğitimi')
+
+    // Terim gözü: sayfa sonunda bir kez; incelenen ekranların etiketleri geçtikleri ekranlarla gider, bulgu alıntının
+    // geçtiği ekranın (pencere) görüntüsüyle doğrulanır.
+    const terms = calls.filter((c) => JSON.stringify(c.messages).includes('TERİM GÖZÜ GÖREVİ'))
+    expect(terms).toHaveLength(1)
+    expect(JSON.stringify(terms[0]!.messages)).toContain('heading \\"Eğitim listesi\\" (ekran 1,2)')
+    expect(JSON.stringify(terms[0]!.messages)).toContain('dialog \\"Eğitim ayrıntısı\\" (ekran 2)')
+    const named = h.ctx.issues.list({ app }).find((i) => i.key === 'yz:ayrinti-liste-adi-farkli')!
+    const sighting = h.ctx.issues.detail(named.id).occurrences.find((o) => o.runId === run.id)!
+    expect(sighting).toMatchObject({ outcome: 'yeni', quote: 'Durum: undefined' })
+    expect(sighting.box).not.toBeNull()
 
     const issue = h.ctx.issues.list({ app }).find((i) => i.key === 'yz:toplam-tablo-uyusmuyor')!
     const occurrence = h.ctx.issues.detail(issue.id).occurrences.find((o) => o.runId === run.id)!

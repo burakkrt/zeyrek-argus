@@ -1,18 +1,18 @@
 ---
 yazar: krtbu
-guncelleme: "2026-11-15T08:44:25.455Z"
+guncelleme: "2026-11-15T10:11:16.379Z"
 ---
 ## yz:ana-sayfa-buyuk-kucuk-harf
 - baslik: "Ana sayfa" ve "Ana Sayfa" aynı sayfada farklı büyük/küçük harfle geçiyor
 - tur: tutarsizlik
 - sayfalar: performans-calisma-alanim, performans-donemler, performans-gosterge-olustur
 - ilk: 2026-11-14T14:21:59.450Z
-- son: 2026-11-15T08:39:56.847Z
-- gorulme: 5
-- sayfa: performans-donemler
-- senaryo: Dönem yönetimi sayfasını aç; sol menüdeki ve gezinti yolundaki ana sayfa bağlantılarına bak.
-- beklenen: Aynı bağlantı tek biçimde yazılmalı.
-- gozlenen: Gezinti yolunda "Ana sayfa", sol menüde "Ana Sayfa" geçiyor.
+- son: 2026-11-15T10:04:12.465Z
+- gorulme: 11
+- sayfa: performans-calisma-alanim
+- senaryo: 1. Çalışma alanım sayfasını aç. 2. Sol menüdeki bağlantı adlarına ve gezinti yoluna bak.
+- beklenen: Aynı kavram aynı ekranda tek biçimde yazılmalı.
+- gozlenen: Menüde ve gezinti yolunda "Ana sayfa" geçiyor, menüdeki dashboard bağlantısında ise "Ana Sayfa" yazıyor.
 - alinti: Ana Sayfa
 
 ## yz:anasayfa-yazimi
@@ -33,8 +33,8 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - tur: tutarsizlik
 - sayfalar: performans-calisma-alanim
 - ilk: 2026-11-13T21:04:55.766Z
-- son: 2026-11-14T22:15:04.816Z
-- gorulme: 2
+- son: 2026-11-15T10:04:13.004Z
+- gorulme: 3
 - sayfa: performans-calisma-alanim
 - senaryo: Çalışma alanım → İşlerim satırlarına ve aşağıdaki Tamamlanan işlerim tablosunun Tarih sütununa bak.
 - beklenen: Sayfada tek bir Türkçe tarih biçimi kullanılmalı (ör. 1.12.2026 ya da 1 Aralık 2026).
@@ -67,18 +67,57 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - gozlenen: Aynı onay olayı bağlam panelinde "17 Şub 2026" diye kısaltılmış, Tarihçe listesinde ise "17 Şubat 2026" diye uzun biçimde yazılıyor. Ölçüm matrisinde de aylar "Oca/Şub" diye kısaltılmış.
 - alinti: 17 Şub 2026
 
+## yz:donem-2025-yil-sonu-bitis-yili
+- baslik: 2025 Yıl sonu dönemi 2026'da bitiyor
+- tur: tutarsizlik
+- sayfalar: performans-donemler
+- ilk: 2026-11-15T10:02:39.968Z
+- son: 2026-11-15T10:02:39.968Z
+- gorulme: 1
+- sayfa: performans-donemler
+- senaryo: Dönem yönetimi sayfasını açın (Tümü sekmesi), aşağı kaydırıp '2025 Yıl sonu değerlendirmesi (TE…' satırının Başlangıç ve Bitiş sütunlarına bakın.
+- beklenen: 2025 dönemi, diğer yıl sonu dönemleri gibi kendi yılında bitmeli (ör. 24 Ara 2025).
+- gozlenen: Satır '15 Şub 2025' – '24 Ara 2026' aralığını gösteriyor. 2021–2024 yıl sonu dönemleri kendi yıllarının 24 Aralık tarihinde bitiyor (ör. '15 Şub 2024' – '24 Ara 2024'); 2025 dönemi ise bir sonraki yılın tarihinde bitiyor. Dönem adı ve kodu (TEST-2025-01) ile bitiş yılı uyuşmuyor.
+- alinti: 2025 Yıl sonu değerlendirmesi (TE
+
 ## yz:donem-2026-ortasi-ad-kod-tarih
 - baslik: "2026 Ortası" dönemi DD-2027-02 kodlu ve 15 Şub 2027 – 1 Şub 2028 aralığında
 - tur: tutarsizlik
 - sayfalar: performans-donem, performans-donemler
 - ilk: 2026-11-13T21:06:52.944Z
-- son: 2026-11-15T08:39:57.046Z
-- gorulme: 3
+- son: 2026-11-15T10:02:14.353Z
+- gorulme: 8
 - sayfa: performans-donemler
 - senaryo: Dönem yönetimi sayfasını aç; Tümü listesinde "2026 Ortası" satırına bak.
 - beklenen: Dönem adı, kodu ve tarih aralığı aynı yılı göstermeli.
 - gozlenen: Ad "2026 Ortası", kod "DD-2027-02", tarih aralığı "15 Şub 2027" – "1 Şub 2028"; ad, kod ve tarihlerle çelişiyor.
 - alinti: 2026 Ortası
+
+## yz:donem-asama-takvim-bugunden-ileri
+- baslik: Bitiş tarihi gelmemiş aşamalar tamamlanmış görünüyor
+- tur: tutarsizlik
+- sayfalar: performans-donemler
+- ilk: 2026-11-15T10:01:11.894Z
+- son: 2026-11-15T10:03:36.607Z
+- gorulme: 2
+- sayfa: performans-donemler
+- senaryo: '2026 Yıl sonu değerlendirmesi' detayını aç, aşama şeridine bak (bugün 15 Kas 2026)
+- beklenen: Bitiş tarihi gelmemiş aşama tamamlandı işareti taşımamalı
+- gozlenen: Yönetici değerlendirmesi ('20 Kas 2026’ya kadar') ve Kalibrasyon ('5 Ara 2026’ya kadar') onay işaretli ve '4 / 6 tamamlandı' yazıyor, Sonuç yayını aşaması da '10 Ara 2026'. Ancak bugün 15 Kas 2026
+- alinti: 20 Kas 2026’ya kadar
+
+## yz:donem-detay-kesme-isareti-tutarsiz
+- baslik: Aynı sayfada iki farklı kesme işareti kullanılıyor
+- tur: tutarsizlik
+- sayfalar: performans-donemler
+- ilk: 2026-11-15T10:03:36.800Z
+- son: 2026-11-15T10:03:36.800Z
+- gorulme: 1
+- sayfa: performans-donemler
+- senaryo: '2026 Yıl sonu değerlendirmesi' detayını aç; aşama şeridindeki tarihleri ve Kapsam kartındaki 'En az kıdem' satırını karşılaştır
+- beklenen: Kesme işareti sayfanın her yerinde aynı karakterle yazılmalı
+- gozlenen: Aşama şeridinde tipografik kesme işareti var ('15 Şub 2026’ya kadar'). Kapsam kartında ise düz kesme işareti görünüyor ('31 Ara 2026'ya göre')
+- alinti: 15 Şub 2026’ya kadar
 
 ## yz:donem-hatirlatma-eposta-kapali-alanlar-etkin
 - baslik: E-posta gönderimi kapalıyken hatırlatma alanları hâlâ etkin
@@ -95,15 +134,15 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 
 ## yz:donem-kayit-filtresi-yer-tutucu-eksik
 - baslik: Kayıt sütun filtresinde yer tutucu yok
-- tur: tutarsizlik
+- tur: kesin
 - sayfalar: performans-donemler
 - ilk: 2026-11-15T08:40:16.825Z
-- son: 2026-11-15T08:40:16.825Z
-- gorulme: 1
+- son: 2026-11-15T10:00:11.719Z
+- gorulme: 2
 - sayfa: performans-donemler
-- senaryo: 1) Dönem yönetimi sayfasını açın. 2) Tablonun ikinci başlık satırındaki filtre kutularına bakın. 3) Kayıt sütunundaki filtreyi Dönem, Form şablonu ve Aşama filtreleriyle karşılaştırın.
-- beklenen: Kayıt filtresi de öteki metin filtreleri gibi bir yer tutucu göstermeli (ör. "Filtrele").
-- gozlenen: Dönem, Form şablonu ve Aşama filtrelerinde "Filtrele" yer tutucusu var. Kayıt filtresi ise yalnız "=" operatörünü gösteriyor, kutu boş. Plan filtresinde aynı eksiklik bilinen sorun olarak kayıtlı (yz:donem-plan-filtresi-yer-tutucu-eksik); "=" operatörlü filtrelerin ortak kök nedeni olabilir.
+- senaryo: 1. performans-donemler sayfasını aç. 2. Tablonun filtre satırında Kayıt sütununa bak.
+- beklenen: Sayı filtresinde de bir yer tutucu (ör. "Filtrele") görünür.
+- gozlenen: Kayıt filtresinde yalnız "=" operatörü var, kutu boş ve yer tutucu yok. Aşama filtresinde ise "Filtrele" yazıyor.
 - alinti: 
 
 ## yz:donem-kayit-katilimci-ad-farki
@@ -111,8 +150,8 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - tur: tutarsizlik
 - sayfalar: performans-donem, performans-donemler
 - ilk: 2026-11-13T21:06:22.745Z
-- son: 2026-11-15T08:39:56.946Z
-- gorulme: 3
+- son: 2026-11-15T10:02:14.435Z
+- gorulme: 8
 - sayfa: performans-donemler
 - senaryo: Dönem yönetimi sayfasını aç; sayfa açıklamasını ve tablo sütun başlıklarını karşılaştır.
 - beklenen: Açıklamada ve sütun başlığında aynı kavram aynı adla geçmeli.
@@ -134,15 +173,15 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 
 ## yz:donem-plan-filtresi-yer-tutucu-eksik
 - baslik: Plan sütun filtresinde yer tutucu yok
-- tur: tutarsizlik
+- tur: kesin
 - sayfalar: performans-donemler
 - ilk: 2026-11-15T07:20:56.114Z
-- son: 2026-11-15T07:20:56.114Z
-- gorulme: 1
+- son: 2026-11-15T10:00:11.655Z
+- gorulme: 2
 - sayfa: performans-donemler
-- senaryo: Dönem yönetimi sayfasını aç; tablonun filtre satırında Plan sütununa bak.
-- beklenen: Dönem, Form şablonu ve Aşama metin filtreleri gibi Plan filtresinde de "Filtrele" yer tutucusu olmalı.
-- gozlenen: Dönem ve Form şablonu filtreleri "Filtrele" gösteriyor; Plan filtresinin yer tutucusu boş.
+- senaryo: 1. performans-donemler sayfasını aç. 2. Tablonun filtre satırında Plan sütununa bak.
+- beklenen: Dönem ve Form şablonu filtrelerindeki gibi "Filtrele" yer tutucusu görünür.
+- gozlenen: Plan filtresi kutusunun yer tutucusu boş (placeholder=""), içinde yalnız operatör simgesi var. Komşu Dönem ve Form şablonu filtrelerinde "Filtrele" yazıyor.
 - alinti: 
 
 ## yz:donem-plan-kodu-yil-celiskisi
@@ -150,8 +189,8 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - tur: tutarsizlik
 - sayfalar: performans-donemler, performans-planlar
 - ilk: 2026-11-13T21:45:35.398Z
-- son: 2026-11-15T08:39:57.152Z
-- gorulme: 4
+- son: 2026-11-15T10:02:14.272Z
+- gorulme: 9
 - sayfa: performans-donemler
 - senaryo: Performans → Dönem yönetimi → Tümü sekmesi; "test burak dönem 2" (DD-2027-05) ve "test değerlendirme bir" (DD-2027-04) satırlarındaki Plan sütununa bak.
 - beklenen: Plan kodunun yılı, dönem kodunun yılı ve tarih aralığıyla uyumlu olmalı (ör. PLN-2027-xx).
@@ -176,21 +215,34 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - tur: tutarsizlik
 - sayfalar: performans-donemler
 - ilk: 2026-11-15T07:22:15.746Z
-- son: 2026-11-15T07:22:15.746Z
-- gorulme: 1
+- son: 2026-11-15T10:03:36.684Z
+- gorulme: 3
 - sayfa: performans-donemler
-- senaryo: Dönem yönetimi → Aktif → "2026 Ortası" satırını aç. Aşama şeridine ve Katılımcılar tablosuna bak.
-- beklenen: Hedef belirleme tamamlandı (onay işaretli, "1 / 6 tamamlandı") ise katılımcılar Öz değerlendirmede olmalı ve form şablonundaki en az 3 hedefi taşımalı. Ya da şerit bekleyen katılımcıyı göstermeli.
-- gozlenen: Şeritte Hedef belirleme onay işaretli ve dönem "Öz değerlendirme" aşamasında. Buna karşın Furkan ÜSTÇAYIR "Hedef belirlemede" durumunda ve Hedef 0 görünüyor. Form şablonu "%60 · 3–6 hedef" diyor; 0 hedef bu kuralla da çelişiyor.
-- alinti: 1 / 6 tamamlandı
+- senaryo: '2026 Yıl sonu değerlendirmesi' detayını aç, aşama şeridini ve durum sayaçlarını karşılaştır
+- beklenen: Tamamlanmış aşamada, özellikle dönem Sonuç yayını aşamasındayken katılımcı kalmamalı
+- gozlenen: Hedef belirleme aşaması onay işaretli ('15 Şub 2026’ya kadar') ama 'Hedef belirlemede 5' sayacı var. Ayrıca Can Ozan ATAMAN ve Muhammed Ali Aslan 2 'Hedef belirlemede' durumunda ve hedef sayıları 0
+- alinti: Hedef belirlemede
+
+## yz:donem-yoneticisi-eksik-sayaci-katilimcidan-fazla
+- baslik: 'Yöneticisi eksik 26' sayacı katılımcı sayısından büyük
+- tur: tutarsizlik
+- sayfalar: performans-donemler
+- ilk: 2026-11-15T10:01:12.002Z
+- son: 2026-11-15T10:03:36.523Z
+- gorulme: 2
+- sayfa: performans-donemler
+- senaryo: Dönem yönetimi > Aktif sekmesi > '2026 Yıl sonu değerlendirmesi' satırına tıkla > katılımcı sayaçlarına bak
+- beklenen: Yöneticisi eksik sayısı en çok katılımcı sayısı kadar olmalı ve tablodaki yöneticisi boş satırlarla tutmalı
+- gozlenen: 'Katılımcılar 9' yanında 'Yöneticisi eksik 26' görünüyor. Ekrandaki satırların hepsinde Yönetici dolu (Sercan AKMAZ, Ersin KARATEKELİ, Muhammed Ali ASLAN)
+- alinti: Yöneticisi eksik
 
 ## yz:durumum-hedefteki-gosterge-puan-celiskisi
 - baslik: Durumum: Hedefteki gösterge 3/3, ama puan hedefin 3,8 puan altında
 - tur: tutarsizlik
 - sayfalar: performans-calisma-alanim
 - ilk: 2026-11-13T21:04:55.732Z
-- son: 2026-11-14T22:15:04.916Z
-- gorulme: 2
+- son: 2026-11-15T10:04:12.908Z
+- gorulme: 3
 - sayfa: performans-calisma-alanim
 - senaryo: Çalışma alanım → sayfayı aşağı kaydır → sağdaki Durumum kartı (2026 yılı).
 - beklenen: Tüm göstergeler hedefteyse (3/3) puan hedefin altında olmamalı. Puan hedefin altındaysa en az bir gösterge hedefin dışında görünmeli.
@@ -215,12 +267,12 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - tur: kesin
 - sayfalar: performans-donemler
 - ilk: 2026-11-15T07:23:03.311Z
-- son: 2026-11-15T07:23:03.311Z
-- gorulme: 1
+- son: 2026-11-15T10:03:36.750Z
+- gorulme: 3
 - sayfa: performans-donemler
-- senaryo: Dönem yönetimi listesinden "test burak değerlendirme" dönemini açın; sağdaki FORM ŞABLONU panelinde Yetkinlikler satırına bakın.
-- beklenen: TDK yazımına uygun "unvana göre set" yazmalı.
-- gozlenen: Yetkinlikler satırında "%30 · ünvana göre set" yazıyor; doğru yazım "unvan".
+- senaryo: '2026 Yıl sonu değerlendirmesi' detayını aç, sağdaki FORM ŞABLONU kartında Yetkinlikler satırına bak
+- beklenen: 'unvana göre set'
+- gozlenen: '%30 · ünvana göre set' yazıyor; doğru yazımı 'unvan'
 - alinti: ünvana göre set
 
 ## yz:gosterge-birim-tipi-siralama
@@ -280,8 +332,8 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - tur: tutarsizlik
 - sayfalar: performans-calisma-alanim
 - ilk: 2026-11-13T21:04:27.217Z
-- son: 2026-11-14T22:16:15.379Z
-- gorulme: 3
+- son: 2026-11-15T10:04:12.583Z
+- gorulme: 4
 - sayfa: performans-calisma-alanim
 - senaryo: Çalışma alanım > İşlerim: Tümü'nde başlığa bak; Bu hafta ve Bu ay'a bas.
 - beklenen: Başlık sayısı, grup sayaçlarının toplamı ve listedeki satırlar eşit olmalı; Bu ay'da Aralık işleri elenmeli.
@@ -293,8 +345,8 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - tur: tutarsizlik
 - sayfalar: performans-calisma-alanim
 - ilk: 2026-11-13T21:04:18.752Z
-- son: 2026-11-14T22:15:53.230Z
-- gorulme: 3
+- son: 2026-11-15T10:04:12.675Z
+- gorulme: 4
 - sayfa: performans-calisma-alanim
 - senaryo: Çalışma alanım > İşlerim > Tümü; ARA 1 satırlarına bak (bugün 15 Kasım 2026)
 - beklenen: 1 Aralık için 16 gün kaldı
@@ -352,6 +404,19 @@ guncelleme: "2026-11-15T08:44:25.455Z"
 - beklenen: Beklenen ölçüm sayısı grafikle tutmalı. 9 ay × 15 gösterge = 135 ölçüm beklenir. Ağustosta 2, Eylülde 13 ölçüm eksik olduğundan onaylı oran en çok 120/135 olmalı. Geciken 33 ölçüm varsa beklenen ölçümlerin büyük kısmının onaylı olduğu gösterilmemeli.
 - gozlenen: Onaylı ölçüm 118 / 120 gösteriliyor, yani yalnızca 2 ölçüm eksik. Oysa grafikte Ağu 13/15 ve Eyl 2/15 görünüyor, bu iki ayda toplam 15 ölçüm eksik. Payda 120, beklenen değil girilmiş ölçüm sayısına denk geliyor (7×15+13+2=120). Aynı panelde Geciken veri girişi 33. Tanıma göre bu, son tarihi geçmiş ama verisi girilmemiş ölçüm sayısı. Yani 120 beklenen ölçümden yalnızca 2'si eksikken 33 ölçümün gecikmiş olması mümkün değil.
 - alinti: 118 / 120
+
+## yz:modul-adi-buyuk-kucuk-harf
+- baslik: Modül adı gezinti yolunda küçük harfle, menüde büyük harfle yazılıyor
+- tur: tutarsizlik
+- sayfalar: performans-calisma-alanim
+- ilk: 2026-11-15T10:04:47.931Z
+- son: 2026-11-15T10:04:47.931Z
+- gorulme: 1
+- sayfa: performans-calisma-alanim
+- senaryo: 1. performans-calisma-alanim sayfasını aç. 2. Gezinti yolundaki ikinci öğeye bak. 3. Sol menüdeki modül düğmelerine bak.
+- beklenen: Modül adı her yerde aynı yazılmalı. Menüdeki diğer modüller gibi "Performans Yönetimi" olmalı.
+- gozlenen: Gezinti yolunda "Performans yönetimi" yazıyor. Sol menüdeki modüllerin hepsi baş harfleri büyük yazılıyor ("Doküman Yönetimi", "DİF Yönetimi", "Şikayet Yönetimi", "Toplantı Yönetimi"). Bu, [ayni-kavram-ayni-ad] kuralıyla çelişiyor. Performans düğmesi menü ağacında kırpılmış (+9 benzer button), ama diğer modüllerle aynı biçimde yazıldığı varsayılıyor.
+- alinti: Performans yönetimi
 
 ## yz:onaylarim-yonlendirme-suzgec-uygulanmiyor
 - baslik: Onaylarım yönlendirmesi (?cip=onay) listeyi onay işlerine süzmüyor

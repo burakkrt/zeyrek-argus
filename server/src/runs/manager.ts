@@ -4,7 +4,8 @@ import {
   DEFINITION_PAGE,
   moduleOf,
   RUN_CEILINGS,
-  type RunAnswer,
+  type PlatformRead,
+  type RunCoverage,
   type StrategyItem,
   type AppRef,
   type RunInfo,
@@ -12,7 +13,7 @@ import {
   type Settings,
 } from '@argus/shared'
 import { PageController } from '../agent/page-controller.ts'
-import { investigate } from '../agent/investigator.ts'
+import { investigate, type DefinitionFinding } from '../agent/investigator.ts'
 import { inspectsScreens, normalizeItems, pageWork, planRun, scanStrategy } from '../agent/strategist.ts'
 import { supervise, SUPERVISE_ROUNDS } from '../agent/supervisor.ts'
 import { describeModelError, UsageMeter, type CreateMessage, type MessageParams } from '../agent/model.ts'
@@ -26,7 +27,7 @@ import {
   getRun,
   nextQueuedRun,
   saveUsage,
-  setRunAnswer,
+  setRunCoverage,
   setRunPages,
   startRun,
 } from '../db/runs.ts'
@@ -37,15 +38,13 @@ import { endSuperLogin, reserveSuperLogin, switchUser } from '../identity/switch
 import { ArgusError, errorMessage } from '../errors.ts'
 import { loadAttachments, validAttachments } from './attachments.ts'
 import { renderKnowledge } from '../agent/knowledge.ts'
-import { ScreenMemory } from './screens.ts'
 import { RunTrace } from './trace.ts'
-import { PlatformReader } from '../platform/reader.ts'
-import { authorSlug } from '../memory/shared.ts'
+import { PlatformReader, readStep } from '../platform/reader.ts'
 import type { IssueService } from '../issues/issues.ts'
 import type { Learner } from '../memory/learn.ts'
 import { selectRules } from '../memory/select.ts'
 import { bumpEligible, bumpUses, ruleStats } from '../memory/stats.ts'
-import type { MemoryStore } from '../memory/store.ts'
+import { slugify, type MemoryStore } from '../memory/store.ts'
 import { assertNotProduction, pageUrl } from '../platform/catalog.ts'
 import type { Platform } from '../platform/platform.ts'
 import { fetchAccessToken } from '../platform/token.ts'
@@ -62,7 +61,7 @@ export interface RunManagerDeps {
   dataDir: string
   /** Ayarlardaki modelle istek yapan işlev; anahtar yoksa hata fırlatır. */
   model: () => CreateMessage
-  /** Paylaşılan dosyalarda (`findings/`, `pages/`, `screens/`) bu makinenin yazar adı. */
+  /** Paylaşılan dosyalarda (`findings/`, `pages/`) bu makinenin yazar adı. */
   author: () => string
   headless?: boolean
 }
@@ -155,7 +154,7 @@ export class RunManager {
     const { db, bus, platform, memory, issues } = this.deps
     const app: AppRef = { project: run.project, application: run.application }
     const settings: Settings = getSettings(db)
-    const meter = new UsageMeter()
+    const meter = new UsageMeter(settings.provider)
     const active = this.active!
     const runDir = join(this.deps.dataDir, 'runs', run.id)
     mkdirSync(runDir, { recursive: true })
@@ -171,6 +170,8 @@ export class RunManager {
     let session: BrowserSession | null = null
     // Süper giriş açıldıysa koşu sonunda (hata olsa da) kapatılır.
     let superLogin: SuperLoginSpec | null = null
+    // Platform kapısı (okuma ve yazma); koşu sonunda bıraktığı test kayıtları silinir (hata olsa da).
+    let platformGate: PlatformReader | null = null
     startRun(db, run.id)
     bus.runUpdated(getRun(db, run.id)!)
     bus.publish(run.id, null, { type: 'kosu-basladi', pages: run.pages })
@@ -182,7 +183,7 @@ export class RunManager {
       const model = trace.wrap(this.deps.model())
       const access = platform.access()
       const environment = await platform.catalog.environment(run.project, run.environment)
-      // Modelin platform okuma kapısı (tanımlar): yalnız okuma işaretli araçlar, ortam bu koşununkine sabit.
+      // Modelin platform kapısı: okuma işaretli araçlar ve veri/çalıştırma yazma araçları, ortam bu koşununkine sabit.
       const reader = new PlatformReader(
         await platform.mcp(),
         {
@@ -194,6 +195,7 @@ export class RunManager {
         },
         trace,
       )
+      platformGate = reader
       const urlOf = (page: string) =>
         pageUrl({
           studioBaseUrl: access.credentials.studioBaseUrl,
@@ -209,14 +211,14 @@ export class RunManager {
       const system: MessageParams['system'] = [
         { type: 'text', text: BASE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
       ]
-      const onRead = (tool: string, reason: string, ok: boolean) =>
+      const onRead = (reason: string, read: PlatformRead) =>
         bus.publish(run.id, DEFINITION_PAGE, {
           type: 'adim',
-          tool: 'platform_oku',
+          tool: read.write ? 'platform_yaz' : 'platform_oku',
           reason: reason || null,
-          outcome: ok ? `Platformdan okundu: ${tool}` : `Platformdan okunamadı: ${tool}`,
           shot: null,
           target: null,
+          ...readStep(read),
         })
       const briefed = Boolean(run.options.brief || attachments.length)
       const catalog = briefed
@@ -311,6 +313,43 @@ export class RunManager {
           bus.publish(run.id, null, { type: 'bilgi', message: `Takımın ${synced} kararı hafızadan okundu.` })
         return session
       }
+      // Tanımdan çıkan bulgu (araştırmacının ya da gözetmenin): görüntüsüz, kanıtı kaynağıdır (araç, kayıt, alan).
+      const recordDefinition = (finding: DefinitionFinding, page: string): string => {
+        const result = issues.record({
+          app,
+          runId: run.id,
+          page,
+          phase: 'gorev',
+          // Aynı kök neden tek sorundur: model bilinen sorunun anahtarını verdiyse ona eklenir (aynı bulgu farklı başlıkla
+          // dört ayrı sorun olarak kayıtlanıyordu, KOŞU V11).
+          key: `yz:${slugify((finding.anahtar ?? '').replace(/^yz:/, '') || finding.baslik)}`,
+          title: finding.baslik,
+          kind: finding.tur,
+          source: 'yz',
+          scenario: finding.senaryo,
+          expected: finding.beklenen,
+          observed: `${finding.gozlenen} (Kaynak: ${finding.kaynak})`,
+          quote: null,
+          shot: null,
+          box: null,
+          rules: [],
+          verified: true,
+          suppressedByRule: null,
+        })
+        if (result.duplicate) return 'Bu koşuda zaten kayıtlı (aynı anahtar); yeniden kaydedilmedi.'
+        bus.publish(run.id, page, {
+          type: 'bulgu',
+          issueId: result.issue.id,
+          occurrenceId: result.occurrence.id,
+          key: result.issue.key,
+          title: result.issue.title,
+          kind: result.occurrence.kind,
+          outcome: result.outcome,
+          reason: result.reason,
+          shot: null,
+        })
+        return `Kaydedildi (${result.outcome}).`
+      }
       const runDefinitions = async (items: StrategyItem[]) => {
         const offset = definitions.length
         definitions.push(...items)
@@ -330,13 +369,24 @@ export class RunManager {
           const summary = await investigate({
             createMessage: model,
             meter,
-            model: settings.models.planner,
+            model: settings.models.investigator,
             system,
             reader,
             item,
             brief: run.options.brief ?? null,
             notes,
+            known: () => {
+              const seen = new Map<string, string>()
+              for (const i of issues.list({ app, runId: run.id })) seen.set(i.key, i.title)
+              for (const i of issues.knownInModule(
+                app,
+                moduleOf(item.page ?? strategy.items.find((s) => s.page)?.page ?? ''),
+              ))
+                seen.set(i.key, i.title)
+              return [...seen].map(([key, title]) => `${key} — ${title}`)
+            },
             onRead,
+            record: (finding) => recordDefinition(finding, item.page ?? DEFINITION_PAGE),
           })
           notes.push(`${item.title}: ${summary}`)
           results.push(`Tanım — ${item.title}: ${summary}`)
@@ -372,7 +422,6 @@ export class RunManager {
           })
         }
         const knowledge = memory.pageKnowledge(app, page)
-        const screens = new ScreenMemory(memory.screenDir(app, page), authorSlug(writer))
         // Bu koşunun sayfa izi: sayfa bilgisiyle birlikte saklanır (takım genelinde "ne değişti?" dayanağı).
         let current: PagePrint | null = null
         const controller = new PageController({
@@ -386,6 +435,7 @@ export class RunManager {
             knowledge: knowledge?.body ?? null,
             notes,
           },
+          recordedInRun: issues.recordedInRun(run.id, page),
           patterns: selection.patterns,
           system: [
             { type: 'text', text: BASE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
@@ -436,8 +486,6 @@ export class RunManager {
               bus.publish(run.id, page, { type: 'bilgi', message: describeChange(change, basis) })
               return change
             },
-            screenMemory: (print) => screens.get(print),
-            rememberScreen: (print, label, notes) => screens.remember(print, label, notes),
             saveKnowledge: (distilled) => {
               if (!current) return
               const at = new Date().toISOString()
@@ -504,10 +552,10 @@ export class RunManager {
         }
       }
       await runItems(strategy.items)
-      // Gözetmen (girdili koşu): sonucu başarı ölçütüyle karşılaştırır, isteğin cevabını yazar; cevap eksikse ve yol
-      // kaldıysa ek kalem ister (en çok SUPERVISE_ROUNDS tur).
+      // Gözetmen (girdili koşu): test planını yapılanla karşılaştırır, kaçmış bulguları kaydeder, kapsam raporunu yazar;
+      // kapsam boşluğu kaldıysa ek kalem ister (en çok SUPERVISE_ROUNDS tur).
       if (briefed && !active.stop) {
-        let answer: RunAnswer | null = null
+        let coverage: RunCoverage | null = null
         for (let round = 1; round <= SUPERVISE_ROUNDS && !active.stop; round += 1) {
           const verdict = await supervise({
             createMessage: model,
@@ -519,22 +567,23 @@ export class RunManager {
             results,
             findings: issues
               .list({ app, runId: run.id })
-              .map((i) => `${i.title} (${i.kind}; ${i.pages.join(', ')})`),
+              .map((i) => `${i.key} — ${i.title} (${i.kind}; ${i.pages.join(', ')})`),
             pages: [...tested],
             lastRound: round === SUPERVISE_ROUNDS,
           })
-          answer = verdict.answer
+          coverage = verdict.coverage
+          for (const finding of verdict.missed) recordDefinition(finding, DEFINITION_PAGE)
           const extra = normalizeItems(verdict.extra, catalog)
           if (!extra.length) break
           bus.publish(run.id, null, {
             type: 'bilgi',
-            message: `Gözetmen cevabı tamamlamak için ${extra.length} ek kalem istedi: ${extra.map((i) => i.title).join(', ')}.`,
+            message: `Gözetmen kapsamı tamamlamak için ${extra.length} ek kalem istedi: ${extra.map((i) => i.title).join(', ')}.`,
           })
           await runItems(extra)
         }
-        if (answer) {
-          setRunAnswer(db, run.id, answer)
-          bus.publish(run.id, null, { type: 'cevap', answer })
+        if (coverage) {
+          setRunCoverage(db, run.id, coverage)
+          bus.publish(run.id, null, { type: 'kapsam', coverage })
           bus.runUpdated(getRun(db, run.id)!)
         }
       }
@@ -544,6 +593,13 @@ export class RunManager {
       failure = describeModelError(error)
       bus.publish(run.id, null, { type: 'hata', message: failure })
     } finally {
+      const gate = platformGate as PlatformReader | null
+      const removed = gate ? await gate.cleanup() : 0
+      if (removed)
+        bus.publish(run.id, null, {
+          type: 'bilgi',
+          message: `Koşunun oluşturup silmediği ${removed} test kaydı silindi.`,
+        })
       // Oturum ve süper giriş tarayıcı açılırken (ilk ekran kaleminde, kapanış içinde) atanır; TS bunu izleyemez.
       const opened = session as BrowserSession | null
       const login = superLogin as SuperLoginSpec | null

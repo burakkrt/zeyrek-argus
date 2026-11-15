@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto'
 import type { AppRef, NetworkEntry } from '@argus/shared'
 import { endpointKey } from '../browser/guard.ts'
+import { stableTree } from '../browser/snapshot.ts'
 import { now, type Database } from '../db/database.ts'
 
 /**
  * Sayfanın değişiklik izi: arayüz yapısı (maskeli ağaç), veri sözleşmesi (çağrılan uçlar) ve Studio tanımı
  * (sayfa şeması). Planlayıcı izi sayfa bilgisiyle birlikte okur (değişmeyen ve bilinen alanı yeniden gezmez, değişene
- * yönelir); veri ucu ve Studio tanımı değişmediyse Göz daha önce incelediği ekran yapısını yeniden incelemez. Hiçbir
- * alan modelsiz "geçti" sayılmaz: gezgin yine gezer, yalnız odak ve yeniden inceleme değişir.
+ * yönelir). Hiçbir alan modelsiz "geçti" sayılmaz: gezgin yine gezer, göz yine bakar; yalnız odak değişir.
  */
 export interface PagePrint {
   ui: string
@@ -17,13 +17,15 @@ export interface PagePrint {
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 16)
 
-/** Veriyle değişen her şey maskelenir: ref, sayı, tarih, tırnak içi metin. Geriye ağacın iskeleti kalır. */
+/**
+ * Veriyle değişen her şey maskelenir: sayı, tarih, tırnak içi metin; ekran kimliğinde olmayan ref, odak ve içeriksiz
+ * satır zaten atılmıştır (`stableTree`). Geriye ağacın iskeleti kalır.
+ */
 export function maskTree(tree: string): string {
-  return tree
+  return stableTree(tree)
     .split('\n')
     .map((line) =>
       line
-        .replace(/\s*\[ref=[^\]]*\]/g, '')
         .replace(/"(?:[^"\\]|\\.)*"/g, '"…"')
         .replace(/: .*$/, ':')
         .replace(/\d+/g, '#')

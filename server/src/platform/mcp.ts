@@ -6,10 +6,33 @@ import { ArgusError } from '../errors.ts'
 import type { McpLaunch, PlatformCredentials } from './credentials.ts'
 
 /**
- * Argus platforma yazmaz. Çağrılabilen araçlar bağlanırken sunucudan okunur: yalnız `readOnlyHint: true` işaretli
- * olanlar, kara liste hariç. Yazan, yayınlayan, çalıştıran (create, update, patch, delete, publish, execute, preview)
- * hiçbir araç bu kapıdan geçmez; işaretsiz araç da geçmez.
+ * Argus'un platform kapısı. Okuma: sunucunun `readOnlyHint: true` işaretli araçları, kara liste hariç. Yazma: yalnız
+ * `WRITE_TOOLS` (test verisi yazan ve uygulamanın kendi mantığını çalıştıran araçlar); ortamı koşununkine sabitleyen ve
+ * production'da reddeden katman `PlatformReader`. Uygulamanın tanımını değiştiren (sayfa, varlık, akış/süreç tanımı,
+ * yayın, dağıtım, kullanıcı, yetki) hiçbir araç geçmez: Argus test ettiği uygulamayı değiştirmez.
  */
+
+/**
+ * Yazma araçları (kullanıcı kararı 2026-11-15: kullanıcının seçtiği ortamda ya da dalda MCP ile yazılabilir; production'da yazılmaz). Kayıt yazmak ve uygulamanın
+ * akışını, sürecini, mikroservisini çalıştırmak, ekranda yapılamayan senaryoyu (aşama ilerletme, kayıt doğrulaması,
+ * onay zinciri) test etmenin yoludur.
+ */
+export const WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'row_create',
+  'row_update',
+  'row_delete',
+  'process_execute',
+  'process_trigger',
+  'process_task_update',
+  'process_scenario_execute',
+  'case_execute',
+  'microservice_execute',
+  'microservice_preview',
+  'microfunction_invoke',
+  'workflow_preview',
+  'decision_preview',
+  'query_preview',
+])
 
 /** Okuma işaretli olsa da çağrılmayan araçlar: kimlik bilgisi, oturum ayarı ve kişisel veri döndürenler. */
 export const DENIED_TOOLS: ReadonlySet<string> = new Set([
@@ -41,6 +64,13 @@ export function readableTools(
 ): McpToolInfo[] {
   return tools
     .filter((t) => t.annotations?.readOnlyHint === true && !DENIED_TOOLS.has(t.name))
+    .map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema ?? {} }))
+}
+
+/** Sunucunun araç listesinden yazılabilecekler: `WRITE_TOOLS` içinde olup sunucuda bulunanlar. */
+export function writableTools(tools: Parameters<typeof readableTools>[0]): McpToolInfo[] {
+  return tools
+    .filter((t) => WRITE_TOOLS.has(t.name) && !DENIED_TOOLS.has(t.name))
     .map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema ?? {} }))
 }
 
@@ -94,9 +124,10 @@ export function childEnv(
 }
 
 export interface McpClient {
-  /** Yalnız `readTools()` içindeki bir araç; başkası `TOOL_NOT_ALLOWED` ile reddedilir. */
+  /** Yalnız `readTools()` ya da `writeTools()` içindeki bir araç; başkası `TOOL_NOT_ALLOWED` ile reddedilir. */
   call(tool: string, args?: Record<string, unknown>): Promise<unknown>
   readTools(): McpToolInfo[]
+  writeTools(): McpToolInfo[]
   close(): Promise<void>
 }
 
@@ -150,14 +181,16 @@ export async function connectMcp(input: {
     if (!cursor) break
   }
   const readable = readableTools(listed)
-  const allowed = new Set(readable.map((t) => t.name))
+  const writable = writableTools(listed)
+  const allowed = new Set([...readable, ...writable].map((t) => t.name))
   return {
     readTools: () => readable,
+    writeTools: () => writable,
     async call(tool, args = {}) {
       if (!allowed.has(tool))
         throw new ArgusError(
           'TOOL_NOT_ALLOWED',
-          `'${tool}' çağrılamaz: Argus yalnız okuma işaretli (readOnlyHint) ve kara listede olmayan araçları çağırır.`,
+          `'${tool}' çağrılamaz: Argus yalnız okuma işaretli (readOnlyHint) araçları ve veri/çalıştırma yazma araçlarını çağırır; uygulamanın tanımını değiştirmez.`,
         )
       const result = (await client.callTool({ name: tool, arguments: args })) as {
         content?: unknown

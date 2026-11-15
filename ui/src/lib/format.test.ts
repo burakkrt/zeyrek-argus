@@ -17,6 +17,17 @@ describe('biçim', () => {
       '$0,40',
     )
     expect(formatCost(null)).toBe('—')
+    expect(
+      formatCost({
+        input: 9,
+        cacheWrite: 0,
+        cacheRead: 0,
+        output: 1,
+        requests: 1,
+        costUsd: 0,
+        provider: 'abonelik',
+      }),
+    ).toBe('Abonelik')
   })
 
   it('süre bir dakikanın altında saniye, üstünde dakika ve saniye olarak yazılır', () => {

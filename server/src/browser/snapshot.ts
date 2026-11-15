@@ -74,7 +74,12 @@ function render(nodes: Node[], depth: number, lines: string[]): void {
   }
 }
 
-export function compressSnapshot(snapshot: string, limit = 9_000): string {
+/**
+ * Sıkıştırılmış ağaç. Sınır yalnız aşırı uzun sayfaya karşı güvenliktir: 9 bin karakterlik eski sınır uzun sayfaların alt
+ * bölümlerini gezginden, gözden ve yargıçtan saklıyordu (ölçüldü: karnenin "Tüm göstergeler" tablosu 17 incelemenin
+ * hiçbirine girmedi). Maliyeti fark gönderimi düşürür: gezgine etkileşimden sonra, göze taban ağaca göre yalnız fark gider.
+ */
+export function compressSnapshot(snapshot: string, limit = 60_000): string {
   const lines: string[] = []
   render(parse(snapshot), 0, lines)
   const text = lines.join('\n')
@@ -85,8 +90,48 @@ export function compressSnapshot(snapshot: string, limit = 9_000): string {
 
 const indentOf = (line: string) => line.length - line.trimStart().length
 
-/** Ref'ler atılmış ağaç: aynı ekranın yeniden çizilmesi ref'leri değiştirse de aynı sayılsın. */
-export const stripRefs = (tree: string) => tree.replace(/\s*\[ref=[^\]]*\]/g, '')
+/**
+ * Gezginin ağacı: ağaç sınırı aşınca sayfanın kaydırma konumuna (0 üst, 1 alt) karşılık gelen bölümü, üst satırlarıyla
+ * birlikte. Ağaç belge sırasındadır; gezgin aşağı kaydırınca alt bölümün öğelerini görür ve onlarla etkileşir. Eski
+ * davranış hep üstü gösteriyordu: uzun sayfanın alt bölümü gezgine hiç ulaşmıyordu; tam ağaç göndermek ise keşfi
+ * genişletip sayfa maliyetini 4 katına çıkarıyordu (ölçüldü). Göz ve yargıç tam ağacı görür.
+ */
+export function windowSnapshot(tree: string, fraction: number, limit: number): string {
+  if (tree.length <= limit) return tree
+  const lines = tree.split('\n')
+  const sizes = lines.map((line) => line.length + 1)
+  let start = Math.min(lines.length - 1, Math.max(0, Math.floor(fraction * lines.length)))
+  let end = start
+  let size = 0
+  while (end < lines.length && size + sizes[end]! <= limit) size += sizes[end++]!
+  while (start > 0 && size + sizes[start - 1]! <= limit) size += sizes[--start]!
+  const parents: string[] = []
+  let depth = indentOf(lines[start]!)
+  for (let j = start - 1; j >= 0 && depth > 0; j -= 1)
+    if (indentOf(lines[j]!) < depth) {
+      parents.unshift(lines[j]!)
+      depth = indentOf(lines[j]!)
+    }
+  return [
+    ...parents,
+    ...(start > 0 ? [`… (yukarıda ${start - parents.length} satır daha; yukarı kaydırınca görünür)`] : []),
+    ...lines.slice(start, end),
+    ...(end < lines.length ? [`… (aşağıda ${lines.length - end} satır daha; aşağı kaydırınca görünür)`] : []),
+  ].join('\n')
+}
+
+/**
+ * Ekranın kimliği olan ağaç: yeniden çizimle değişen ref'ler, odak işareti (`[active]`) ve içeriksiz satırlar (boş ya da
+ * adsız yaprak `generic`) atılır. Yalnız odağı değişen ekran aynı ekrandır; yoksa her Tab tuşu aynı ekranı Göz'e
+ * yeniden inceletiyordu (ölçüldü: üç sayfada 95 incelemenin 21'i) ve sayfanın arayüz izi odakla değişiyordu.
+ */
+export const stableTree = (tree: string) =>
+  tree
+    .replace(/\s*\[ref=[^\]]*\]/g, '')
+    .replace(/ \[active\]/g, '')
+    .split('\n')
+    .filter((line) => line.trim() !== '' && line.trim() !== '- generic')
+    .join('\n')
 
 /** İki ağaç arasında eklenen ya da kalkan satır sayısı. */
 export function changeSize(previous: string, next: string): number {
@@ -138,4 +183,25 @@ export function diffSnapshot(
     mode: 'fark',
     text: `Yalnız değişen kısım (${changed.size} yeni/değişen satır${removed ? `, ${removed} satır kalktı` : ''}; geri kalan ağaç aynı):\n${out.join('\n')}`,
   }
+}
+
+/**
+ * Ekranın etiketleri: rol ve kısa ad (başlık, sütun, sekme, durum, düğme, hücre…), metne göre tekil. Satırın birleşik
+ * metni, yalnız sayı/tarih olan değerler ve uzun metin etiket değildir. Terim gözü sayfa boyunca toplanan etiketlerde aynı
+ * kavramın farklı adla geçtiği yeri arar: göz ekran ekran bakarken sayfanın uzak bölümlerindeki adları karşılaştırmayı
+ * kaçırıyordu (ölçüldü: kaçan 6 doğrulanmış sorunun 4'ü).
+ */
+export function labelsOf(tree: string): Array<{ role: string; text: string }> {
+  const seen = new Set<string>()
+  const labels: Array<{ role: string; text: string }> = []
+  for (const line of tree.split('\n')) {
+    const match = /^\s*- ([a-z]+)(?: "((?:[^"\\]|\\.)*)")?(?: \[[^\]]*\])*:?(?: (.+))?$/.exec(line)
+    if (!match || match[1] === 'row') continue
+    const text = (match[2] ?? match[3] ?? '').trim().replace(/^"(.*)"$/, '$1')
+    if (text.length < 2 || text.length > 60 || !/\p{L}{2}/u.test(text) || seen.has(text)) continue
+    if (/^[\d\s.,:%/-]*(?:\p{L}{3,4}\.?)?[\d\s.,:%/-]*$/u.test(text)) continue
+    seen.add(text)
+    labels.push({ role: match[1]!, text })
+  }
+  return labels
 }

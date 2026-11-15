@@ -1,6 +1,15 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { Box, FindingKind, Issue, ModelRole, RunEventBody, Settings, StepTarget } from '@argus/shared'
+import type {
+  Box,
+  FindingKind,
+  Issue,
+  ModelRole,
+  PlatformRead,
+  RunEventBody,
+  Settings,
+  StepTarget,
+} from '@argus/shared'
 import type { Locator } from 'playwright'
 import {
   annotateShot,
@@ -12,13 +21,19 @@ import {
 import { describeHit, runEyes, type EyeHit, type PatternRule } from '../browser/eyes.ts'
 import { isUnsafeTarget } from '../browser/guard.ts'
 import { landedOn } from '../platform/catalog.ts'
-import { ariaTree, harvestTooltips, visibleText } from '../browser/research.ts'
+import { ariaTree, harvestTooltips, scrollFraction, visibleText } from '../browser/research.ts'
 import type { BrowserDialog, BrowserSession, Problem } from '../browser/session.ts'
 import type { Attachment } from '../runs/attachments.ts'
-import { changeSize, compressSnapshot, diffSnapshot, stripRefs } from '../browser/snapshot.ts'
+import {
+  changeSize,
+  compressSnapshot,
+  diffSnapshot,
+  labelsOf,
+  stableTree,
+  windowSnapshot,
+} from '../browser/snapshot.ts'
 import type { RecordResult } from '../issues/issues.ts'
 import { apiPrint, uiPrint, type PagePrint, type PrintChange } from '../runs/prints.ts'
-import type { ScreenRecord } from '../runs/screens.ts'
 import { clampKnowledge, KNOWLEDGE_SCHEMA, KNOWLEDGE_TASK, type PageKnowledge } from './knowledge.ts'
 import {
   describeModelError,
@@ -29,12 +44,20 @@ import {
   type CreateMessage,
   type MessageParam,
   type MessageParams,
+  type TextBlockParam,
   type Tool,
   type UsageMeter,
 } from './model.ts'
-import { INSPECT_TASK, JUDGE_TASK, pageFacts, type PageFacts } from './prompts.ts'
+import {
+  eyeFindingsText,
+  INSPECT_TASK,
+  JUDGE_TASK,
+  pageFacts,
+  TERMS_TASK,
+  type PageFacts,
+} from './prompts.ts'
 import { INSPECT_SCHEMA, JUDGE_SCHEMA, PLAN_SCHEMA, platformTools, TASK_TOOLS } from './tools.ts'
-import type { PlatformReader } from '../platform/reader.ts'
+import { readStep, type PlatformReader } from '../platform/reader.ts'
 
 export interface FindingDraft {
   key: string
@@ -66,9 +89,6 @@ export interface PageHooks {
   lastSighting(issue: Issue): { quote: string; scenario: string; expected: string; observed: string } | null
   /** Sayfanın arayüz, veri ve Studio izi; önceki koşuya göre neyin değiştiği döner. */
   print(ui: string, api: string): Promise<Record<keyof PagePrint, PrintChange>>
-  /** Ekran hafızası: daha önceki koşularda incelenmiş ekran yapısı ve notları; yoksa null. */
-  screenMemory(print: string): ScreenRecord | null
-  rememberScreen(print: string, label: string, notes: string[]): void
   /** Koşu sonunda damıtılan sayfa bilgisini hafızaya yazar. */
   saveKnowledge(knowledge: PageKnowledge): void
   /** Koşu klasöründe yeni bir dosya yolu: `abs` yazmak, `rel` saklamak için. */
@@ -82,7 +102,12 @@ export interface PageInput {
   session: BrowserSession
   url: string
   page: string
-  facts: Omit<PageFacts, 'tooltips' | 'eyeFindings' | 'problems' | 'page' | 'url'>
+  facts: Omit<PageFacts, 'tooltips' | 'problems' | 'page' | 'url'>
+  /**
+   * Bu koşuda bu sayfada zaten kaydı olan sorunlar (anahtar → başlık): sayfa yeniden açılınca modelsiz doğrulamada
+   * yeniden kaydedilmez, göz onları "zaten bildirilenler" arasında görür.
+   */
+  recordedInRun: Map<string, string>
   patterns: PatternRule[]
   system: MessageParams['system']
   createMessage: CreateMessage
@@ -114,6 +139,14 @@ const NO_PROGRESS_LIMIT = 4
 const REPEAT_LIMIT = 2
 
 const text = (value: string): ContentBlock => ({ type: 'text', text: value })
+/** Gezginin ağacı en çok bu kadar karakter: uzun sayfada kaydırma konumunun bölümü gider (`windowSnapshot`). */
+const EXPLORER_TREE = 9_000
+/** Göz bir ekran için en çok bu kadar not yazar (yalnız önceki notlarda olmayan gözlemler). */
+const MAX_NOTES = 8
+/** Pencere boyu değişince kapanabilen açık katmanlar: menü, açılır liste, ipucu, açık durumdaki öğe. */
+const OVERLAY = /- (?:menu|listbox|tooltip)\b|\[expanded\]/
+const screenText = (s: { label: string; notes: string[] }, i: number) =>
+  `Ekran ${i + 1} (${s.label}):\n${s.notes.length ? s.notes.map((n) => `  - ${n}`).join('\n') : '  (not yok)'}`
 
 type StepFrame = { shot: string | null; target: StepTarget | null; actAt: number }
 
@@ -163,18 +196,26 @@ export class PageController {
   private readonly seenKeys = new Set<string>()
   private readonly eyeFindings: Array<{ key: string; title: string }> = []
   private lastTree: string | null = null
-  private judgeFacts: () => string = () => ''
+  /**
+   * Sayfanın önbellekli talimatları: sabit talimat + sayfanın sabit bağlamı (`pageFacts`), gezgin/planlayıcı ve
+   * göz/yargıç/öğretmen için ayrı. Sayfa açılınca kurulur; o sayfadaki her çağrı aynı ön eki önbellekten okur.
+   */
+  private context: Record<'gezgin' | 'yargic', TextBlockParam[]> | null = null
   /** Yargıcın bu sayfadaki kararları (gezginin anahtarıyla): aynı aday yeniden bildirilirse yeniden sorulmaz. */
   private readonly verdicts = new Map<string, Verdict>()
   /** Bu ekrana nasıl gelindi: son adımların sonuçları (gözün senaryosu için). */
   private trail: string[] = []
   /** Bu sayfada kaydedilen yapay zekâ bulguları (anahtar — başlık): göz aynısını yeniden bildirmesin. */
   private readonly pageTitles: string[] = []
-  /** Gözün incelediği ekranlar (ref'siz ağaç), ekran notları ve süren incelemeler. */
+  /** Gözün incelediği ekranlar (kimlik ağacı), ekran notları ve süren incelemeler. */
   private readonly inspectedTrees: string[] = []
-  /** Hafızadan notu alınan ekranlar: yeniden incelenmez. */
-  private readonly reusedTrees: string[] = []
   private readonly screens: Array<{ label: string; notes: string[] }> = []
+  /** İncelenen ekranların etiketleri ve görüntüsü: sayfa sonunda terim gözü bunlarda karşılaştırır ve kanıtlar. */
+  private readonly views: Array<{
+    label: string
+    shot: StateShot
+    labels: Array<{ role: string; text: string }>
+  }> = []
   private readonly pending: Array<Promise<void>> = []
   private inspectQueue: Promise<void> = Promise.resolve()
   /** Kanıt çizimi için ağ kullanmayan ayrı sekme; çizimler sırayla yapılır. */
@@ -182,38 +223,31 @@ export class PageController {
   private overlayQueue: Promise<unknown> = Promise.resolve()
   /** Önceki koşuya göre sayfanın değişiklik izi (açılışta ölçülür). */
   private change: Record<keyof PagePrint, PrintChange> | null = null
+  /** Gözün taban ağacı: sayfada ilk incelenen ekranın tam ağacı (önbellekte); sonraki ekranlar ona göre fark olarak gider. */
+  private eyeBase: string | null = null
 
   /**
-   * Göz: gezginin ulaştığı ekran öncekilerden belirgin biçimde farklıysa (en az 4 satır, ipucu gibi küçük değişimler
-   * sayılmaz) ekranın o anki hâli yakalanır ve Göz modeli onu paralel inceler; gezgin beklemez. Ekran sayısına sınır
-   * yoktur (bulgu kaçmasın); aynı ekranı iki kez incelememek döngüye karşı yeterlidir.
+   * Göz: gezginin ulaştığı ekran öncekilerden belirgin biçimde farklıysa (odak dışında en az 3 satır: küçük bir
+   * pencere sayılır, ipucu gibi 1-2 satırlık değişim sayılmaz) ekranın o anki hâli yakalanır ve Göz modeli onu paralel
+   * inceler; gezgin beklemez. Ekran sayısına sınır yoktur (bulgu kaçmasın); aynı ekranı bir koşuda iki kez incelememek
+   * döngüye karşı yeterlidir. Önceki koşuda incelenmiş ekran yeniden incelenir: ölçümde aynı içerikli ekrana ikinci bakış 10 ekranda 5 yeni bulgu çıkardı
+   * (koşular arası ekran atlamak kaliteyi düşürüyordu); maliyeti önbellek ve kapsanmayana yönelen plan düşürür.
    */
   private async maybeInspect(full: string, blocked: string[]): Promise<void> {
     if (!this.input.settings.inspector) return
-    const tree = stripRefs(full)
-    if ([...this.inspectedTrees, ...this.reusedTrees].some((seen) => changeSize(seen, tree) < 4)) return
+    const tree = stableTree(full)
+    if (this.inspectedTrees.some((seen) => changeSize(seen, tree) < 3)) return
     this.inspectedTrees.push(tree)
-    const label = this.trail.length ? this.trail[this.trail.length - 1]! : 'Sayfa açıldı'
-    // Seçici göz: veri ucu ve Studio tanımı değişmediyse, daha önce incelenmiş ekran yapısı yeniden
-    // incelenmez; o ekranın notları karşılaştırma için kullanılır.
-    const print = uiPrint(full)
-    const unchanged =
-      this.change !== null && this.change.api !== 'degisti' && this.change.studio !== 'degisti'
-    const remembered = unchanged ? this.input.hooks.screenMemory(print) : null
-    if (remembered) {
-      this.inspectedTrees.pop()
-      this.reusedTrees.push(tree)
-      this.screens.push({ label, notes: remembered.notes })
-      return
-    }
-    // Sırayla: CDP'nin ölçekli görüntüsü sayfaya geçici ölçek uygular; aynı anda alınan PNG bozulur (ölçüldü).
-    const shot = await captureState(this.page).catch(() => null)
+    // Sırayla: CDP'nin ölçekli görüntüsü sayfaya geçici ölçek uygular; aynı anda alınan PNG bozulur (ölçüldü). Modelin
+    // görüntüsü önce alınır; açık katman (menü, liste, ipucu) varken kanıt için pencere büyütülmez: büyütme onları
+    // kapatıyordu (göz "ağaçta açık, görüntüde yok" diyordu, gezginin açtığı liste kapanıyordu).
     const jpeg = await this.input.session.modelScreenshot().catch(() => null)
+    const shot = await captureState(this.page, { tall: !OVERLAY.test(tree) }).catch(() => null)
     if (!shot) return
     const trail = [...this.trail]
     // İncelemeler sırayla koşar (gezgini beklemeden): her biri öncekinin bulgusunu görür, aynı sorun iki kez gelmez.
     const job = this.inspectQueue.then(() =>
-      this.inspect(full, shot, jpeg, trail, blocked, print).catch((error: unknown) => {
+      this.inspect(full, shot, jpeg, trail, blocked).catch((error: unknown) => {
         this.input.hooks.emit({
           type: 'hata',
           message: `Göz bir ekranı inceleyemedi: ${describeModelError(error)}`,
@@ -230,13 +264,29 @@ export class PageController {
     jpeg: Buffer | null,
     trail: string[],
     blocked: string[],
-    print: string,
   ): Promise<void> {
-    const reported = this.pageTitles.length ? this.pageTitles.map((t) => `- ${t}`).join('\n') : '(yok)'
+    const reported = this.reportedText()
     const label = trail.length ? trail[trail.length - 1]! : 'Sayfa açıldı'
-    const earlier = this.screens.length
-      ? `\n\nÖnceki ekranların notları (bu ekranı onlarla da karşılaştır):\n${this.screensText()}`
-      : ''
+    this.views.push({ label, shot, labels: labelsOf(tree) })
+    // Önbellekli ön ek yalnız artar: sayfanın taban ağacı (ilk incelenen ekranın tam ağacı, bir kez yazılır) ve ekran
+    // başına not blokları; sonuncusu işaretli. Sıradaki göz çağrısı bu ön eki önbellekten okur; ekranın kendisi tabana
+    // göre fark olarak gider. Göz böylece uzun sayfanın tamamını görür (ağaç 9 bin karakterde kesilirken karnenin alt
+    // bölümleri hiçbir incelemeye girmiyordu) ve tam ağacı her çağrıda yeniden yazmaz (notlar tek metindeyken maliyet
+    // ekran sayısıyla karesel büyüyordu).
+    const screenTree = stableTree(tree)
+    this.eyeBase ??= screenTree
+    const change = diffSnapshot(this.eyeBase, screenTree)
+    const prefix = [
+      `Sayfanın taban ağacı (bu sayfada ilk incelenen ekran; sonraki ekranlar buna göre fark olarak gelir):\n${this.eyeBase}`,
+      ...this.screens.map(
+        (s, i) =>
+          `${i === 0 ? 'Önceki ekranların notları (bu ekranı onlarla da karşılaştır):\n' : ''}${screenText(s, i)}`,
+      ),
+    ].map((value, i, all) => ({
+      type: 'text' as const,
+      text: value,
+      ...(i === all.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+    }))
     const message = await this.call(
       'inspector',
       {
@@ -244,13 +294,13 @@ export class PageController {
           {
             role: 'user',
             content: [
-              { type: 'text', text: this.judgeFacts(), cache_control: { type: 'ephemeral' } },
+              text(INSPECT_TASK),
+              ...prefix,
               text(
-                `${INSPECT_TASK}\n\nBu ekrana nasıl gelindi:\n${trail.length ? trail.map((t) => `- ${t}`).join('\n') : '- Sayfa açıldı.'}` +
+                `${eyeFindingsText(this.eyeFindings)}\n\nBu ekrana nasıl gelindi:\n${trail.length ? trail.map((t) => `- ${t}`).join('\n') : '- Sayfa açıldı.'}` +
                   `\n\nBu sayfada zaten bildirilenler:\n${reported}` +
-                  earlier +
                   (blocked.length ? `\n\nEngellenen yazma istekleri: ${blocked.join(', ')}` : '') +
-                  `\n\nAdres: ${shot.url}\nSekme başlığı: ${shot.title}\n\nSayfa ağacı:\n${tree}`,
+                  `\n\nAdres: ${shot.url}\nSekme başlığı: ${shot.title}\n\nBu ekranın ağacı: ${change.mode === 'ayni' ? 'taban ağacın aynısı.' : `\n${change.text}`}`,
               ),
               ...(jpeg
                 ? [
@@ -271,23 +321,73 @@ export class PageController {
           format: { type: 'json_schema', schema: INSPECT_SCHEMA as unknown as Record<string, unknown> },
         },
       },
-      { cache: false },
+      { cache: false, audience: 'yargic' },
     )
     const answer = jsonOf<{ bulgular?: Array<Record<string, string>>; notlar?: unknown[] }>(message)
-    const notes = (answer?.notlar ?? []).filter((n): n is string => typeof n === 'string').slice(0, 12)
+    // Notlar yalnız yeni gözlemdir, en çok 8: gözün çıktısının %79'u notlardı ve çoğu önceki notların tekrarıydı.
+    const notes = (answer?.notlar ?? []).filter((n): n is string => typeof n === 'string').slice(0, MAX_NOTES)
     this.screens.push({ label, notes })
-    this.input.hooks.rememberScreen(print, label, notes)
     for (const item of answer?.bulgular ?? [])
       await this.recordShotFinding(item, shot, trail.length ? 'gorev' : 'acilis')
   }
 
-  private screensText(): string {
-    return this.screens
-      .map(
-        (s, i) =>
-          `Ekran ${i + 1} (${s.label}):\n${s.notes.length ? s.notes.map((n) => `  - ${n}`).join('\n') : '  (not yok)'}`,
-      )
+  /**
+   * Terim gözü: sayfa boyunca incelenen ekranların etiketleri (adı, rolü, hangi ekranlarda geçtiği) tek çağrıda
+   * karşılaştırılır; aynı kavramın farklı adla geçtiği yer bulunur. Bulgu, alıntının geçtiği ekranın görüntüsüyle
+   * kanıtlanır. Sayfa başına bir çağrı; etiketler kısa olduğu için maliyeti küçüktür.
+   */
+  private async compareTerms(): Promise<void> {
+    if (!this.views.length) return
+    const where = new Map<string, { role: string; screens: number[] }>()
+    this.views.forEach((view, i) => {
+      for (const { role, text: name } of view.labels) {
+        const entry = where.get(name) ?? { role, screens: [] }
+        entry.screens.push(i + 1)
+        where.set(name, entry)
+      }
+    })
+    const screens = this.views.map((v, i) => `Ekran ${i + 1}: ${v.label}`).join('\n')
+    const labels = [...where]
+      .map(([name, e]) => `${e.role} "${name}" (ekran ${e.screens.join(',')})`)
       .join('\n')
+    const reported = this.reportedText()
+    const message = await this.call(
+      'inspector',
+      {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              text(
+                `${TERMS_TASK}\n\nBu sayfada zaten bildirilenler:\n${reported}\n\nEkranlar:\n${screens}\n\nEtiketler:\n${labels}`,
+              ),
+            ],
+          },
+        ],
+        output_config: {
+          format: { type: 'json_schema', schema: INSPECT_SCHEMA as unknown as Record<string, unknown> },
+        },
+      },
+      { cache: false, audience: 'yargic' },
+    )
+    const answer = jsonOf<{ bulgular?: Array<Record<string, string>> }>(message)
+    for (const item of answer?.bulgular ?? []) {
+      const quote = normalizeSpace(item.alinti ?? '')
+      const view =
+        this.views.find((v) => quote && normalizeSpace(v.shot.text).includes(quote)) ?? this.views[0]!
+      await this.recordShotFinding(item, view.shot, 'gorev')
+    }
+  }
+
+  /** Bu sayfada zaten bildirilenler: bu açılışta kaydedilenler ve koşunun önceki turlarında bu sayfada kaydedilenler. */
+  private reportedText(): string {
+    const lines = new Set(this.pageTitles)
+    for (const [key, title] of this.input.recordedInRun) lines.add(`${key} — ${title}`)
+    return lines.size ? [...lines].map((t) => `- ${t}`).join('\n') : '(yok)'
+  }
+
+  private screensText(): string {
+    return this.screens.map(screenText).join('\n')
   }
 
   /**
@@ -356,7 +456,8 @@ export class PageController {
     const remaining: Issue[] = []
     const screenText = normalizeSpace(await visibleText(this.page))
     for (const issue of this.input.facts.openIssues) {
-      if (this.seenKeys.has(issue.key) || closed.has(issue.key)) continue
+      if (this.seenKeys.has(issue.key) || closed.has(issue.key) || this.input.recordedInRun.has(issue.key))
+        continue
       const seen = hooks.lastSighting(issue)
       if (!seen || !screenText.includes(normalizeSpace(seen.quote))) {
         remaining.push(issue)
@@ -441,6 +542,7 @@ export class PageController {
     reason: string | null,
     outcome: string,
     frame: StepFrame = { shot: null, target: null, actAt: Date.now() },
+    platform?: PlatformRead,
   ): Promise<string> {
     const dialogs = this.input.session.drainDialogs()
     const note = dialogNote(dialogs)
@@ -452,8 +554,16 @@ export class PageController {
       outcome,
       ...frame,
       ...(dialogs.length
-        ? { dialog: dialogs.map((d) => d.message || (DIALOG_KIND[d.type] ?? d.type)).join(' · ') }
+        ? {
+            dialog: dialogs
+              .map(
+                (d) =>
+                  `${d.message || (DIALOG_KIND[d.type] ?? d.type)} → ${d.accepted ? 'kabul edildi' : 'iptal edildi'}`,
+              )
+              .join(' · '),
+          }
         : {}),
+      ...(platform ? { platform } : {}),
     })
     if (tool === 'bastan_ac') this.trail = []
     else if (tool !== 'ekrana_bak') this.trail = [...this.trail, outcome].slice(-10)
@@ -526,6 +636,7 @@ export class PageController {
   }
 
   private emitFinding(result: RecordResult, shot: string | null): void {
+    if (result.duplicate) return
     this.input.hooks.emit({
       type: 'bulgu',
       issueId: result.issue.id,
@@ -546,9 +657,10 @@ export class PageController {
     onlyChanges = false,
   ): Promise<ContentBlock[]> {
     const full = compressSnapshot(await ariaTree(this.page))
+    const view = windowSnapshot(full, await scrollFraction(this.page), EXPLORER_TREE)
     // Etkileşimden sonra ağacın tamamı değil yalnız değişen kısmı gider (en büyük token kalemi buydu).
-    const tree = onlyChanges && this.lastTree !== null ? diffSnapshot(this.lastTree, full).text : full
-    this.lastTree = full
+    const tree = onlyChanges && this.lastTree !== null ? diffSnapshot(this.lastTree, view).text : view
+    this.lastTree = view
     const blocked = this.input.session.drainBlocked()
     await this.maybeInspect(full, blocked)
     const header = [`Adres: ${this.page.url()}`, `Sekme başlığı: ${await this.page.title().catch(() => '')}`]
@@ -580,7 +692,7 @@ export class PageController {
   private call(
     role: ModelRole,
     params: Omit<MessageParams, 'model' | 'system' | 'max_tokens'>,
-    options: { model?: string; cache?: boolean } = {},
+    options: { model?: string; cache?: boolean; audience?: 'gezgin' | 'yargic' } = {},
   ) {
     const model = options.model ?? this.input.settings.models[role]
     return this.input
@@ -588,7 +700,7 @@ export class PageController {
         {
           model,
           max_tokens: 16_000,
-          system: this.input.system,
+          system: this.context?.[options.audience ?? 'gezgin'] ?? this.input.system,
           ...(options.cache === false ? {} : { cache_control: { type: 'ephemeral' as const } }),
           ...params,
           output_config: { effort: this.input.settings.effort, ...(params.output_config ?? {}) },
@@ -649,20 +761,28 @@ export class PageController {
     })
     if (network.length) hooks.emit({ type: 'ag', requests: network.slice(0, 40) })
 
-    const facts = (audience: 'gezgin' | 'yargic' = 'gezgin'): string =>
-      pageFacts(
-        {
-          ...this.input.facts,
-          openIssues: audience === 'yargic' ? this.input.facts.openIssues : toVerify,
-          page: this.input.page,
-          url: this.input.url,
-          tooltips,
-          eyeFindings: this.eyeFindings,
-          problems: problems.map((p) => p.text),
-        },
-        audience,
-      )
-    this.judgeFacts = () => facts('yargic')
+    const contextFor = (audience: 'gezgin' | 'yargic'): TextBlockParam[] => [
+      ...(typeof this.input.system === 'string'
+        ? [{ type: 'text' as const, text: this.input.system }]
+        : (this.input.system ?? [])),
+      {
+        type: 'text',
+        text: pageFacts(
+          {
+            ...this.input.facts,
+            openIssues: audience === 'yargic' ? this.input.facts.openIssues : toVerify,
+            page: this.input.page,
+            url: this.input.url,
+            tooltips,
+            problems: problems.map((p) => p.text),
+          },
+          audience,
+        ),
+        cache_control: { type: 'ephemeral' },
+      },
+    ]
+    this.context = { gezgin: contextFor('gezgin'), yargic: contextFor('yargic') }
+    const facts = () => eyeFindingsText(this.eyeFindings)
 
     // 2. Plan: stratejinin bu sayfadaki kalemleri önce; tam tarama istendiyse planlayıcı sayfanın görevlerini de çıkarır
     // (tek çağrı, yapılandırılmış çıktı). Tek görevli taramada ayrı plan çağrısı yapılmaz: görev sayfanın tamamını kapsar.
@@ -712,21 +832,19 @@ export class PageController {
     }
     // Gözün süren incelemeleri beklenir; sonra kanıt sekmesi kapanır.
     await Promise.allSettled(this.pending)
+    if (!hooks.stopped())
+      await this.compareTerms().catch((error: unknown) => {
+        hooks.emit({ type: 'hata', message: `Terim gözü çalışamadı: ${describeModelError(error)}` })
+      })
     await this.overlayQueue
     if (this.overlay) await (await this.overlay).close().catch(() => undefined)
     const pageSummary = [summary, ...notebook].filter(Boolean).join('\n')
-    if (this.reusedTrees.length)
-      hooks.emit({
-        type: 'bilgi',
-        message: `Göz ${this.reusedTrees.length} ekranı daha önce incelediği için yeniden incelemedi (notları kullanıldı).`,
-      })
     if (!hooks.stopped()) {
-      // Yeni öğrenme yoksa (sayfa değişmedi, yeni ekran incelenmedi, yeni bulgu yok) bilgi yeniden yazılmaz.
+      // Yeni öğrenme yoksa (sayfa değişmedi, bulgu yok) bilgi yeniden yazılmaz.
       const nothingNew =
         this.input.facts.knowledge &&
         this.change !== null &&
         !Object.values(this.change).some((c) => c === 'degisti' || c === 'ilk') &&
-        this.inspectedTrees.length === 0 &&
         this.pageTitles.length === 0
       if (nothingNew)
         hooks.emit({
@@ -758,7 +876,7 @@ export class PageController {
             role: 'user',
             content: [
               text(
-                `${KNOWLEDGE_TASK}\n\n${facts('yargic')}` +
+                `${KNOWLEDGE_TASK}\n\n${facts()}` +
                   `\n\nBu koşunun planı ve görev özetleri:\n${pageSummary || '(yok)'}` +
                   `\n\nGözün ekran notları:\n${this.screens.length ? this.screensText() : '(yok)'}` +
                   `\n\nBu koşuda kaydedilen bulgular:\n${this.pageTitles.length ? this.pageTitles.map((t) => `- ${t}`).join('\n') : '(yok)'}`,
@@ -770,7 +888,7 @@ export class PageController {
           format: { type: 'json_schema', schema: KNOWLEDGE_SCHEMA as unknown as Record<string, unknown> },
         },
       },
-      { cache: false },
+      { cache: false, audience: 'yargic' },
     )
     const knowledge = clampKnowledge(jsonOf(message))
     this.input.hooks.saveKnowledge(knowledge)
@@ -1140,19 +1258,21 @@ export class PageController {
         return this.input.platform.describe(arac)
       }
       case 'platform_oku': {
-        const arac = field(input, 'arac')
+        const read = { tool: field(input, 'arac'), input: field(input, 'girdi') }
         const result = await this.input.platform.read(
-          arac,
-          field(input, 'girdi'),
+          read.tool,
+          read.input,
           Number((input as Record<string, unknown> | null)?.devam) || 0,
         )
-        await this.step(
-          name,
-          reason,
-          result.startsWith('Okunamadı') || result.startsWith('Girdi JSON')
-            ? `Platformdan okunamadı: ${arac}`
-            : `Platformdan okundu: ${arac}`,
-        )
+        const view = readStep({ ...read, result })
+        await this.step(name, reason, view.outcome, undefined, view.platform)
+        return result
+      }
+      case 'platform_yaz': {
+        const write = { tool: field(input, 'arac'), input: field(input, 'girdi'), write: true }
+        const result = await this.input.platform.write(write.tool, write.input)
+        const view = readStep({ ...write, result })
+        await this.step(name, reason, view.outcome, undefined, view.platform)
         return result
       }
       case 'bastan_ac': {
@@ -1191,7 +1311,13 @@ export class PageController {
       gozlenen: field(input, 'gozlenen'),
       alinti: field(input, 'alinti'),
     }
-    const tree = compressSnapshot(await ariaTree(this.page))
+    // Yargıç adayı gezginin gördüğü pencereyle ve görüntüyle denetler: aday oradan gelir; sayfanın tam ağacını her aday
+    // için önbelleksiz okumak yargıcın maliyetini büyütüyordu.
+    const tree = windowSnapshot(
+      compressSnapshot(await ariaTree(this.page)),
+      await scrollFraction(this.page),
+      EXPLORER_TREE,
+    )
     const image = await this.input.session.modelScreenshot().catch(() => null)
     const message = await this.call(
       'judge',
@@ -1201,7 +1327,7 @@ export class PageController {
             role: 'user',
             content: [
               text(
-                `${this.judgeFacts()}\n\n${JUDGE_TASK}\n\nBu ekrana gelen son adımlar:\n${this.trail.length ? this.trail.map((t) => `- ${t}`).join('\n') : '- Sayfa açıldı.'}\n\nAday bulgu:\n${JSON.stringify(candidate, null, 1)}\n\nEkranın ağacı:\n${tree}`,
+                `${eyeFindingsText(this.eyeFindings)}\n\n${JUDGE_TASK}\n\nBu ekrana gelen son adımlar:\n${this.trail.length ? this.trail.map((t) => `- ${t}`).join('\n') : '- Sayfa açıldı.'}\n\nAday bulgu:\n${JSON.stringify(candidate, null, 1)}\n\nEkranın ağacı:\n${tree}`,
               ),
               ...(image
                 ? [
@@ -1222,7 +1348,7 @@ export class PageController {
           format: { type: 'json_schema', schema: JUDGE_SCHEMA as unknown as Record<string, unknown> },
         },
       },
-      { cache: false },
+      { cache: false, audience: 'yargic' },
     )
     const verdict = jsonOf<Partial<Verdict>>(message)
     if (!verdict || !['kabul', 'not', 'ret'].includes(verdict.karar ?? '')) return null

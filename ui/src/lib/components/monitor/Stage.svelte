@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { FindingKind, StepTarget } from '@argus/shared'
+  import type { FindingKind, PlatformRead, StepTarget } from '@argus/shared'
   import { fade } from 'svelte/transition'
   import Icon from '$lib/components/Icon.svelte'
+  import PlatformPanel from '$lib/components/monitor/PlatformPanel.svelte'
   import { Button } from '$lib/components/ui/button/index.js'
   import { FINDING_TONE, type PointerState, type ZoomState } from '$lib/monitor'
   import { cn } from '$lib/utils'
@@ -21,6 +22,7 @@
     pointer,
     zoom,
     dialog,
+    platform = null,
     status,
     chip,
     finding,
@@ -36,8 +38,10 @@
     prefetch?: string[]
     pointer: PointerState | null
     zoom: ZoomState
-    /** Bu anda açılan tarayıcı penceresinin metni. */
+    /** Bu anda açılan tarayıcı penceresinin metni ve kontrolcünün yanıtı. */
     dialog: string | null
+    /** O anki adım platform okumasıysa: kare yerine okunan tanım gösterilir. */
+    platform?: { read: PlatformRead; failed: boolean } | null
     /** Ekran durgunken ne olduğu ("Yapay zekâ sonraki adımı seçiyor · 6 sn"). */
     status: string | null
     /** Sol üstte bilgi rozeti (ör. eski koşunun adım görüntüleri). */
@@ -194,7 +198,9 @@
     {/if}
   </div>
 
-  {#if !drawn}
+  {#if platform}
+    <PlatformPanel read={platform.read} failed={platform.failed} />
+  {:else if !drawn}
     <div class="absolute inset-0 grid place-items-center text-sm text-white/70">{placeholder}</div>
   {/if}
 
@@ -204,8 +210,8 @@
     >
       <Icon name="info" class="text-brand mt-px size-4" />
       <div class="min-w-0">
-        <p class="font-medium">Tarayıcı onay penceresi açıldı</p>
-        <p class="text-muted-foreground truncate">"{dialog}" · kontrolcü iptal etti, sayfada kaldı</p>
+        <p class="font-medium">Tarayıcı penceresi açıldı</p>
+        <p class="text-muted-foreground truncate">{dialog}</p>
       </div>
     </div>
   {/if}

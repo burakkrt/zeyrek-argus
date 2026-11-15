@@ -65,7 +65,11 @@ export function estimateRun(history: RunInfo[], pages: number): Estimate | null 
   const unit = units.length
     ? { minutes: median(units.map((u) => u.minutes)), cost: median(units.map((u) => u.cost)) }
     : FALLBACK
-  return { minutes: unit.minutes * pages, cost: unit.cost * pages, basis: units.length ? 'gecmis' : 'varsayim' }
+  return {
+    minutes: unit.minutes * pages,
+    cost: unit.cost * pages,
+    basis: units.length ? 'gecmis' : 'varsayim',
+  }
 }
 
 /** Sayfa tablosunun satırı: katalogdaki sayfa + bu daldaki son koşusu ve uygulamadaki açık bulgu sayısı. */

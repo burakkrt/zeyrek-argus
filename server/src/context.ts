@@ -1,6 +1,7 @@
 import { userInfo } from 'node:os'
 import { join } from 'node:path'
 import { anthropicModel, type CreateMessage } from './agent/model.ts'
+import { subscriptionModel } from './agent/subscription.ts'
 import type { Config } from './config.ts'
 import { openDatabase, type Database } from './db/database.ts'
 import { getSettings } from './db/settings.ts'
@@ -36,13 +37,18 @@ export function createContext(
   const memory = new MemoryStore(config.memoryDir)
   const issues = new IssueService(db, memory)
   const platform = new Platform(config, overrides.access)
-  let real: CreateMessage | null = null
+  // Sağlayıcı her koşunun başında ayardan okunur: Claude hesabı (abonelik) ya da API anahtarı.
+  let api: CreateMessage | null = null
+  let subscription: CreateMessage | null = null
   const model = (): CreateMessage => {
     if (overrides.model) return overrides.model
+    if (getSettings(db).provider === 'abonelik') return (subscription ??= subscriptionModel())
     if (!config.anthropicApiKey)
-      throw new ArgusError('NO_KEY', 'Yapay zekâ anahtarı yok: .env dosyasına ANTHROPIC_API_KEY ekleyin.')
-    real ??= anthropicModel(config.anthropicApiKey)
-    return real
+      throw new ArgusError(
+        'NO_KEY',
+        'API anahtarı yok: .env dosyasına ANTHROPIC_API_KEY ekleyin ya da Ayarlar → Yapay zekâ ve öğrenme’den Claude hesabını seçin.',
+      )
+    return (api ??= anthropicModel(config.anthropicApiKey))
   }
   const author = () => getSettings(db).author || userInfo().username || 'Argus kullanıcısı'
   const learner = new Learner({ db, memory, issues, model, settings: () => getSettings(db) })

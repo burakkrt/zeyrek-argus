@@ -9,8 +9,7 @@ import { authorSlug } from '../src/memory/shared.ts'
 
 /**
  * Öğrenen motor uçtan uca: koşu sonunda sayfa bilgisi yazılır ve sonraki koşunun istemine girer; değişmemiş sayfada
- * planlayıcı bilinen alanı yeniden gezmemeye yönlendirilir, Göz daha önce incelediği ekranı yeniden incelemez ve yeni
- * öğrenme yoksa bilgi yeniden yazılmaz; sayfa değişince plan değişikliğe yönelir, yeni ekran incelenir, bilgi yenilenir.
+ * planlayıcı bilinen alanı yeniden gezmemeye yönlendirilir ve yeni öğrenme yoksa bilgi yeniden yazılmaz; sayfa değişince plan değişikliğe yönelir, yeni ekran incelenir, bilgi yenilenir.
  */
 const app = { project: 'qm', application: 'web' }
 
@@ -57,10 +56,11 @@ const run = async () =>
     }).id,
   )
 
+// Sayfanın sabit bağlamı talimattadır (önbellek); istemin tamamı talimat + mesajlardır.
 const promptsSince = (from: number, marker: string) =>
   h.calls
     .slice(from)
-    .map((c) => JSON.stringify(c.messages))
+    .map((c) => JSON.stringify({ system: c.system, messages: c.messages }))
     .filter((c) => c.includes(marker))
 
 const infoOf = (runId: string) =>
@@ -71,11 +71,17 @@ describe('öğrenen motor', () => {
   const file = () =>
     join(h.ctx.config.memoryDir, 'apps/qm/web/pages/egt-liste', `${authorSlug(h.ctx.author())}.md`)
 
-  it('ilk koşu sayfa bilgisini yazar; değişmemiş sayfada ikinci koşu bilinen alanı yeniden gezmez, ekranları yeniden incelemez', async () => {
+  it('ilk koşu sayfa bilgisini yazar; değişmemiş sayfada ikinci koşu bilinen alanı yeniden gezmez, ekranı yeniden inceler', async () => {
     const first = h.calls.length
     const one = await run()
     expect(one.status).toBe('bitti')
     expect(promptsSince(first, 'GÖZ GÖREVİ')).toHaveLength(2)
+    // Sabit sayfa bağlamı (modülün bilinen sorunları dahil) yalnız talimatta ve iki göz çağrısında birebir aynı: ikinci
+    // çağrı onu önbellekten okur; mesajlarda tekrar etmez.
+    const eyes = h.calls.slice(first).filter((c) => JSON.stringify(c.messages).includes('GÖZ GÖREVİ'))
+    expect(JSON.stringify(eyes[0]!.system)).toContain('Bu modülde bilinen sorunlar')
+    expect(JSON.stringify(eyes[0]!.system)).toBe(JSON.stringify(eyes[1]!.system))
+    expect(eyes.some((c) => JSON.stringify(c.messages).includes('Bu modülde bilinen sorunlar'))).toBe(false)
     expect(existsSync(file())).toBe(true)
     const knowledge = readFileSync(file(), 'utf8')
     expect(knowledge).toContain(`kosu: ${one.code}`)
@@ -92,10 +98,9 @@ describe('öğrenen motor', () => {
     expect(planner[0]).toContain('Sayfa bilgisi (önceki koşulardan')
     expect(planner[0]).toContain('Sayfa değişmedi')
     expect(planner[0]).toContain('Arama ve Filtrele')
-    // Açılış ve pencere ekranı daha önce incelendi: Göz çağrılmaz, notları yeniden kullanılır.
-    expect(promptsSince(second, 'GÖZ GÖREVİ')).toHaveLength(0)
-    expect(infoOf(two.id)).toContainEqual(expect.stringContaining('Göz 2 ekranı daha önce incelediği için'))
-    // Yeni öğrenme yok (sayfa aynı, yeni ekran ve bulgu yok): bilgi yeniden yazılmaz, öğretmen çağrılmaz.
+    // Önceki koşuda incelenen açılış ekranı yeniden incelenir (ikinci bakış bulgu kaçırmaz), koşu içinde bir kez.
+    expect(promptsSince(second, 'GÖZ GÖREVİ').filter((p) => p.includes('- Sayfa açıldı.'))).toHaveLength(1)
+    // Yeni öğrenme yok (sayfa aynı, bulgu yok): bilgi yeniden yazılmaz, öğretmen çağrılmaz.
     expect(infoOf(two.id)).toContain('Sayfa bilgisi güncel: yeni öğrenme olmadığı için yeniden yazılmadı.')
     expect(promptsSince(second, 'SAYFA BİLGİSİ GÖREVİ')).toHaveLength(0)
     expect(readFileSync(file(), 'utf8')).toContain(`kosu: ${one.code}`)

@@ -4,6 +4,7 @@
   import Shot from '../components/Shot.svelte'
   import { api, fileUrl, post, qs } from '../lib/api'
   import { formatDate, KIND, OUTCOME, STATUS } from '../lib/format'
+  import { pageLabel } from '../lib/monitor'
   import { go } from '../lib/router.svelte'
   import { appQuery } from '$lib/workspace.svelte'
 
@@ -172,7 +173,7 @@
           <span class="muted small">{issue.seenCount}× · {formatDate(issue.lastSeen)}</span>
         </div>
         <strong class="title">{issue.title}</strong>
-        <span class="muted small">{issue.pages.join(', ')}</span>
+        <span class="muted small">{issue.pages.map(pageLabel).join(', ')}</span>
       </button>
     {/each}
   </section>
@@ -203,7 +204,7 @@
                   onclick={() => (occurrenceIndex = i)}
                   title={o.reason ?? ''}
                 >
-                  {o.page} · {formatDate(o.at)}
+                  {pageLabel(o.page)} · {formatDate(o.at)}
                   <span class={`badge ${OUTCOME[o.outcome].tone}`}>{OUTCOME[o.outcome].label}</span>
                 </button>
               {/each}
@@ -211,7 +212,7 @@
           {/if}
           <dl>
             <dt>Sayfa</dt>
-            <dd>{occurrence.page} · <a href={`#/monitor/${occurrence.runId}`}>koşuyu izle</a></dd>
+            <dd>{pageLabel(occurrence.page)} · <a href={`#/monitor/${occurrence.runId}`}>koşuyu izle</a></dd>
             <dt>Senaryo</dt>
             <dd>{occurrence.scenario || '—'}</dd>
             <dt>Beklenen</dt>

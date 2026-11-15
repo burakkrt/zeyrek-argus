@@ -28,6 +28,8 @@ export interface Script {
   judge?: (candidate: Record<string, string>, prompt: string) => unknown
   /** Gözün bir ekran durumunda bulduğu; verilmezse bulgu yok. */
   inspect?: (prompt: string) => unknown
+  /** Terim gözü (sayfa sonunda etiket karşılaştırması); verilmezse bulgu yok. */
+  terms?: (prompt: string) => unknown
   /** Sayfa bilgisi damıtma; verilmezse boş bilgi. */
   knowledge?: (prompt: string) => unknown
   /**
@@ -35,7 +37,7 @@ export interface Script {
    * (girdisiz koşuyla aynı).
    */
   strategy?: (conversation: string, turn: number) => Move | Move[]
-  /** Gözetmen kararı (girdili koşu sonunda); verilmezse cevaplandı, ek kalem yok. */
+  /** Gözetmen kararı (girdili koşu sonunda); verilmezse kapsam tam, kaçmış bulgu ve ek kalem yok. */
   supervise?: (prompt: string) => unknown
   /** Tanım kalemi: araç hamleleri; `kalemi_bitir` bitirir. Verilmezse hemen biter. */
   define?: (conversation: string, turn: number) => Move | Move[]
@@ -112,6 +114,10 @@ export function scriptedModel(script: Script): { model: CreateMessage; calls: Me
         usage,
       }) as unknown as Message
     const prompt = textOfParams(params)
+    if (params.output_config?.format && prompt.includes('TERİM GÖZÜ GÖREVİ')) {
+      const value = script.terms?.(prompt) ?? { bulgular: [], notlar: [] }
+      return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
+    }
     if (params.output_config?.format && prompt.includes('GÖZ GÖREVİ')) {
       const value = script.inspect?.(prompt) ?? { bulgular: [], notlar: [] }
       return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
@@ -129,10 +135,11 @@ export function scriptedModel(script: Script): { model: CreateMessage; calls: Me
     }
     if (params.output_config?.format && prompt.includes(SUPERVISE_MARKER)) {
       const value = script.supervise?.(prompt) ?? {
-        durum: 'cevaplandi',
-        cevap: 'Tamam.',
-        kanitlar: [],
-        eksik: '',
+        durum: 'tam',
+        ozet: 'Kapsam test edildi.',
+        test_edilen: [],
+        test_edilemeyen: [],
+        kacmis_bulgular: [],
         ek_kalemler: [],
       }
       return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')

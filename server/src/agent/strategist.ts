@@ -1,4 +1,11 @@
-import type { CatalogPage, ItemSource, RunStrategy, StrategyItem, StrategyKind } from '@argus/shared'
+import type {
+  CatalogPage,
+  ItemSource,
+  RunStrategy,
+  StrategyItem,
+  StrategyKind,
+  PlatformRead,
+} from '@argus/shared'
 import type { PlatformReader } from '../platform/reader.ts'
 import type { Attachment } from '../runs/attachments.ts'
 import type { CreateMessage, MessageParams, Tool, UsageMeter } from './model.ts'
@@ -6,9 +13,11 @@ import { toolLoop } from './tool-loop.ts'
 import { platformTools } from './tools.ts'
 
 /**
- * Anla adımı: koşu başında güçlü model isteği çözümler, gerekirse platform tanımlarını okuyarak (MCP) koşunun
- * stratejisini yazar — isteğin türü, cevaplanacak sorular, başarı ölçütü, tanımdan bilinenler, salt okumada
- * yapılamayanlar ve iş kalemleri (kaynak: tanım | ekran | ikisi). Yalnız girdi verilen koşuda sayfalar da burada
+ * Anla adımı (test planı): Argus bulgu uygulamasıdır — kullanıcı bir modülü, sayfayı, konuyu ya da işleyişi test
+ * ettirir; koşunun çıktısı bulgulardır (hata, tutarsızlık, risk). Koşu başında güçlü model isteği çözümler, gerekirse
+ * platform tanımlarını okuyarak (MCP) test planını yazar — kapsam, test senaryoları (durum + beklenen davranış +
+ * bakılacak tutarsızlık), kapsamın ne olunca tamam sayılacağı, tanımdan bilinenler, bu koşuda test edilemeyenler ve
+ * iş kalemleri (kaynak: tanım | ekran | ikisi). Yalnız girdi verilen koşuda sayfalar da burada
  * seçilir. Girdisiz koşu (yalnız sayfa seçildi) bu adımı atlar: seçilen sayfalar baştan sona taranır (`scanStrategy`).
  */
 export const STRATEGY_MARKER = 'KOŞU STRATEJİSİ GÖREVİ'
@@ -21,22 +30,28 @@ const strings = { type: 'array', items: { type: 'string' } } as const
 
 const PLAN_TOOL: Tool = {
   name: 'plani_yaz',
-  description: 'Koşunun stratejisini yazar ve anla adımını bitirir.',
+  description: 'Koşunun test planını yazar ve anla adımını bitirir.',
   strict: true,
   input_schema: {
     type: 'object',
     properties: {
       tur: { type: 'string', enum: KINDS },
-      anlasilan: { type: 'string', description: 'Kullanıcının ne istediği, kendi cümlenle.' },
-      sorular: { ...strings, description: 'Koşunun cevaplaması gereken sorular.' },
-      basari: { type: 'string', description: 'Koşu ne olunca başarılı sayılır.' },
+      anlasilan: {
+        type: 'string',
+        description: 'Test edilecek kapsam (modül, sayfa, konu, işleyiş), kendi cümlenle.',
+      },
+      senaryolar: {
+        ...strings,
+        description: 'Test senaryoları: her biri durum + beklenen davranış + bakılacak tutarsızlık.',
+      },
+      bitti_olcutu: { type: 'string', description: 'Kapsam ne olunca tamam sayılır.' },
       bilinenler: {
         ...strings,
         description: 'Tanımdan öğrendiklerin, her biri kaynağıyla (araç, kayıt, alan).',
       },
       yapilamayan: {
         ...strings,
-        description: 'Salt okumada yapılamayanlar ve nedeni (ör. aşama ilerletmek yazma ister).',
+        description: 'Bu koşuda yapılamayanlar ve nedeni (ör. canlı e-posta gönderimi, başka rolün yetkisi).',
       },
       kalemler: {
         type: 'array',
@@ -57,7 +72,7 @@ const PLAN_TOOL: Tool = {
         },
       },
     },
-    required: ['tur', 'anlasilan', 'sorular', 'basari', 'bilinenler', 'yapilamayan', 'kalemler'],
+    required: ['tur', 'anlasilan', 'senaryolar', 'bitti_olcutu', 'bilinenler', 'yapilamayan', 'kalemler'],
     additionalProperties: false,
   },
 }
@@ -65,8 +80,8 @@ const PLAN_TOOL: Tool = {
 interface RawPlan {
   tur: string
   anlasilan: string
-  sorular: string[]
-  basari: string
+  senaryolar: string[]
+  bitti_olcutu: string
   bilinenler: string[]
   yapilamayan: string[]
   kalemler: Array<{ baslik: string; amac: string; kaynak: string; sayfa: string; tam_tarama: boolean }>
@@ -77,8 +92,8 @@ export function scanStrategy(pages: string[]): RunStrategy {
   return {
     kind: 'arayuz',
     understood: 'Seçilen sayfaların arayüz taraması.',
-    questions: [],
-    success: 'Sayfalardaki bütün sorunlar kanıtıyla bulunur.',
+    scenarios: [],
+    doneWhen: 'Sayfaların bütün bölgeleri ve akışları denenir, sorunlar kanıtıyla bulunur.',
     known: [],
     infeasible: [],
     items: pages.map((page) => ({
@@ -122,8 +137,8 @@ export function normalizeStrategy(raw: RawPlan, catalog: CatalogPage[], selected
   return {
     kind: KINDS.includes(raw.tur as StrategyKind) ? (raw.tur as StrategyKind) : 'karisik',
     understood: raw.anlasilan,
-    questions: raw.sorular,
-    success: raw.basari,
+    scenarios: raw.senaryolar,
+    doneWhen: raw.bitti_olcutu,
     known: raw.bilinenler,
     infeasible: raw.yapilamayan,
     items,
@@ -140,14 +155,16 @@ export async function planRun(input: {
   attachments: Attachment[]
   catalog: CatalogPage[]
   selected: string[]
-  onRead: (tool: string, reason: string, ok: boolean) => void
+  /** Her platform okuması (akışa adım olarak yazılır). */
+  onRead: (reason: string, read: PlatformRead) => void
 }): Promise<RunStrategy | null> {
   const files = input.attachments
     .map((a) =>
       a.kind === 'text' ? `Ek: ${a.name}\n<<<EK\n${a.text.slice(0, 4000)}\nEK>>>` : `Ek: ${a.name}`,
     )
     .join('\n')
-  const tools = [...platformTools(input.reader), PLAN_TOOL]
+  // Planlayıcı yazmaz: test planını tanımı okuyarak yazar; yazma kalemi yürüten araştırmacının ve gezginin işidir.
+  const tools = [...platformTools(input.reader, { write: false }), PLAN_TOOL]
   const raw = await toolLoop<RawPlan>({
     finishTool: PLAN_TOOL.name,
     ceiling: STRATEGY_CEILING,
@@ -170,15 +187,20 @@ export async function planRun(input: {
         }),
     first: [
       text(
-        `${STRATEGY_MARKER}: Kullanıcının isteğini çözümle ve bu koşunun stratejisini yaz. Önce isteğin türüne karar ver: ` +
-          'arayüz taraması (ekranda ne görünüyor, tutarlı mı, çalışıyor mu), kural/akış sorusu (hangi koşulda ne olur, ' +
-          'izin verir mi, atlanabilir mi), ya da karışık. Kural ve akış sorularının cevabı uygulamanın tanımındadır: ' +
-          'platform_oku ile ilgili tanımları (akış, süreç, mikroservis, sayfa şeması, varlık) oku ve öğrendiklerini kaynağıyla ' +
-          '"bilinenler"e yaz. Sonra iş kalemlerini çıkar; her kalemin kaynağı: tanim (yalnız platform okuması), ekran ' +
+        `${STRATEGY_MARKER}: Kullanıcı aşağıdaki kapsamı test ettiriyor; amaç bulgu bulmak (hata, tutarsızlık, risk), soru ` +
+          'cevaplamak değil. Bu koşunun test planını yaz. Önce testin türüne karar ver: arayüz (ekranda ne görünüyor, ' +
+          'tutarlı mı, çalışıyor mu), kural/akış (hangi durumda ne olmalı, kural ve geçişler doğru işliyor mu, kullanıcı ' +
+          'uyarılıyor mu), ya da karışık. Her senaryo için beklenen davranışı ve neyin tutarsızlık sayılacağını yaz. Kural ' +
+          've akışın nasıl çalıştığı uygulamanın tanımındadır: platform_oku ile ilgili tanımları (akış, süreç, mikroservis, ' +
+          'sayfa şeması, varlık) oku ve öğrendiklerini kaynağıyla ' +
+          '"bilinenler"e yaz. Burada yalnız hangi tanımlara bakılacağını belirlemeye yetecek kadar oku; ayrıntılı okumayı tanım kalemine bırak (aynı tanım iki kez okunmasın). Sonra iş kalemlerini çıkar; her kalemin kaynağı: tanim (yalnız platform okuması), ekran ' +
           '(tarayıcı, bir sayfada), ikisi (tanımı oku, sonucu ekranda teyit et). Veri değiştirmeyi gerektiren adım ' +
-          '(kayıt oluşturmak, aşama ilerletmek, onaya göndermek) salt okumada denenemez: "yapilamayan"a nedeniyle yaz, ' +
-          'yerine tanımdan çıkarılabileni kalem yap. İstek bir sayfanın ya da modülün genel arayüz kalitesini soruyorsa o ' +
-          'sayfalar için tam_tarama=true kalem aç. Kalemler eksiksiz olsun ama istekle ilgisiz genel tarama ekleme.\n\n' +
+          '(kayıt oluşturmak, aşama ilerletmek, onaya göndermek, doğrulamayı denemek) yapılabilir: kalemi yürüten ' +
+          'koşunun ortamında (development ya da dal) platform_yaz ile test verisi yazar ve uygulamanın akışını çalıştırır (tarayıcıda yazma ' +
+          'düğmeleri engellidir). Böyle adımı kalem yap, amacında hangi test verisiyle neyin çalıştırılacağını yaz; ' +
+          '"yapilamayan"a koyma (tanımdaki hata ve tutarsızlık da bulgudur). İstek bir sayfanın ' +
+          'ya da modülün genel arayüz kalitesini test ettiriyorsa o sayfalar için tam_tarama=true kalem aç. Kalemler ' +
+          'kapsamı eksiksiz örtsün ama kapsam dışı genel tarama ekleme.\n\n' +
           `İSTEK:\n${input.brief ?? '(yalnız dosya eklendi)'}\n${files}\n\n` +
           (input.selected.length
             ? `KULLANICININ SEÇTİĞİ SAYFALAR (kapsam bunlar; gerekirse bağlantılı sayfa eklenebilir): ${input.selected.join(', ')}\n\n`
@@ -196,11 +218,7 @@ export async function planRun(input: {
           field('girdi'),
           Number((args as Record<string, unknown>).devam) || 0,
         )
-        input.onRead(
-          field('arac'),
-          field('neden'),
-          !result.startsWith('Okunamadı') && !result.startsWith('Girdi JSON'),
-        )
+        input.onRead(field('neden'), { tool: field('arac'), input: field('girdi'), result: result })
         return result
       }
       return `Bilinmeyen araç: ${name}`

@@ -16,11 +16,11 @@ export const BASE_INSTRUCTIONS = `Sen Zeyrek low-code platformunda kurulmuş bir
 - Kullanıcı yönlendirmesi gelirse önceliklidir.
 - Kapsam test edilen sayfadır; görev ya da kullanıcının talimatı gerektiriyorsa sayfadaki bağlantıyla ilgili sayfaya geçebilirsin (ör. kaydın ayrıntısı). İşin bitince bastan_ac ile test edilen sayfaya dön.
 
-## Ekran mı, tanım mı
-İki bilgi kaynağın var; ikisini aynı görevde birlikte kullanabilirsin, karar senin:
+## Ekran mı, tanım mı, çalıştırma mı
+Üç yolun var; aynı görevde birlikte kullanabilirsin, karar senin:
 - Tanım (platform_oku): uygulamanın nasıl çalışması gerektiği — kural, akış, aşama geçişi, koşul, zorunlu alan, yetki, hesap. "Hangi koşulda olur, izin verir mi, atlanabilir mi" sorusu önce tanımdan cevaplanır; ekranda gözlenebilen sonucu ekranda teyit et.
 - Ekran (tarayıcı araçları): kullanıcının gördüğü ve yaşadığı — görünüm, tutarlılık, tepki, hata. Ekranda gördüğün şüpheli davranışın nedenini tanımdan açıkla.
-- Veri değiştirmeyi gerektiren senaryoyu (kayıt oluşturma, aşama ilerletme, onaya gönderme) salt okumada deneyemezsin: tanımdan çıkar, "yazma gerektirir" diye söyle; engellenen düğmeyi tekrar deneme.
+- Çalıştırma (platform_yaz, koşunun ortamında; production'da yoktur): veri değiştiren senaryoyu (kayıt oluşturma, aşama ilerletme, onaya gönderme, doğrulama) test verisiyle çalıştırarak dene; sonucu okumayla ya da ekranda teyit et. Kendi test kaydını oluştur ("Argus test"), var olan kaydı değiştirme; işin bitince test kayıtlarını sil. Tarayıcıda yazma düğmeleri (Kaydet, Gönder, Sil) engellidir; engellenen düğmeyi tekrar deneme, aynı işi platform_yaz ile yap.
 - Tanımdan bir iddiada bulunursan kaynağını yaz (araç, kayıt, alan). Tanımda olup ekranda farklı davranan şey bulgudur.
 
 ## Neye bakarsın
@@ -66,7 +66,6 @@ export interface PageFacts {
   page: string
   url: string
   tooltips: Tooltip[]
-  eyeFindings: Array<{ key: string; title: string }>
   problems: string[]
   openIssues: Issue[]
   known: Array<{ key: string; title: string; status: string }>
@@ -81,14 +80,15 @@ const list = (items: string[], empty = '(yok)') =>
   items.length ? items.map((i) => `- ${i}`).join('\n') : empty
 
 /**
- * Sayfa bilgisi. Gezgin ve planlayıcı modüldeki bilinen ve reddedilen sorun listesini görmez (eşleştirmeyi ve
- * reddi yargıç yapar); bu, her görevin başında tekrar eden en uzun bölümdü.
+ * Sayfanın sabit bağlamı: sayfa açılınca bir kez kurulur ve sayfa boyunca değişmez; bu yüzden her çağrının
+ * mesajında değil, sayfanın önbellekli talimatında durur (`PageController` iki talimat kurar: gezgin ve yargıç).
+ * Gezgin ve planlayıcı modüldeki bilinen ve reddedilen sorun listesini görmez (eşleştirmeyi ve reddi yargıç yapar).
+ * Sayfa içinde değişen tek parça, belirlenimci gözlerin bulduklarıdır (`eyeFindingsText`, çağrıya girer).
  */
 export function pageFacts(facts: PageFacts, audience: 'gezgin' | 'yargic' = 'gezgin'): string {
   const parts = [
     `Sayfa: ${facts.page}\nAdres: ${facts.url}`,
     `"?" ipuçları (tanımlar):\n${list(facts.tooltips.map((t) => `${t.label}: ${t.text}`))}`,
-    `Gözlerin zaten bulduğu (yeniden bildirme):\n${list(facts.eyeFindings.map((e) => `${e.key} — ${e.title}`))}`,
     `Açılışta görülen konsol/ağ sorunları:\n${list(facts.problems.slice(0, 10))}`,
     audience === 'yargic'
       ? `Bu sayfada açık sorunlar:\n${list(facts.openIssues.map((i) => `${i.key} — ${i.title}`))}`
@@ -109,6 +109,10 @@ ${list(facts.notes)}`)
   return parts.join('\n\n')
 }
 
+/** Belirlenimci gözlerin bu sayfada bulduğu (sayfa içinde artar; çağrının mesajına girer). */
+export const eyeFindingsText = (found: Array<{ key: string; title: string }>) =>
+  `Gözlerin zaten bulduğu (yeniden bildirme):\n${list(found.map((e) => `${e.key} — ${e.title}`))}`
+
 /**
  * Gözün görevi: gezginin ulaştığı bir ekran durumunu tek başına, dikkatle incelemek. Gezgin tıklar ve gezer; neyin
  * yanlış olduğunu görmek bu rolün işidir (içerik tutarlılığı ucuz modelin kaçırdığı sınıftı).
@@ -128,7 +132,18 @@ Kurallar:
 - tur: kesin (açık hata), tutarsizlik (neyle çeliştiğini gozlenen'de yaz), not (zayıf kanıt, görüş).
 - Önceki ekranların notları verildiyse bu ekranı onlarla da karşılaştır: aynı durum için farklı ad, aynı sayının farklı değeri, bir ekranda "kısmi" ya da "eksik" denen verinin başka ekranda tam sayılması.
 - Sorun yoksa bulgular boş liste.
-- notlar: bu ekranda başka ekranlarla karşılaştırılabilecek kısa gözlemler, en çok 12 madde, her biri tek satır ve alıntılı: durum ve etiket adları ("Hedefe yakın"), sayaç ve toplamlar ("Onaylı ölçüm 118 / 120"), dönem ve tarih etiketleri, kısmi/eksik veri işaretleri, ipucu tanımları. Yorum değil, ekranda görüleni yaz.`
+- notlar: bu ekranda başka ekranlarla karşılaştırılabilecek kısa gözlemler, yalnız önceki ekranların notlarında olmayan yeni olanlar (aynı değer ve etiket yeniden yazılmaz), en çok 8 madde, her biri tek satır ve alıntılı: durum ve etiket adları ("Hedefe yakın"), sayaç ve toplamlar ("Onaylı ölçüm 118 / 120"), dönem ve tarih etiketleri, kısmi/eksik veri işaretleri, ipucu tanımları. Yorum değil, ekranda görüleni yaz.`
+
+/** Terim gözünün görevi: sayfa boyunca toplanan etiketlerde aynı kavramın farklı adla geçtiği yeri bulmak. */
+export const TERMS_TASK = `TERİM GÖZÜ GÖREVİ: Aşağıda bu sayfanın koşusunda incelenen ekranlarda görünen etiketler var (rol, ad, geçtiği ekranlar).
+Bul:
+- Aynı kavramın farklı adla geçmesi: aynı sayı, durum ya da alan bir yerde bir adla, başka bir bölümde ya da ekranda başka adla (ör. bir tabloda "Müşteri", ötekinde aynı sütun "Cari"; bir sayaçta "Onay bekleyen", durum sütununda aynı durum "Beklemede").
+- Aynı adın farklı anlamda kullanılması; aynı adın farklı büyük/küçük harf ya da yazımla geçmesi.
+Kurallar:
+- Yalnız etiketlerde kanıtı olanı bildir; tahmin etme. Farklı şeyleri anlatan benzer adlar bulgu değildir.
+- alinti: çelişen adlardan biri, birebir; gozlenen'de iki adı ve geçtikleri ekranları yaz.
+- Bu sayfada zaten bildirileni ya da bilinen sorunun aynısını yeniden bildirme (bilinen sorunsa onun anahtarı).
+- notlar boş liste; sorun yoksa bulgular boş liste.`
 
 /** Yargıcın görevi: gezginin aday bulgusunu kayda girmeden önce denetlemek. Son kararı ucuz model vermez. */
 export const JUDGE_TASK = `YARGIÇ GÖREVİ: Gezgin aşağıdaki aday bulguyu bildirdi. Kayda girmeden önce sen karar ver.

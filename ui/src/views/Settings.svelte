@@ -34,6 +34,7 @@
     zeyrekAppDir: string | null
     mcp: { ok: boolean; detail: string }
     anthropic: { set: boolean; source: string | null; hint: string | null }
+    provider: 'abonelik' | 'api'
     memoryDir: string
     dataDir: string
     author: string
@@ -176,24 +177,33 @@
   <Grid cols="2">
     <Panel title="Durum" description="Bağlantılar ve bu bilgisayarın klasörleri">
       {#if status}
-        {#snippet zeyrek()}<code class="text-xs">{status!.zeyrekAppDir ?? '— (.env: ARGUS_ZEYREK_APP_DIR)'}</code>{/snippet}
+        {#snippet zeyrek()}<code class="text-xs"
+            >{status!.zeyrekAppDir ?? '— (.env: ARGUS_ZEYREK_APP_DIR)'}</code
+          >{/snippet}
         {#snippet mcp()}
           <Badge variant={status!.mcp.ok ? 'success' : 'error'}>{status!.mcp.ok ? 'Hazır' : 'Yok'}</Badge>
           <span class="text-muted-foreground ml-1">{status!.mcp.detail}</span>
         {/snippet}
         {#snippet key()}
-          <Badge variant={status!.anthropic.set ? 'success' : 'error'}
-            >{status!.anthropic.set ? status!.anthropic.hint : 'Yok'}</Badge
-          >
-          <span class="text-muted-foreground ml-1"
-            >{status!.anthropic.source ? `kaynak: ${status!.anthropic.source}` : '.env: ANTHROPIC_API_KEY'}</span
-          >
+          {#if status!.provider === 'abonelik'}
+            <Badge variant="brand">Claude hesabı</Badge>
+            <a href="#/yapay-zeka" class="text-primary ml-1 text-xs hover:underline">Sağlayıcıyı değiştir</a>
+          {:else}
+            <Badge variant={status!.anthropic.set ? 'success' : 'error'}
+              >{status!.anthropic.set ? status!.anthropic.hint : 'Yok'}</Badge
+            >
+            <span class="text-muted-foreground ml-1"
+              >{status!.anthropic.source
+                ? `kaynak: ${status!.anthropic.source}`
+                : '.env: ANTHROPIC_API_KEY'}</span
+            >
+          {/if}
         {/snippet}
         {#snippet memory()}<code class="text-xs">{status!.memoryDir}</code>{/snippet}
         {#snippet data()}<code class="text-xs">{status!.dataDir}</code>{/snippet}
         {@render row('Zeyrek App', zeyrek)}
         {@render row('Platform (MCP)', mcp)}
-        {@render row('Yapay zekâ anahtarı', key)}
+        {@render row('Model sağlayıcısı', key)}
         {@render row('Hafıza (Git)', memory)}
         {@render row('Yerel veri', data)}
       {/if}
@@ -219,7 +229,10 @@
       {/if}
     </Panel>
 
-    <Panel title="Bağlantı denetimi" description="Platforma, uygulamanın girişine ve tarayıcıya erişimi sınar">
+    <Panel
+      title="Bağlantı denetimi"
+      description="Platforma, uygulamanın girişine ve tarayıcıya erişimi sınar"
+    >
       <div class="grid grid-cols-3 items-start gap-3">
         <Field label="Proje" for="denetim-proje">
           <Combobox
@@ -263,10 +276,18 @@
               <span
                 class={cn(
                   'w-4 shrink-0 font-semibold',
-                  line.status === 'ok' ? 'text-success' : line.status === 'fail' ? 'text-destructive' : 'text-muted-foreground',
+                  line.status === 'ok'
+                    ? 'text-success'
+                    : line.status === 'fail'
+                      ? 'text-destructive'
+                      : 'text-muted-foreground',
                 )}>{line.status === 'ok' ? '✓' : line.status === 'fail' ? '✗' : '–'}</span
               >
-              <span>{line.label}{#if line.detail}<span class="text-muted-foreground"> — {line.detail}</span>{/if}</span>
+              <span
+                >{line.label}{#if line.detail}<span class="text-muted-foreground">
+                    — {line.detail}</span
+                  >{/if}</span
+              >
             </li>
           {/each}
         </ul>
@@ -275,10 +296,13 @@
   </Grid>
 
   <Grid cols="2">
-    <Panel title="Uygulama kullanıcıları" description="Uygulamanın kendi girişi için hesaplar · yalnız bu bilgisayarda">
+    <Panel
+      title="Uygulama kullanıcıları"
+      description="Uygulamanın kendi girişi için hesaplar · yalnız bu bilgisayarda"
+    >
       <p class="text-muted-foreground mb-4 text-[13px]">
-        Uygulama kendi giriş ekranını gösteriyorsa (ör. IMS Cortex) kontrolcü bu hesaplarla girer; oturum saklanır,
-        her koşu yeniden giriş yapmaz. Koşular varsayılan hesapla girer.
+        Uygulama kendi giriş ekranını gösteriyorsa (ör. IMS Cortex) kontrolcü bu hesaplarla girer; oturum
+        saklanır, her koşu yeniden giriş yapmaz. Koşular varsayılan hesapla girer.
       </p>
       {#if appUsers.length}
         <ul class="mb-4 divide-y rounded-lg border">
@@ -296,7 +320,13 @@
                   disabled={!!busy}
                   onclick={() => makeDefault(u)}>Varsayılan yap</Button
                 >{/if}
-              <Button size="icon-xs" variant="ghost" aria-label="Sil" disabled={!!busy} onclick={() => removeUser(u)}>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Sil"
+                disabled={!!busy}
+                onclick={() => removeUser(u)}
+              >
                 <Icon name="close" class="size-4" />
               </Button>
             </li>
@@ -305,7 +335,9 @@
       {/if}
       <div class="grid grid-cols-2 items-start gap-3">
         <Field label="Proje" for="hesap-proje"><Input id="hesap-proje" bind:value={user.proje} /></Field>
-        <Field label="Uygulama" for="hesap-uygulama"><Input id="hesap-uygulama" bind:value={user.uygulama} /></Field>
+        <Field label="Uygulama" for="hesap-uygulama"
+          ><Input id="hesap-uygulama" bind:value={user.uygulama} /></Field
+        >
         <Field label="Kullanıcı adı / e-posta" for="hesap-kullanici"
           ><Input id="hesap-kullanici" bind:value={user.kullanici} /></Field
         >
@@ -314,8 +346,10 @@
         </Field>
       </div>
       <div class="mt-4 flex justify-end">
-        <Button size="sm" onclick={saveUser} disabled={!user.proje || !user.uygulama || !user.kullanici || !!busy}
-          >Hesabı kaydet</Button
+        <Button
+          size="sm"
+          onclick={saveUser}
+          disabled={!user.proje || !user.uygulama || !user.kullanici || !!busy}>Hesabı kaydet</Button
         >
       </div>
     </Panel>
@@ -327,7 +361,14 @@
             <span><strong class="text-base">{formatBytes(storage.usage.total)}</strong> kullanılıyor</span>
             <span class="text-muted-foreground">sınır {formatBytes(storage.limitBytes)}</span>
           </div>
-          <div class="bg-muted h-2 overflow-hidden rounded-full" role="meter" aria-valuenow={Math.round(usedRatio * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Depolama kullanımı">
+          <div
+            class="bg-muted h-2 overflow-hidden rounded-full"
+            role="meter"
+            aria-valuenow={Math.round(usedRatio * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Depolama kullanımı"
+          >
             <div
               class={cn('h-full rounded-full', storage.over ? 'bg-destructive' : 'bg-primary')}
               style:width={`${usedRatio * 100}%`}
@@ -351,7 +392,13 @@
           <div class="mt-4 flex items-end gap-3">
             <div class="w-40">
               <Field label="Sınır (GB)" for="depolama-sinir">
-                <Input id="depolama-sinir" type="number" min={1} max={1000} bind:value={settings.storageLimitGb} />
+                <Input
+                  id="depolama-sinir"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  bind:value={settings.storageLimitGb}
+                />
               </Field>
             </div>
             <Button size="sm" variant="outline" disabled={!!busy} onclick={saveLimit}>Sınırı kaydet</Button>
@@ -359,9 +406,10 @@
             <Button size="sm" disabled={!!busy} onclick={() => (confirmClean = true)}>Temizle</Button>
           </div>
           <p class="text-muted-foreground mt-3 text-xs">
-            Kendiliğinden hiçbir şey silinmez. Temizlik toplamı sınırın %70'ine ({formatBytes(storage.targetBytes)})
-            indirir; en eski koşuların kaydından başlar. Paylaşılan hafıza (bulgular, kararlar, sayfa bilgisi)
-            bu hesaba girmez ve silinmez.
+            Kendiliğinden hiçbir şey silinmez. Temizlik toplamı sınırın %70'ine ({formatBytes(
+              storage.targetBytes,
+            )}) indirir; en eski koşuların kaydından başlar. Paylaşılan hafıza (bulgular, kararlar, sayfa
+            bilgisi) bu hesaba girmez ve silinmez.
           </p>
         {/if}
       </Panel>
@@ -376,7 +424,9 @@
   description={storage ? `Toplam ${formatBytes(storage.targetBytes)} düzeyine indirilir.` : undefined}
 >
   <ul class="text-muted-foreground grid list-disc gap-1 pl-5 text-[13px]">
-    <li>Önce hiçbir koşunun kullanmadığı ekler, sonra en eski koşuların video kaydı ve adım görüntüleri silinir.</li>
+    <li>
+      Önce hiçbir koşunun kullanmadığı ekler, sonra en eski koşuların video kaydı ve adım görüntüleri silinir.
+    </li>
     <li>Yetmezse en eski kanıt görüntüleri gider; her bulgunun en son kanıtı kalır.</li>
     <li>Koşuların akışı ve bulgular durur. Silinen dosyalar geri getirilemez.</li>
   </ul>

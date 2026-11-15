@@ -85,7 +85,7 @@ describe('takım paylaşımı', () => {
     const explorer = h.calls.slice(before).filter((c) => JSON.stringify(c.messages).includes('GÖREV: '))
     expect(explorer.some((c) => JSON.stringify(c.messages).includes('yz:toplam-tutmuyor —'))).toBe(false)
     // En yeni sayfa bilgisi (kimin yazdığından bağımsız) isteme girdi (tek görevli koşuda gezginin istemi).
-    expect(explorer.some((c) => JSON.stringify(c.messages).includes('AYŞENİN SAYFA BİLGİSİ'))).toBe(true)
+    expect(explorer.some((c) => JSON.stringify(c.system).includes('AYŞENİN SAYFA BİLGİSİ'))).toBe(true)
 
     // Bu makine yalnız kendi bulgu dosyasını yazdı; Ayşe'ninkine dokunmadı.
     const mine = join(appDir(), 'findings', `${authorSlug(h.ctx.author())}.md`)

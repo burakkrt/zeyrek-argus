@@ -10,18 +10,73 @@ import { APP_USER, overrides } from './support/site.ts'
 const app = { project: 'qm', application: 'web' }
 
 const script: Script = {
+  inspect: (prompt) =>
+    prompt.includes('İç kutu sayfası')
+      ? {
+          bulgular: [
+            {
+              tur: 'kesin',
+              anahtar: 'alt-uyari-ham',
+              baslik: 'En alttaki uyarı ham değer gösteriyor',
+              senaryo: 'Sayfayı aç, en alta bak',
+              beklenen: 'Anlamlı metin',
+              gozlenen: '"En alttaki uyarı metni yanlıs yazılmış" yazıyor',
+              alinti: 'En alttaki uyarı metni yanlıs yazılmış',
+            },
+            {
+              tur: 'tutarsizlik',
+              anahtar: 'tarih-yer-tutucu-ingilizce',
+              baslik: 'Tarih alanının yer tutucusu İngilizce',
+              senaryo: 'Sayfanın altındaki tarih alanına bak',
+              beklenen: 'gg.aa.yyyy',
+              gozlenen: '"dd.mm.yyyy" yazıyor',
+              alinti: 'dd.mm.yyyy',
+            },
+            {
+              tur: 'tutarsizlik',
+              anahtar: 'disa-aktar-adi-farkli',
+              baslik: 'Dışa aktarma düğmesinin adı farklı',
+              senaryo: 'Düğmenin ipucuna bak',
+              beklenen: 'Excel olarak indir',
+              gozlenen: '"Bu sayfayı CSV olarak dışa aktar" diyor',
+              alinti: 'Bu sayfayı CSV olarak dışa aktar',
+            },
+          ],
+          notlar: [],
+        }
+      : { bulgular: [], notlar: [] },
   plan: (prompt) =>
-    prompt.includes('Sayfa: egt-form')
-      ? { ozet: 'Form', gorevler: [{ baslik: 'Vazgeç', amac: 'Vazgeç düğmesini dene' }] }
-      : prompt.includes('Sayfa: egt-liste')
-        ? {
-            ozet: 'Eğitim listesi',
-            gorevler: [
-              { baslik: 'Satır işlemleri ve pencere', amac: 'Düğmeleri ve ayrıntı penceresini dene' },
-            ],
-          }
-        : { ozet: 'Basit sayfa', gorevler: [{ baslik: 'Kısa bakış', amac: 'Bak ve bitir' }] },
+    prompt.includes('Sayfa: egt-acilir')
+      ? { ozet: 'Açılır liste', gorevler: [{ baslik: 'Açılır liste', amac: 'Listeden seç' }] }
+      : prompt.includes('Sayfa: egt-uzun')
+        ? { ozet: 'Uzun sayfa', gorevler: [{ baslik: 'Alt bölüm', amac: 'En alttaki düğmeyi dene' }] }
+        : prompt.includes('Sayfa: egt-form')
+          ? { ozet: 'Form', gorevler: [{ baslik: 'Vazgeç', amac: 'Vazgeç düğmesini dene' }] }
+          : prompt.includes('Sayfa: egt-liste')
+            ? {
+                ozet: 'Eğitim listesi',
+                gorevler: [
+                  { baslik: 'Satır işlemleri ve pencere', amac: 'Düğmeleri ve ayrıntı penceresini dene' },
+                ],
+              }
+            : { ozet: 'Basit sayfa', gorevler: [{ baslik: 'Kısa bakış', amac: 'Bak ve bitir' }] },
   task: (conversation, task, turn) => {
+    if (task === 'Açılır liste') {
+      if (turn === 1)
+        return { name: 'tikla', input: { ref: refOf(conversation, 'Seçenekler'), neden: 'Listeyi aç' } }
+      if (turn === 2)
+        return { name: 'tikla', input: { ref: refOf(conversation, 'Seçenek 2'), neden: 'Seçeneği seç' } }
+      return { name: 'gorevi_bitir', input: { ozet: 'Seçildi.', eksik: '' } }
+    }
+    if (task === 'Alt bölüm') {
+      if (turn <= 3) return { name: 'kaydir', input: { yon: 'asagi', neden: 'Alt bölüme in' } }
+      if (turn === 4)
+        return {
+          name: 'tikla',
+          input: { ref: refOf(conversation, 'Son düğme'), neden: 'Alttaki düğmeyi dene' },
+        }
+      return { name: 'gorevi_bitir', input: { ozet: 'Alt bölüm denendi.', eksik: '' } }
+    }
     if (task === 'Vazgeç' && turn === 1)
       return { name: 'tikla', input: { ref: refOf(conversation, 'Vazgeç'), neden: 'Vazgeç ne yapıyor' } }
     if (task !== 'Satır işlemleri ve pencere') return { name: 'gorevi_bitir', input: { ozet: 'Bakıldı.' } }
@@ -178,7 +233,7 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
 
     // "?" ipucu okunup modele tanım olarak verildi.
     expect(
-      h.calls.some((c) => JSON.stringify(c.messages).includes('yöneticinin onayladığı ölçüm sayısı')),
+      h.calls.some((c) => JSON.stringify(c.system).includes('yöneticinin onayladığı ölçüm sayısı')),
     ).toBe(true)
     // Desenli kural isteme girmedi (göz olarak koştu), tarayıcı Türkçe açıldı.
     expect(JSON.stringify(h.calls[0]!.system)).toContain('gözler bakıyor')
@@ -284,6 +339,81 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
     expect(events.some((e) => e.type === 'sayfa-bitti')).toBe(true)
     expect(events.some((e) => e.type === 'plan' || e.type === 'bulgu')).toBe(false)
     expect(h.calls.length).toBe(callsBefore)
+  })
+
+  it('açık açılır liste göz incelemesi sırasında kapanmaz (pencere büyütülmez); gezgin seçeneğe tıklar', async () => {
+    const rows = Array.from({ length: 80 }, (_, i) => `<p style="margin:0;height:30px">Satır ${i}</p>`).join(
+      '',
+    )
+    overrides.set(
+      'egt-acilir',
+      `<!doctype html><html lang="tr"><body><h1>Açılır liste</h1><button id="b">Seçenekler</button>` +
+        `<ul id="l" role="listbox" hidden><li role="option">Seçenek 1</li><li role="option">Seçenek 2</li><li role="option">Seçenek 3</li></ul>${rows}` +
+        `<script>b.onclick = () => { l.hidden = false }; onresize = () => { l.hidden = true }</script></body></html>`,
+    )
+    const run = await h.waitFor(
+      h.ctx.runs.create({ ...app, environment: 'development', pages: ['egt-acilir'] }).id,
+    )
+    expect(run.status).toBe('bitti')
+    expect(
+      listEvents(h.ctx.db, run.id).some(
+        (e) => e.type === 'adim' && e.outcome.startsWith('Tıklandı: "Seçenek 2"'),
+      ),
+    ).toBe(true)
+  })
+
+  it('uzun sayfada gezgin kaydırınca alt bölümün ağacını görür ve oradaki düğmeye tıklar', async () => {
+    const sections = Array.from(
+      { length: 70 },
+      (_, i) => `<h2>Bölüm ${i} başlığı</h2><p>Bölüm ${i} için açıklama metni</p><button>Düğme ${i}</button>`,
+    ).join('')
+    overrides.set(
+      'egt-uzun',
+      `<!doctype html><html lang="tr"><head><style>h2,p,button{margin:0;font-size:8px;line-height:9px;display:block}</style></head>` +
+        `<body><h1>Uzun sayfa</h1>${sections}<button>Son düğme</button></body></html>`,
+    )
+    const before = h.calls.length
+    const run = await h.waitFor(
+      h.ctx.runs.create({ ...app, environment: 'development', pages: ['egt-uzun'] }).id,
+    )
+    expect(run.status).toBe('bitti')
+    // Görevin başında ağacın üstü gider (alt bölüm yok); kaydırınca alt bölümün öğeleri gelir ve tıklanır.
+    const first = h.calls.slice(before).find((c) => JSON.stringify(c.messages).includes('GÖREV: Alt bölüm'))!
+    expect(JSON.stringify(first.messages)).not.toContain('Son düğme')
+    expect(JSON.stringify(first.messages)).toContain('aşağı kaydırınca görünür')
+    expect(
+      listEvents(h.ctx.db, run.id).some(
+        (e) => e.type === 'adim' && e.outcome.startsWith('Tıklandı: "Son düğme"'),
+      ),
+    ).toBe(true)
+  })
+
+  it('iç kutuda kayan sayfada ekranın altındaki bulgunun kanıtı öğeyi gösterir (uzun görüntü)', async () => {
+    const rows = Array.from({ length: 100 }, (_, i) => `<p style="margin:0;height:40px">Satır ${i}</p>`).join(
+      '',
+    )
+    overrides.set(
+      'egt-kutu',
+      `<!doctype html><html lang="tr"><body style="margin:0;overflow:hidden"><h1 style="margin:0">İç kutu sayfası</h1>` +
+        `<div id="kutu" style="height:calc(100vh - 40px);overflow:auto">${rows}<p>En alttaki uyarı metni yanlıs yazılmış</p><input placeholder="dd.mm.yyyy"><button title="Bu sayfayı CSV olarak dışa aktar">⇩</button></div></body></html>`,
+    )
+    const run = await h.waitFor(
+      h.ctx.runs.create({ ...app, environment: 'development', pages: ['egt-kutu'] }).id,
+    )
+    expect(run.status).toBe('bitti')
+    const issue = h.ctx.issues.list({ app }).find((i) => i.key === 'yz:alt-uyari-ham')!
+    const sighting = h.ctx.issues.detail(issue.id).occurrences.find((o) => o.runId === run.id)!
+    expect(sighting.box).not.toBeNull()
+    expect(sighting.box!.y).toBeGreaterThan(3_000)
+    const png = readFileSync(join(h.ctx.config.dataDir, 'runs', run.id, sighting.shot!))
+    expect(png.readUInt32BE(20)).toBeGreaterThan(800)
+    // Yer tutucu ve ipucu (title) metni de kanıtta aranır: alıntı onlardaysa bulgu doğrulanır ve kutulanır.
+    for (const key of ['yz:tarih-yer-tutucu-ingilizce', 'yz:disa-aktar-adi-farkli']) {
+      const found = h.ctx.issues.list({ app }).find((i) => i.key === key)!
+      const seen = h.ctx.issues.detail(found.id).occurrences.find((o) => o.runId === run.id)!
+      expect(seen.outcome).toBe('yeni')
+      expect(seen.box).not.toBeNull()
+    }
   })
 
   it('tarayıcı onay penceresi modele ve akışa söylenir (düğme "tepkisiz" sanılmaz); koşu kare kare kaydedilir', async () => {

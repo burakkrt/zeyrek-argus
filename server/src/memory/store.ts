@@ -29,7 +29,6 @@ import { authorSlug, parseFindings, serializeFindings, type SharedFinding } from
  *   apps/<proje>/<uygulama>/decisions/<..>.md   sorun başına insan kararı, tarihçe, yorumlar
  *   apps/<proje>/<uygulama>/findings/<yazar>.md kişinin açık bulguları ve son görünümleri (tek yazarlı)
  *   apps/<proje>/<uygulama>/pages/<sayfa>/<yazar>.md  sayfa bilgisi (tek yazarlı, en yenisi kullanılır)
- *   apps/<proje>/<uygulama>/screens/<sayfa>/<yazar>.json  ekran haritası (tek yazarlı, birleşik okunur)
  *   apps/<proje>/<uygulama>/customer/<..>.md    içe aktarılan müşteri bulguları (isteme girmez)
  */
 
@@ -266,11 +265,6 @@ export class MemoryStore {
     const rel = join(this.pageDir(app, page), `${authorSlug(author)}.md`)
     this.write(rel, content)
     return rel.split(sep).join('/')
-  }
-
-  /** Ekran haritasının klasörü (`screens/<sayfa>/<yazar>.json`); `ScreenMemory` okur ve yazar. */
-  screenDir(app: AppRef, page: string): string {
-    return this.abs(join(this.appDir(app), 'screens', this.pageName(page)))
   }
 
   private pageDir(app: AppRef, page: string): string {

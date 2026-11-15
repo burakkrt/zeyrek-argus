@@ -115,9 +115,35 @@ export function createApi(ctx: AppContext): Hono {
       memoryDir: ctx.config.memoryDir,
       dataDir: ctx.config.dataDir,
       activeRunId: ctx.runs.activeRunId,
+      provider: getSettings(ctx.db).provider,
       author: ctx.author(),
       models: KNOWN_MODELS,
     })
+  })
+
+  /**
+   * Seçili model sağlayıcısını tek kısa çağrıyla denetler (Claude hesabı: Claude Code oturumu açık mı; API: anahtar
+   * geçerli mi). Hata, kullanıcının yapacağı işi söyler.
+   */
+  api.post('/saglayici/denetle', async (c) => {
+    const settings = getSettings(ctx.db)
+    try {
+      await ctx.model()(
+        {
+          model: settings.models.explorer,
+          max_tokens: 50,
+          system: 'Kısa yanıt ver.',
+          messages: [{ role: 'user', content: 'Yalnız "tamam" yaz.' }],
+        },
+        'explorer',
+      )
+      return c.json({
+        ok: true,
+        detail: settings.provider === 'abonelik' ? 'Claude hesabı hazır (abonelik).' : 'API anahtarı hazır.',
+      })
+    } catch (error) {
+      return c.json({ ok: false, detail: error instanceof Error ? error.message : String(error) })
+    }
   })
 
   api.get('/ayarlar', (c) => c.json({ settings: getSettings(ctx.db), appUsers: listAppUsers(ctx.db) }))
@@ -140,6 +166,7 @@ export function createApi(ctx: AppContext): Hono {
       }
       patch.models = models
     }
+    if (body.provider === 'abonelik' || body.provider === 'api') patch.provider = body.provider
     if (typeof body.escalate === 'boolean') patch.escalate = body.escalate
     if (typeof body.inspector === 'boolean') patch.inspector = body.inspector
     if (body.effort === 'low' || body.effort === 'medium' || body.effort === 'high')

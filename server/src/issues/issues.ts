@@ -9,6 +9,7 @@ import type {
   OccurrenceOutcome,
   SharedSighting,
 } from '@argus/shared'
+import { DEFINITION_PAGE } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 import { json, newId, now, transaction, type Database } from '../db/database.ts'
 import { authorSlug, type SharedFinding } from '../memory/shared.ts'
@@ -41,6 +42,8 @@ export interface RecordResult {
   occurrence: Occurrence
   outcome: OccurrenceOutcome
   reason: string | null
+  /** Aynı koşuda aynı sayfada zaten görünümü vardı: yeni görünüm yazılmadı, akışa yeniden düşmez. */
+  duplicate?: boolean
 }
 
 interface IssueRow {
@@ -175,6 +178,22 @@ export class IssueService {
       if (!input.verified && outcome !== 'bastirildi') {
         outcome = 'dogrulanamadi'
         reason = 'Alıntı ekranda bulunamadı; not olarak kaydedildi'
+      }
+      // Koşu içinde aynı sayfada ikinci kez bildirilen sorun yeni görünüm değildir (göz ve yargıç bilinen sorunu yeniden
+      // bildiriyordu: aynı sorun koşuda 3 kez listelendi).
+      if (outcome === 'tekrar' || outcome === 'dogrulanamadi') {
+        const existing = this.db
+          .prepare('select id from occurrences where issue_id = ? and run_id = ? and page = ? limit 1')
+          .get(row.id, input.runId, input.page) as { id: string } | undefined
+        const seen = existing ? this.detail(row.id).occurrences.find((o) => o.id === existing.id) : undefined
+        if (seen)
+          return {
+            issue: this.toIssue(row),
+            occurrence: seen,
+            outcome: seen.outcome,
+            reason: null,
+            duplicate: true,
+          }
       }
       const occurrence: Occurrence = {
         id: newId(),
@@ -464,6 +483,16 @@ export class IssueService {
     return rows.map((r) => this.toIssue(r))
   }
 
+  /** Koşuda bu sayfada görünümü kaydedilmiş sorunlar, anahtar → başlık (sayfa aynı koşuda yeniden açılabilir). */
+  recordedInRun(runId: string, page: string): Map<string, string> {
+    const rows = this.db
+      .prepare(
+        `select distinct i.key, i.title from occurrences o join issues i on i.id = o.issue_id where o.run_id = ? and o.page = ?`,
+      )
+      .all(runId, page) as Array<{ key: string; title: string }>
+    return new Map(rows.map((r) => [r.key, r.title]))
+  }
+
   /** Sorunun bu sayfadaki son doğrulanmış görünümü: alıntısı ekranda hâlâ varsa model çağırmadan doğrulanır. */
   lastSighting(
     issueId: string,
@@ -488,7 +517,10 @@ export class IssueService {
     return shared ?? null
   }
 
-  /** Modülde bilinen sorun anahtarları: aynı sorun başka sayfada görülürse aynı anahtarla bildirilsin. */
+  /**
+   * Modülde bilinen sorun anahtarları (tanım bulguları dahil): aynı sorun başka sayfada ya da ekranda görülürse aynı
+   * anahtarla bildirilsin.
+   */
   knownInModule(
     app: AppRef,
     modulePrefix: string,
@@ -498,7 +530,7 @@ export class IssueService {
       .prepare(
         `select i.key, i.title, i.status from issues i
          where i.project = ? and i.application = ? and i.source = 'yz'
-           and (exists (select 1 from occurrences o where o.issue_id = i.id and (o.page = ? or o.page like ?))
+           and (exists (select 1 from occurrences o where o.issue_id = i.id and (o.page = ? or o.page like ? or o.page = ?))
              or exists (select 1 from shared_sightings s where s.issue_id = i.id and (s.page = ? or s.page like ?)))
          order by i.last_seen desc limit ?`,
       )
@@ -507,6 +539,7 @@ export class IssueService {
         app.application,
         modulePrefix,
         `${modulePrefix}-%`,
+        DEFINITION_PAGE,
         modulePrefix,
         `${modulePrefix}-%`,
         limit,
@@ -577,8 +610,11 @@ export class IssueService {
         const last = this.db
           .prepare('select to_status from history where issue_id = ? order by at desc limit 1')
           .get(row.id) as { to_status: IssueStatus } | undefined
-        const status = !local.at || record.updatedAt > local.at ? record.status : (last?.to_status ?? record.status)
-        this.db.prepare('update issues set status = ?, title = ? where id = ?').run(status, record.title, row.id)
+        const status =
+          !local.at || record.updatedAt > local.at ? record.status : (last?.to_status ?? record.status)
+        this.db
+          .prepare('update issues set status = ?, title = ? where id = ?')
+          .run(status, record.title, row.id)
       }
       this.db
         .prepare(

@@ -18,10 +18,7 @@
    * - Üzerine gelince sayaç durur, ayrılınca kalan süreden sürer. Hata ve uyarı ekran okuyucuya hemen (`alert`),
    *   diğerleri sırası gelince (`status`) okunur.
    */
-  const TONES: Record<
-    NoticeTone,
-    { icon: IconName; label: string; color: string; soft: string }
-  > = {
+  const TONES: Record<NoticeTone, { icon: IconName; label: string; color: string; soft: string }> = {
     success: { icon: 'checkCircle', label: 'Başarılı', color: '#16A34A', soft: '#DCFCE7' },
     info: { icon: 'info', label: 'Bilgi', color: '#0C66E4', soft: '#E9F2FF' },
     warning: { icon: 'warning', label: 'Uyarı', color: '#D97706', soft: '#FEF3C7' },
@@ -85,15 +82,18 @@
           ></span>{/if}
       {/key}
       <span class="absolute inset-y-0 left-0 w-[3px]" style="background: {tone.color}"></span>
-      <span class="relative grid size-7 place-items-center rounded-full" style="color: {tone.color}; background: {tone.soft}"
+      <span
+        class="relative grid size-7 place-items-center rounded-full"
+        style="color: {tone.color}; background: {tone.soft}"
         ><Icon name={tone.icon} class="size-[18px]" /></span
       >
       <div class="relative flex min-w-0 flex-col gap-0.5 pt-0.5 text-left">
         <p class="text-foreground flex items-baseline gap-2 text-sm leading-5 font-semibold">
           {notice.title}
           {#if notice.count > 1}
-            <span class="rounded-full px-1.5 text-xs font-semibold" style="color: {tone.color}; background: {tone.soft}"
-              >×{notice.count}</span
+            <span
+              class="rounded-full px-1.5 text-xs font-semibold"
+              style="color: {tone.color}; background: {tone.soft}">×{notice.count}</span
             >
           {/if}
         </p>

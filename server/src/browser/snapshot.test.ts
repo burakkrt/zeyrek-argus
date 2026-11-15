@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { compressSnapshot, diffSnapshot } from './snapshot.ts'
+import {
+  changeSize,
+  compressSnapshot,
+  diffSnapshot,
+  labelsOf,
+  stableTree,
+  windowSnapshot,
+} from './snapshot.ts'
 
 describe('compressSnapshot', () => {
   it('uzun satır dizisini ilk üç + sonuncu olarak özetler, iç içe yapıyı korur', () => {
@@ -58,5 +65,89 @@ describe('sarmalayıcı atlama', () => {
     expect(compressSnapshot(input)).toBe(
       '- button "Kaydet" [ref=e3]\n- generic [ref=e4] [cursor=pointer]:\n  - text: Aç',
     )
+  })
+})
+
+describe('ekran kimliği', () => {
+  it('odak işareti ve içeriksiz satır ekranı değiştirmez; ref değişimi de (KOŞU ölçümü: Tab, aynı ekranı yeniden inceletiyordu)', () => {
+    const before = [
+      '- navigation [ref=e1]:',
+      '  - link "Ana sayfa" [cursor=pointer] [ref=e2]:',
+      '    - generic',
+      '  - button "Kaydet" [ref=e3]',
+    ].join('\n')
+    const focused = [
+      '- navigation [ref=e7]:',
+      '  - link "Ana sayfa" [active] [cursor=pointer] [ref=e8]:',
+      '      ',
+      '  - button "Kaydet" [ref=e9]',
+    ].join('\n')
+    expect(changeSize(stableTree(before), stableTree(focused))).toBe(0)
+    expect(changeSize(stableTree(before), stableTree(focused.replace('Kaydet', 'Sil')))).toBe(2)
+  })
+})
+
+describe('ağaç sınırı', () => {
+  it('uzun sayfanın alt bölümü kesilmez (eski 9 bin karakterlik sınır karnenin alt tablolarını saklıyordu)', () => {
+    const sections = Array.from(
+      { length: 300 },
+      (_, i) => `- heading "Bölüm ${i}" [level=2] [ref=e${i}]\n- paragraph [ref=p${i}]: Açıklama metni ${i}`,
+    )
+    const out = compressSnapshot(sections.join('\n'))
+    expect(out.length).toBeGreaterThan(9_000)
+    expect(out).toContain('Bölüm 299')
+    expect(out).not.toContain('kırpıldı')
+  })
+})
+
+describe('kaydırma penceresi', () => {
+  const tree = [
+    '- main:',
+    ...Array.from({ length: 200 }, (_, i) => `  - region "Bölüm ${i}":\n    - button "Düğme ${i}"`),
+  ].join('\n')
+
+  it('kısa ağaç olduğu gibi döner', () => {
+    expect(windowSnapshot('- button "Kaydet"', 0.9, 9_000)).toBe('- button "Kaydet"')
+  })
+
+  it('uzun ağaçta kaydırma konumunun bölümünü üst satırlarıyla verir; gizlenen kısımları söyler', () => {
+    const top = windowSnapshot(tree, 0, 2_000)
+    expect(top).toContain('Düğme 0')
+    expect(top).not.toContain('Düğme 199')
+    expect(top).toContain('aşağı kaydırınca')
+    const bottom = windowSnapshot(tree, 1, 2_000)
+    expect(bottom).toContain('Düğme 199')
+    expect(bottom).not.toContain('Düğme 0"')
+    expect(bottom.startsWith('- main:')).toBe(true)
+    expect(bottom).toContain('yukarı kaydırınca')
+    expect(bottom.length).toBeLessThan(2_300)
+  })
+})
+
+describe('etiketler', () => {
+  it('ekrandaki kısa adları rolüyle tekil verir; satır metni, sayı ve tarih etiket sayılmaz', () => {
+    const tree = [
+      '- heading "Firma karnesi" [level=1] [ref=e1]',
+      '- table [ref=e2]:',
+      '  - row "Satış 91,2 Veri yok" [ref=e3]:',
+      '    - columnheader "BAŞARI" [ref=e4]',
+      '    - cell "Veri yok" [ref=e5]',
+      '    - cell "91,2" [ref=e6]',
+      '    - cell "12 Kas 2026" [ref=e7]',
+      '- paragraph [ref=e8]: Verisi olmayan',
+      '- dialog "Eğitim ayrıntısı" [ref=e11]:',
+      '  - paragraph [ref=e12]: "Toplam: 5 kayıt"',
+      '- button "Kaydet" [ref=e9]',
+      '- button "Kaydet" [ref=e10]',
+    ].join('\n')
+    expect(labelsOf(tree)).toEqual([
+      { role: 'heading', text: 'Firma karnesi' },
+      { role: 'columnheader', text: 'BAŞARI' },
+      { role: 'cell', text: 'Veri yok' },
+      { role: 'paragraph', text: 'Verisi olmayan' },
+      { role: 'dialog', text: 'Eğitim ayrıntısı' },
+      { role: 'paragraph', text: 'Toplam: 5 kayıt' },
+      { role: 'button', text: 'Kaydet' },
+    ])
   })
 })

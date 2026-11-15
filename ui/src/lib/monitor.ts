@@ -1,7 +1,8 @@
 import {
   DEFINITION_PAGE,
   type NetworkEntry,
-  type RunAnswer,
+  type PlatformRead,
+  type RunCoverage,
   type RunEvent,
   type RunStrategy,
   type StepTarget,
@@ -30,6 +31,8 @@ export interface MonitorStep {
   shot: string | null
   target: StepTarget | null
   dialog: string | null
+  /** Platform okumasıysa araç, girdi ve sonucun başı (sahnede gösterilir). */
+  platform: PlatformRead | null
 }
 
 export interface MonitorTask {
@@ -69,9 +72,9 @@ export interface MonitorModel {
   steps: MonitorStep[]
   findings: MonitorFinding[]
   flow: FlowRow[]
-  /** Girdili koşunun stratejisi (anla adımı) ve isteğe cevabı (gözetmen); girdisiz koşuda null. */
+  /** Girdili koşunun test planı (anla adımı) ve kapsam raporu (gözetmen); girdisiz koşuda null. */
   strategy: RunStrategy | null
-  answer: RunAnswer | null
+  coverage: RunCoverage | null
   /** İlk ve son olayın anı (oynatma aralığı; kareler bunu genişletebilir). */
   start: number | null
   end: number | null
@@ -90,14 +93,23 @@ export const TOOL_LABEL: Record<string, string> = {
   platform_arac: 'Platform aracı',
 }
 
-/** Girdili koşunun cevap durumu: rozet adı ve tonu. */
-export const ANSWER_STATUS: Record<
-  RunAnswer['status'],
+/** Girdili koşunun kapsam durumu: rozet adı ve tonu. */
+export const COVERAGE_STATUS: Record<
+  RunCoverage['status'],
   { label: string; tone: 'success' | 'warning' | 'error' }
 > = {
-  cevaplandi: { label: 'Cevaplandı', tone: 'success' },
+  tam: { label: 'Tam', tone: 'success' },
   kismen: { label: 'Kısmen', tone: 'warning' },
-  cevaplanamadi: { label: 'Cevaplanamadı', tone: 'error' },
+  eksik: { label: 'Eksik', tone: 'error' },
+}
+
+/** JSON metni okunur biçimde (girintili); JSON değilse ya da kesikse olduğu gibi. */
+export function prettyJson(text: string): string {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2)
+  } catch {
+    return text
+  }
 }
 
 /** Akışta sayfanın adı: tanım kalemlerinin satırı "Platform tanımları"dır. */
@@ -113,7 +125,7 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
   const flow: FlowRow[] = []
   let judge: string | null = null
   let strategy: RunStrategy | null = null
-  let answer: RunAnswer | null = null
+  let coverage: RunCoverage | null = null
   const pageOf = (name: string) => {
     let page = pages.get(name)
     if (!page) pages.set(name, (page = { page: name, status: 'bekliyor', tasks: [] }))
@@ -128,11 +140,11 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
     if (event.type === 'kosu-basladi') event.pages.forEach(pageOf)
     if (event.type === 'strateji') {
       strategy = event.strategy
-      note('plan', `Strateji · ${event.strategy.understood}`)
+      note('plan', `Test planı · ${event.strategy.understood}`)
       continue
     }
-    if (event.type === 'cevap') {
-      answer = event.answer
+    if (event.type === 'kapsam') {
+      coverage = event.coverage
       continue
     }
     if (event.type === 'bilgi') {
@@ -203,6 +215,7 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
           shot: event.shot,
           target: event.target ?? null,
           dialog: event.dialog ?? null,
+          platform: event.platform ?? null,
         })
         break
       }
@@ -232,7 +245,7 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
     findings,
     flow,
     strategy,
-    answer,
+    coverage,
     start: times.length ? Math.min(...times) : null,
     end: times.length ? Math.max(...times) : null,
   }
@@ -500,6 +513,12 @@ export function actionOf(step: { tool: string; outcome: string }): Action {
         : { kind: 'okudu', verb: 'Sayfayı okudu', object: '' }
     case 'bastan_ac':
       return { kind: 'bastan_ac', verb: 'Sayfayı baştan açtı', object: '' }
+    case 'platform_yaz':
+      return {
+        kind: 'platform',
+        verb: outcome.includes('yazılamadı') ? 'Platforma yazamadı' : 'Platforma yazdı',
+        object: outcome.replace(/^Platforma (yazıldı|yazılamadı): /, ''),
+      }
     case 'platform_oku':
     case 'platform_arac':
       return {

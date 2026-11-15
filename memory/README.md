@@ -12,7 +12,6 @@ apps/<proje>/<uygulama>/
   decisions/*.md                 sorun başına insan kararı, tarihçe ve yorumlar (Git'te union ile birleşir)
   findings/<yazar>.md            o kişinin makinesinde açık duran bulgular (koşu sonunda yazılır)
   pages/<sayfa>/<yazar>.md       sayfa bilgisi: kontrolcünün damıttığı (isteme en yenisi girer)
-  screens/<sayfa>/<yazar>.json   gözün ekran haritası: incelediği ekran yapıları ve notları
   customer/*.md                  içe aktarılan müşteri bulguları (isteme girmez)
 ```
 
@@ -20,8 +19,8 @@ apps/<proje>/<uygulama>/
 
 Git çakışması çıkmaması için her dosyanın tek bir yazarı vardır ya da birleşmesi tanımlıdır:
 
-- `findings/`, `pages/`, `screens/` altında herkes yalnız kendi dosyasını yazar (`<yazar>`: Ayarlar'daki ad). Okurken
-  hepsi birleştirilir: sayfa bilgisinden en yenisi, ekran haritasından ekran başına en yenisi, bulgulardan herkesinki
+- `findings/`, `pages/` altında herkes yalnız kendi dosyasını yazar (`<yazar>`: Ayarlar'daki ad). Okurken
+  hepsi birleştirilir: sayfa bilgisinden en yenisi, bulgulardan herkesinki
   ("başka makinelerde görüldü").
 - `decisions/` dosyasını yalnız insanlar yazar (Argus'un "düzeldi" gözlemi yereldir). Aynı soruna iki kişi aynı anda
   karar ya da yorum yazarsa `.gitattributes` dosyaları Git'in union sürücüsüyle birleştirir; satırların hiçbiri

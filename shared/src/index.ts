@@ -81,16 +81,26 @@ export interface Usage {
   costUsd: number | null
   /** Rol başına istek ve maliyet (planlayıcı, gezgin, yargıç, öğretmen). */
   roles?: Partial<Record<ModelRole, { requests: number; costUsd: number | null; model: string }>>
+  /** Koşunun model sağlayıcısı; abonelikte `costUsd` 0'dır (planın kullanım hakkından düşer). */
+  provider?: ModelProvider
 }
 
 /**
  * Modelin işi: planlayıcı görev çıkarır, gezgin ekranı gezer, göz ulaşılan ekranı inceler, yargıç gezginin adayını
  * denetler, öğretmen ders çıkarır.
  */
-export const MODEL_ROLES = ['planner', 'explorer', 'inspector', 'judge', 'teacher'] as const
+/**
+ * Model sağlayıcısı: `abonelik` kullanıcının bu bilgisayarda kendi hesabıyla giriş yaptığı Claude Code üzerinden
+ * (resmi Agent SDK; Argus jetona dokunmaz), `api` .env'deki ANTHROPIC_API_KEY ile. Abonelikte koşu maliyeti planın
+ * kullanım hakkından düşer, dolar olarak yazılmaz.
+ */
+export type ModelProvider = 'abonelik' | 'api'
+
+export const MODEL_ROLES = ['planner', 'investigator', 'explorer', 'inspector', 'judge', 'teacher'] as const
 export type ModelRole = (typeof MODEL_ROLES)[number]
 export const MODEL_ROLE_LABELS: Record<ModelRole, string> = {
   planner: 'Planlayıcı',
+  investigator: 'Araştırmacı',
   explorer: 'Gezgin',
   inspector: 'Göz',
   judge: 'Yargıç',
@@ -135,8 +145,8 @@ export interface RunInfo {
   startedAt: string | null
   finishedAt: string | null
   counts: { new: number; repeated: number; suppressed: number }
-  /** Girdili koşunun isteğe cevabı; girdisiz (yalnız tarama) koşuda null. */
-  answer: RunAnswer | null
+  /** Girdili koşunun kapsam raporu; girdisiz (yalnız tarama) koşuda null. */
+  coverage: RunCoverage | null
 }
 
 export interface NetworkEntry {
@@ -170,25 +180,38 @@ export interface StrategyItem {
 
 export interface RunStrategy {
   kind: StrategyKind
+  /** Test edilecek kapsam (modül, sayfa, konu, işleyiş), kendi cümlesiyle. */
   understood: string
-  questions: string[]
-  success: string
+  /** Test senaryoları: her biri durum + beklenen davranış + bakılacak tutarsızlık. */
+  scenarios: string[]
+  /** Kapsam ne olunca tamam sayılır. */
+  doneWhen: string
   known: string[]
   infeasible: string[]
   items: StrategyItem[]
 }
 
 /**
- * Koşunun isteğe cevabı (gözetmen, `server/src/agent/supervisor.ts`): girdili koşuda soru cevaplandı mı, cevabın
- * kendisi, kanıtları (tanım: araç + kayıt + alan; ekran: bulgu ya da gözlem) ve cevaplanamayan kısım.
+ * Girdili koşunun kapsam raporu (gözetmen, `server/src/agent/supervisor.ts`). Argus bulgu uygulamasıdır: koşunun
+ * çıktısı bulgulardır; bu rapor yalnız istenen kapsamın ne kadarının test edildiğini, neyin edilemediğini ve nedenini
+ * söyler.
  */
-export type AnswerStatus = 'cevaplandi' | 'kismen' | 'cevaplanamadi'
+export type CoverageStatus = 'tam' | 'kismen' | 'eksik'
 
-export interface RunAnswer {
-  status: AnswerStatus
-  answer: string
-  evidence: string[]
-  missing: string
+export interface RunCoverage {
+  status: CoverageStatus
+  summary: string
+  tested: string[]
+  /** Test edilemeyenler, her biri nedeniyle (ör. "aşama ilerletmek veri yazar"). */
+  untested: string[]
+}
+
+export interface PlatformRead {
+  tool: string
+  input: string
+  result: string
+  /** Platforma yazma (development'ta veri ya da çalıştırma); yoksa okuma. */
+  write?: boolean
 }
 
 /** Tanım kalemlerinin akıştaki sayfası (katalog slug'ı olamaz: '@' içerir). */
@@ -197,7 +220,7 @@ export const DEFINITION_PAGE = '@tanimlar'
 export type RunEventBody =
   | { type: 'kosu-basladi'; pages: string[] }
   | { type: 'strateji'; strategy: RunStrategy }
-  | { type: 'cevap'; answer: RunAnswer }
+  | { type: 'kapsam'; coverage: RunCoverage }
   | { type: 'kosu-bitti'; status: RunStatus; usage: Usage; error?: string }
   | { type: 'sayfa-basladi'; url: string }
   | { type: 'sayfa-bitti'; summary: string }
@@ -222,8 +245,10 @@ export type RunEventBody =
       target: StepTarget | null
       /** İşlemin yapıldığı an (epoch ms): kayıttan izlemede imleç bu ana varır, tıklama halkası burada çıkar. */
       actAt?: number
-      /** Adımda açılan tarayıcı penceresinin metni (onay, uyarı); kontrolcü iptal etti. */
+      /** Adımda açılan tarayıcı penceresinin metni ve kontrolcünün yanıtı (kabul / iptal). */
       dialog?: string
+      /** Platform okuması (tanım): araç, girdi ve sonucun başı; izleme ekranının sahnesinde gösterilir. */
+      platform?: PlatformRead
     }
   | { type: 'ag'; requests: NetworkEntry[] }
   | {
@@ -419,6 +444,8 @@ export interface Settings {
    * Rol başına model. Ucuz model son kararı vermez: gezginin bildirdiğini yargıç onaylar, ekranın içeriğini göz
    * (Opus) inceler.
    */
+  /** Model sağlayıcısı: Claude hesabı (abonelik) ya da API anahtarı. */
+  provider: ModelProvider
   models: Record<ModelRole, string>
   /** Gezgin takılınca ya da görevi eksik bırakınca bir üst modele geçsin (Haiku → Sonnet → Opus). */
   escalate: boolean

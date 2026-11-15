@@ -1,10 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { ModelRole, Usage } from '@argus/shared'
+import type { ModelProvider, ModelRole, Usage } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 
 export type MessageParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming
 export type Message = Anthropic.Beta.Messages.BetaMessage
 export type ContentBlock = Anthropic.Beta.BetaContentBlockParam
+export type TextBlockParam = Anthropic.Beta.BetaTextBlockParam
 export type MessageParam = Anthropic.Beta.BetaMessageParam
 export type Tool = Anthropic.Beta.BetaTool
 
@@ -40,8 +41,13 @@ const PRICES: Record<string, { input: number; cacheWrite: number; cacheRead: num
 
 export const KNOWN_MODELS = Object.keys(PRICES)
 
+/** Koşunun kullanımı: token rol başına sayılır; dolar yalnız API anahtarıyla yazılır (abonelikte plan hakkından düşer). */
 export class UsageMeter {
-  readonly usage: Usage = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, requests: 0, costUsd: 0 }
+  readonly usage: Usage
+
+  constructor(private readonly provider: ModelProvider = 'api') {
+    this.usage = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, requests: 0, costUsd: 0, provider }
+  }
 
   add(model: string, message: Message, role?: ModelRole): void {
     const u = message.usage
@@ -54,7 +60,8 @@ export class UsageMeter {
     this.usage.cacheRead += cacheRead
     this.usage.output += output
     this.usage.requests += 1
-    const price = PRICES[model]
+    const price =
+      this.provider === 'abonelik' ? { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 } : PRICES[model]
     const cost = price
       ? (input * price.input +
           cacheWrite * price.cacheWrite +

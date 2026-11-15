@@ -191,6 +191,11 @@ const MIGRATIONS: string[] = [
   `
   alter table runs add column answer text;
   `,
+  // Argus bulgu uygulamasıdır: gözetmenin çıktısı cevap değil kapsam raporudur (test edilen / edilemeyen).
+  `
+  alter table runs rename column answer to coverage;
+  update runs set coverage = null;
+  `,
 ]
 
 export function openDatabase(file: string): Database {

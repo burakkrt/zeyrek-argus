@@ -2,7 +2,7 @@ import { DEFINITION_PAGE, type RunEvent, type RunEventBody } from '@argus/shared
 import { describe, expect, it } from 'vitest'
 import {
   actionOf,
-  ANSWER_STATUS,
+  COVERAGE_STATUS,
   buildFlowSections,
   rulerTicks,
   buildClock,
@@ -13,6 +13,7 @@ import {
   formatClock,
   frameIndexAt,
   pageLabel,
+  prettyJson,
   pointerAt,
   scenarioSteps,
   stepIndexAt,
@@ -109,30 +110,44 @@ describe('monitör modeli', () => {
     const strategy = {
       kind: 'akis' as const,
       understood: 'Kalibrasyon atlanabilir mi',
-      questions: [],
-      success: 'Kanıtla cevap',
+      scenarios: [],
+      doneWhen: 'Senaryo test edilir',
       known: [],
       infeasible: [],
       items: [],
     }
-    const answer = {
-      status: 'cevaplandi' as const,
-      answer: 'Atlanır.',
-      evidence: ['workflow_get'],
-      missing: '',
+    const coverage = {
+      status: 'kismen' as const,
+      summary: 'Tanımdan test edildi.',
+      tested: ['Kalibrasyonsuz ilerleme'],
+      untested: ['Aşama ilerletme — veri yazar'],
     }
     const model = buildMonitor([
       ev(null, { type: 'strateji', strategy }),
       ev(DEFINITION_PAGE, { type: 'sayfa-basladi', url: '' }),
-      step(DEFINITION_PAGE, 'Platformdan okundu: workflow_get', { tool: 'platform_oku', shot: null }),
-      ev(null, { type: 'cevap', answer }),
+      step(DEFINITION_PAGE, 'Platformdan okundu: workflow_get', {
+        tool: 'platform_oku',
+        shot: null,
+        platform: { tool: 'workflow_get', input: '{"id":"w1"}', result: '{"a":1}' },
+      }),
+      step(DEFINITION_PAGE, 'Platforma yazıldı: row_create', {
+        tool: 'platform_yaz',
+        shot: null,
+        platform: {
+          tool: 'row_create',
+          input: '{"entityId":"e1"}',
+          result: '{"data":{"id":7}}',
+          write: true,
+        },
+      }),
+      ev(null, { type: 'kapsam', coverage }),
     ])
     expect(model.strategy).toEqual(strategy)
-    expect(model.answer).toEqual(answer)
+    expect(model.coverage).toEqual(coverage)
     expect(
-      model.flow.some((r) => r.kind === 'not' && r.text === 'Strateji · Kalibrasyon atlanabilir mi'),
+      model.flow.some((r) => r.kind === 'not' && r.text === 'Test planı · Kalibrasyon atlanabilir mi'),
     ).toBe(true)
-    expect(ANSWER_STATUS[answer.status]).toEqual({ label: 'Cevaplandı', tone: 'success' })
+    expect(COVERAGE_STATUS[coverage.status]).toEqual({ label: 'Kısmen', tone: 'warning' })
     expect(pageLabel(DEFINITION_PAGE)).toBe('Platform tanımları')
     expect(pageLabel('egt-liste')).toBe('egt-liste')
     expect(actionOf(model.steps[0]!)).toEqual({
@@ -140,6 +155,21 @@ describe('monitör modeli', () => {
       verb: 'Tanımı okudu',
       object: 'workflow_get',
     })
+    // Platforma yazma da eylemdir; sahnede yazma olarak görünür.
+    expect(actionOf(model.steps[1]!)).toEqual({
+      kind: 'platform',
+      verb: 'Platforma yazdı',
+      object: 'row_create',
+    })
+    expect(model.steps[1]!.platform?.write).toBe(true)
+    // Platform okuması sahnede gösterilmek üzere adıma girer; sonuç okunur biçimde (kesikse olduğu gibi).
+    expect(model.steps[0]!.platform).toEqual({
+      tool: 'workflow_get',
+      input: '{"id":"w1"}',
+      result: '{"a":1}',
+    })
+    expect(prettyJson('{"a":1}')).toBe('{\n  "a": 1\n}')
+    expect(prettyJson('{"kesik":')).toBe('{"kesik":')
   })
 
   it('sayfa bitince süren görev de biter', () => {

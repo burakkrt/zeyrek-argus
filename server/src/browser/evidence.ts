@@ -94,24 +94,75 @@ export interface StateShot {
   boxes: Array<Box & { text: string }>
 }
 
-export async function captureState(page: Page): Promise<StateShot> {
-  const viewport = page.viewportSize() ?? { width: 1280, height: 800 }
+/** Uzun görüntünün en çok yüksekliği (piksel): aşırı uzun sayfada görüntü ve bellek sınırlı kalır. */
+const TALL_LIMIT = 6_000
+
+/**
+ * Ekranın bir anlık hâli, sayfanın tamamıyla: içerik pencereden uzunsa pencere geçici olarak içerik boyuna büyütülür,
+ * görüntü ve metin kutuları alınır, sonra pencere ve kaydırma konumları geri konur (gezgin kaldığı yerden sürer). Göz
+ * sayfanın tamamını okuduğu için ekranın altındaki bulguyu da bildirir; kanıt yalnız görünen alanı alırken o öğe
+ * görüntüde yoktu (ölçüldü: kör etiketlemede 53 bulgunun 8'i). Uygulama iç kutuda kaydırdığı için tam sayfa görüntüsü
+ * yetmez; pencereyi büyütmek iç kutuyu da açar. `tall: false`: açık katman varken pencere değişmez (büyütme kapatır).
+ */
+export async function captureState(page: Page, options: { tall: boolean }): Promise<StateShot> {
+  const normal = page.viewportSize() ?? { width: 1280, height: 800 }
+  if (!options.tall) return snapshotState(page, normal)
+  const scroll = await page
+    .evaluate(() => {
+      const kept: Array<[Element, number]> = []
+      let extra = 0
+      for (const el of [document.scrollingElement, ...Array.from(document.querySelectorAll('*'))]) {
+        if (!el || el.scrollHeight - el.clientHeight <= 20) continue
+        extra = Math.max(extra, el.scrollHeight - el.clientHeight)
+        if (el.scrollTop) kept.push([el, el.scrollTop])
+      }
+      ;(window as unknown as { __argusScroll?: Array<[Element, number]> }).__argusScroll = kept
+      return extra
+    })
+    .catch(() => 0)
+  const tall = Math.min(TALL_LIMIT, normal.height + scroll)
+  if (tall > normal.height) await page.setViewportSize({ width: normal.width, height: tall })
+  try {
+    return await snapshotState(page, { width: normal.width, height: tall })
+  } finally {
+    if (tall > normal.height) {
+      await page.setViewportSize(normal)
+      await page
+        .evaluate(() => {
+          for (const [el, top] of (window as unknown as { __argusScroll?: Array<[Element, number]> })
+            .__argusScroll ?? [])
+            el.scrollTop = top
+        })
+        .catch(() => undefined)
+    }
+  }
+}
+
+async function snapshotState(page: Page, viewport: { width: number; height: number }): Promise<StateShot> {
   const [png, title, info] = await Promise.all([
     page.screenshot({ type: 'png' }),
     page.title().catch(() => ''),
     page.evaluate(() => {
       const boxes: Array<{ x: number; y: number; width: number; height: number; text: string }> = []
+      // Öznitelik metni (yer tutucu, ipucu, erişilebilir ad) de kanıttır: göz ağaçta okuyup alıntılıyor, görünür metinde
+      // aranınca bulgu "doğrulanamadı" kalıyordu (ölçüldü: dönemlerde 11 doğrulanamayanın 4'ü).
+      const attributes: string[] = []
       const all = document.body ? Array.from(document.body.querySelectorAll<HTMLElement>('*')) : []
       for (const el of all) {
         if (boxes.length >= 1500) break
         const own = Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.textContent ?? '').trim())
         const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
-        if (!own && !field) continue
+        const named = ['placeholder', 'title', 'aria-label']
+          .map((a) => el.getAttribute(a) ?? '')
+          .filter(Boolean)
+          .join(' ')
+        if (named) attributes.push(named)
+        if (!own && !field && !named) continue
         const r = el.getBoundingClientRect()
         if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight) continue
         const value = field
-          ? `${(el as HTMLInputElement).value} ${(el as HTMLInputElement).placeholder}`
-          : el.innerText || el.textContent || ''
+          ? `${(el as HTMLInputElement).value} ${named}`
+          : `${own ? el.innerText || el.textContent || '' : ''} ${named}`
         boxes.push({
           x: r.x,
           y: r.y,
@@ -120,7 +171,7 @@ export async function captureState(page: Page): Promise<StateShot> {
           text: value.replace(/\s+/g, ' ').trim().slice(0, 300),
         })
       }
-      return { boxes, text: document.body?.innerText ?? '' }
+      return { boxes, text: [document.body?.innerText ?? '', ...attributes].join('\n') }
     }),
   ])
   return { png, ...viewport, url: page.url(), title, text: info.text, boxes: info.boxes }

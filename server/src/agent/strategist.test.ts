@@ -5,8 +5,8 @@ const catalog = ['egt-liste', 'egt-form'].map((slug) => ({ id: slug, slug, name:
 const raw = (kalemler: Array<{ baslik: string; kaynak: string; sayfa: string; tam_tarama: boolean }>) => ({
   tur: 'bilinmeyen',
   anlasilan: 'A',
-  sorular: [],
-  basari: 'B',
+  senaryolar: [],
+  bitti_olcutu: 'B',
   bilinenler: [],
   yapilamayan: [],
   kalemler: kalemler.map((k) => ({ ...k, amac: `${k.baslik} amacı` })),
