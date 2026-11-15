@@ -34,7 +34,7 @@
   }
 </script>
 
-<div class="grid min-w-0 gap-2">
+<div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
   <Label for={htmlFor} class="gap-1" onclick={focusOnly}>
     {label}{#if required}<span class="text-destructive" aria-hidden="true">*</span>{/if}
   </Label>

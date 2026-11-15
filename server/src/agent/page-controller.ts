@@ -17,7 +17,9 @@ import type { BrowserDialog, BrowserSession, Problem } from '../browser/session.
 import type { Attachment } from '../runs/attachments.ts'
 import { changeSize, compressSnapshot, diffSnapshot, stripRefs } from '../browser/snapshot.ts'
 import type { RecordResult } from '../issues/issues.ts'
-import { apiPrint, uiPrint } from '../runs/prints.ts'
+import { apiPrint, uiPrint, type PagePrint, type PrintChange } from '../runs/prints.ts'
+import type { ScreenRecord } from '../runs/screens.ts'
+import { clampKnowledge, KNOWLEDGE_SCHEMA, KNOWLEDGE_TASK, type PageKnowledge } from './knowledge.ts'
 import {
   describeModelError,
   ESCALATION_LADDER,
@@ -60,8 +62,13 @@ export interface PageHooks {
   closeVanishedEyeIssues(foundKeys: Set<string>): string[]
   /** Açık sorunun bu sayfadaki son görünümü (alıntılı); modelsiz doğrulama için. */
   lastSighting(issue: Issue): { quote: string; scenario: string; expected: string; observed: string } | null
-  /** Sayfanın arayüz ve veri izi (değişiklik algılama; yalnız gözlem). */
-  print(ui: string, api: string): Promise<void>
+  /** Sayfanın arayüz, veri ve Studio izi; önceki koşuya göre neyin değiştiği döner. */
+  print(ui: string, api: string): Promise<Record<keyof PagePrint, PrintChange>>
+  /** Ekran hafızası: daha önceki koşularda incelenmiş ekran yapısı ve notları; yoksa null. */
+  screenMemory(print: string): ScreenRecord | null
+  rememberScreen(print: string, label: string, notes: string[]): void
+  /** Koşu sonunda damıtılan sayfa bilgisini hafızaya yazar. */
+  saveKnowledge(knowledge: PageKnowledge): void
   /** Koşu klasöründe yeni bir dosya yolu: `abs` yazmak, `rel` saklamak için. */
   file(kind: 'adim' | 'kanit'): { abs: string; rel: string }
   drainSteering(): string[]
@@ -79,6 +86,7 @@ export interface PageInput {
   createMessage: CreateMessage
   meter: UsageMeter
   settings: Pick<Settings, 'models' | 'effort' | 'escalate' | 'inspector'>
+  /** Güvenlik tavanları (`RUN_CEILINGS`); kullanıcı seçmez, testler küçültür. */
   maxTasks: number
   maxSteps: number
   /** Kullanıcının talimatı (yoksa null): planlayıcı önce bunu karşılar, gezgin görevde akılda tutar. */
@@ -88,6 +96,16 @@ export interface PageInput {
   ruleStats: { used: number; dropped: number; tokens: number }
   hooks: PageHooks
 }
+
+/**
+ * Kalite önceliklidir: görev ve adım sayısı kullanıcıya bırakılmaz, sayfa ve görev gerektirdiği kadar sürer. Tavanlar
+ * kapsamı daraltmak için değil, kaçağı (sonsuz döngü, takılma) durdurmak içindir; gece bırakılan koşu da sabaha
+ * maliyet patlatmasın. Kaçak, tavandan önce şu korumalarla durur: aynı işlemi aynen tekrarlamak ilerleme sayılmaz;
+ * iki tur ilerleyemeyen gezgin bir üst modele geçer; en üst modelde de `NO_PROGRESS_LIMIT` tur ilerleyemezse görev
+ * bulgular bildirilerek kapanır.
+ */
+const NO_PROGRESS_LIMIT = 4
+const REPEAT_LIMIT = 2
 
 const text = (value: string): ContentBlock => ({ type: 'text', text: value })
 
@@ -145,32 +163,40 @@ export class PageController {
   private readonly pageTitles: string[] = []
   /** Gözün incelediği ekranlar (ref'siz ağaç), ekran notları ve süren incelemeler. */
   private readonly inspectedTrees: string[] = []
+  /** Hafızadan notu alınan ekranlar: yeniden incelenmez. */
+  private readonly reusedTrees: string[] = []
   private readonly screens: Array<{ label: string; notes: string[] }> = []
   private readonly pending: Array<Promise<void>> = []
   private inspectQueue: Promise<void> = Promise.resolve()
   /** Kanıt çizimi için ağ kullanmayan ayrı sekme; çizimler sırayla yapılır. */
   private overlay: Promise<import('playwright').Page> | null = null
   private overlayQueue: Promise<unknown> = Promise.resolve()
+  /** Önceki koşuya göre sayfanın değişiklik izi (açılışta ölçülür). */
+  private change: Record<keyof PagePrint, PrintChange> | null = null
 
   /**
    * Göz: gezginin ulaştığı ekran öncekilerden belirgin biçimde farklıysa (en az 4 satır, ipucu gibi küçük değişimler
-   * sayılmaz) ekranın o anki hâli yakalanır ve Göz modeli onu paralel inceler; gezgin beklemez.
+   * sayılmaz) ekranın o anki hâli yakalanır ve Göz modeli onu paralel inceler; gezgin beklemez. Ekran sayısına sınır
+   * yoktur (bulgu kaçmasın); aynı ekranı iki kez incelememek döngüye karşı yeterlidir.
    */
   private async maybeInspect(full: string, blocked: string[]): Promise<void> {
     if (!this.input.settings.inspector) return
     const tree = stripRefs(full)
-    if (this.inspectedTrees.some((seen) => changeSize(seen, tree) < 4)) return
-    if (this.inspectedTrees.length >= MAX_INSPECTIONS) {
-      if (this.inspectedTrees.length === MAX_INSPECTIONS) {
-        this.inspectedTrees.push(tree)
-        this.input.hooks.emit({
-          type: 'bilgi',
-          message: `Göz bu sayfada ${MAX_INSPECTIONS} ekran inceledi; sınır doldu, sonraki ekranlara yalnız gezgin bakıyor.`,
-        })
-      }
+    if ([...this.inspectedTrees, ...this.reusedTrees].some((seen) => changeSize(seen, tree) < 4)) return
+    this.inspectedTrees.push(tree)
+    const label = this.trail.length ? this.trail[this.trail.length - 1]! : 'Sayfa açıldı'
+    // Seçici göz: veri ucu ve Studio tanımı değişmediyse, daha önce incelenmiş ekran yapısı yeniden
+    // incelenmez; o ekranın notları karşılaştırma için kullanılır.
+    const print = uiPrint(full)
+    const unchanged =
+      this.change !== null && this.change.api !== 'degisti' && this.change.studio !== 'degisti'
+    const remembered = unchanged ? this.input.hooks.screenMemory(print) : null
+    if (remembered) {
+      this.inspectedTrees.pop()
+      this.reusedTrees.push(tree)
+      this.screens.push({ label, notes: remembered.notes })
       return
     }
-    this.inspectedTrees.push(tree)
     // Sırayla: CDP'nin ölçekli görüntüsü sayfaya geçici ölçek uygular; aynı anda alınan PNG bozulur (ölçüldü).
     const shot = await captureState(this.page).catch(() => null)
     const jpeg = await this.input.session.modelScreenshot().catch(() => null)
@@ -178,7 +204,7 @@ export class PageController {
     const trail = [...this.trail]
     // İncelemeler sırayla koşar (gezgini beklemeden): her biri öncekinin bulgusunu görür, aynı sorun iki kez gelmez.
     const job = this.inspectQueue.then(() =>
-      this.inspect(full, shot, jpeg, trail, blocked).catch((error: unknown) => {
+      this.inspect(full, shot, jpeg, trail, blocked, print).catch((error: unknown) => {
         this.input.hooks.emit({
           type: 'hata',
           message: `Göz bir ekranı inceleyemedi: ${describeModelError(error)}`,
@@ -195,6 +221,7 @@ export class PageController {
     jpeg: Buffer | null,
     trail: string[],
     blocked: string[],
+    print: string,
   ): Promise<void> {
     const reported = this.pageTitles.length ? this.pageTitles.map((t) => `- ${t}`).join('\n') : '(yok)'
     const label = trail.length ? trail[trail.length - 1]! : 'Sayfa açıldı'
@@ -240,6 +267,7 @@ export class PageController {
     const answer = jsonOf<{ bulgular?: Array<Record<string, string>>; notlar?: unknown[] }>(message)
     const notes = (answer?.notlar ?? []).filter((n): n is string => typeof n === 'string').slice(0, 12)
     this.screens.push({ label, notes })
+    this.input.hooks.rememberScreen(print, label, notes)
     for (const item of answer?.bulgular ?? [])
       await this.recordShotFinding(item, shot, trail.length ? 'gorev' : 'acilis')
   }
@@ -589,7 +617,7 @@ export class PageController {
         state: 'yok',
         note: 'Açılışta artık görünmüyor; düzeldi olarak işaretlendi.',
       })
-    await hooks.print(uiPrint(compressSnapshot(await ariaTree(this.page))), apiPrint(network))
+    this.change = await hooks.print(uiPrint(compressSnapshot(await ariaTree(this.page))), apiPrint(network))
     const toVerify = await this.verifyOpenIssues(new Set(closed))
     hooks.emit({
       type: 'arastirma',
@@ -661,8 +689,90 @@ export class PageController {
     await this.overlayQueue
     if (this.overlay) await (await this.overlay).close().catch(() => undefined)
     const pageSummary = [summary, ...notebook].filter(Boolean).join('\n')
+    if (this.reusedTrees.length)
+      hooks.emit({
+        type: 'bilgi',
+        message: `Göz ${this.reusedTrees.length} ekranı daha önce incelediği için yeniden incelemedi (notları kullanıldı).`,
+      })
+    if (!hooks.stopped()) {
+      // Yeni öğrenme yoksa (sayfa değişmedi, yeni ekran incelenmedi, yeni bulgu yok) bilgi yeniden yazılmaz.
+      const nothingNew =
+        this.input.facts.knowledge &&
+        this.change !== null &&
+        !Object.values(this.change).some((c) => c === 'degisti' || c === 'ilk') &&
+        this.inspectedTrees.length === 0 &&
+        this.pageTitles.length === 0
+      if (nothingNew)
+        hooks.emit({
+          type: 'bilgi',
+          message: 'Sayfa bilgisi güncel: yeni öğrenme olmadığı için yeniden yazılmadı.',
+        })
+      else
+        await this.distill(pageSummary, facts).catch((error: unknown) => {
+          hooks.emit({ type: 'hata', message: `Sayfa bilgisi yazılamadı: ${describeModelError(error)}` })
+        })
+    }
     hooks.emit({ type: 'sayfa-bitti', summary: pageSummary })
     return pageSummary
+  }
+
+  /**
+   * Sayfa bilgisi: koşu sonunda öğretmen modeli önceki sayfa bilgisini ve bu koşuda yapılanları (plan,
+   * görev özetleri, ekran notları, bulgular, insan kararları) okuyup sayfa bilgisini sabit bütçede yeniden yazar.
+   */
+  private async distill(
+    pageSummary: string,
+    facts: (audience?: 'gezgin' | 'yargic') => string,
+  ): Promise<void> {
+    const message = await this.call(
+      'teacher',
+      {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              text(
+                `${KNOWLEDGE_TASK}\n\n${facts('yargic')}` +
+                  `\n\nBu koşunun planı ve görev özetleri:\n${pageSummary || '(yok)'}` +
+                  `\n\nGözün ekran notları:\n${this.screens.length ? this.screensText() : '(yok)'}` +
+                  `\n\nBu koşuda kaydedilen bulgular:\n${this.pageTitles.length ? this.pageTitles.map((t) => `- ${t}`).join('\n') : '(yok)'}`,
+              ),
+            ],
+          },
+        ],
+        output_config: {
+          format: { type: 'json_schema', schema: KNOWLEDGE_SCHEMA as unknown as Record<string, unknown> },
+        },
+      },
+      { cache: false },
+    )
+    const knowledge = clampKnowledge(jsonOf(message))
+    this.input.hooks.saveKnowledge(knowledge)
+    this.input.hooks.emit({
+      type: 'bilgi',
+      message: `Sayfa bilgisi güncellendi: ${knowledge.beklentiler.length} beklenti, ${knowledge.kapsanmayan.length} kapsanmayan alan.`,
+    })
+  }
+
+  /**
+   * Değişiklik güdümlü plan: sayfa bilgisi varsa planlayıcıya neyin değiştiğini söyler ve görevleri değişen,
+   * kapsanmayan ya da güveni düşük alana yöneltir; değişmeyen ve bilinen alan yeniden gezilmez.
+   */
+  private changeGuidance(): string {
+    if (!this.input.facts.knowledge || !this.change) return ''
+    const words: Record<PrintChange, string> = {
+      ilk: 'ilk ölçüm',
+      ayni: 'aynı',
+      degisti: 'DEĞİŞTİ',
+      bilinmiyor: 'bilinmiyor',
+    }
+    const changed = Object.values(this.change).includes('degisti')
+    return (
+      `\n\nDEĞİŞİKLİK İZİ (önceki koşuya göre): arayüz yapısı ${words[this.change.ui]}, veri uçları ${words[this.change.api]}, Studio tanımı ${words[this.change.studio]}. ` +
+      (changed
+        ? 'Sayfa değişti: görevleri önce değişikliğin etkileyebileceği yere, sonra sayfa bilgisindeki kapsanmayan alanlara yönelt.'
+        : 'Sayfa değişmedi: sayfa bilgisinde "kapsanan" yazan alanları yeniden gezme. Görevleri yalnız kapsanmayan alanlara, güveni düşük beklentilere ve etkileşimle bakılacak açık sorunlara yönelt; bunlar azsa 1 görev yeterlidir.')
+    )
   }
 
   private async plan(
@@ -675,11 +785,12 @@ export class PageController {
             role: 'user',
             content: [
               text(
-                `${facts()}\n\nBu sayfayı test etmek için gereken kadar görev planla: en az 2, en çok ${this.input.maxTasks}. Basit sayfaya az, zengin sayfaya çok görev. ` +
+                `${facts()}\n\nBu sayfayı eksiksiz test etmek için gereken kadar görev planla (en az ${this.changeGuidance() ? 1 : 2}; ${this.input.maxTasks}'yi aşacaksa yakın alanları birleştir). Basit sayfaya az, zengin sayfaya çok görev; hiçbir bölge ya da akış dışarıda kalmasın. ` +
                   'Görevler birbiriyle örtüşmesin: her ekran bölgesi ya da akış tek bir görevde denensin. Görevler somut olsun (hangi alan, ne denenecek; ' +
                   'görevi yapacak model daha küçük olabilir, amacı adım adım ve açık yaz). ' +
                   'Etkileşimle bakılacak açık sorun varsa onları ilgili göreve kat; ayrı bir "doğrulama" görevi açma. Liste/filtre/sıralama/sayfalama, "Yeni"/"Ekle" ile açılan formlar (kaydetmeden), ' +
-                  'pencereler, sekmeler, menüler ve sayfa genelinde tutarlılığı kapsa. Ekranın ağacı ve görüntüsü aşağıda.',
+                  'pencereler, sekmeler, menüler ve sayfa genelinde tutarlılığı kapsa. Ekranın ağacı ve görüntüsü aşağıda.' +
+                  this.changeGuidance(),
               ),
               ...this.briefBlocks(),
               ...(await this.screen(true)),
@@ -748,7 +859,7 @@ export class PageController {
       `${facts()}\n\n` +
       (notebook.length ? `Bu sayfada önceki görevler:\n${notebook.join('\n')}\n\n` : '') +
       (this.input.brief ? `Kullanıcının bu koşu için talimatı: ${this.input.brief}\n\n` : '') +
-      `GÖREV: ${task.baslik}\n${task.amac}\nEn çok ${this.input.maxSteps} adımın var.` +
+      `GÖREV: ${task.baslik}\n${task.amac}\nGörevdeki her maddeyi tamamlayana kadar çalış; adım sınırı yok, ama aynı işlemi tekrarlama. Bitince gorevi_bitir çağır.` +
       (this.input.settings.inspector
         ? " Ulaştığın her yeni ekranı ayrı bir göz inceliyor: içerik ve tutarlılık sorunlarını o bulur. Senin işin görevdeki her maddeye ulaşmak (sekme, filtre, sıralama, pencere, form, detay) ve davranış sorunlarını bildirmek: tepki vermeyen düğme, açılmayan pencere, çalışmayan filtre, hata. Ulaşamadığın maddeyi gorevi_bitir'in eksik alanına yaz."
         : '') +
@@ -771,7 +882,10 @@ export class PageController {
       stuck = 0
       return true
     }
-    let bonus = 0
+    // Eksik bırakılan madde için üst modele bir kez geçilir; aynı işlem (ad + girdi) kaç kez yapıldı.
+    let retried = false
+    const repeats = new Map<string, number>()
+    let closing: string | null = null
     for (let round = 0; round < this.input.maxSteps + 8; round += 1) {
       if (hooks.stopped()) return 'Durduruldu.'
       const last = messages[messages.length - 1]!
@@ -803,14 +917,14 @@ export class PageController {
         try {
           if (use.name === 'gorevi_bitir') {
             const missing = field(use.input, 'eksik').trim()
-            // Görevin bir kısmına ulaşılamadıysa bir kez üst modele geçilir ve 4 adım eklenir: kapsam kaçmasın.
+            // Görevin bir kısmına ulaşılamadıysa bir kez üst modele geçilir: kapsam kaçmasın.
             if (
               missing &&
               !finalRound &&
-              !bonus &&
+              !retried &&
               escalate(`"${missing.slice(0, 80)}" maddesini eksik bıraktı`)
             ) {
-              bonus = 4
+              retried = true
               reply(`Daha güçlü bir modele geçildi. Eksik maddeleri tamamla: ${missing}`)
               continue
             }
@@ -846,33 +960,45 @@ export class PageController {
             continue
           }
           if (finalRound) {
-            reply('Adım sınırı doldu. Bulgularını bildir ve gorevi_bitir çağır.', true)
+            reply(`${closing} Bulgularını bildir ve gorevi_bitir çağır.`, true)
             continue
           }
+          const signature = `${use.name}:${JSON.stringify(use.input)}`
+          const seen = (repeats.get(signature) ?? 0) + 1
+          repeats.set(signature, seen)
           const outcome = await this.act(use.name, use.input)
-          // İpucu taraması çoğu öğede "değişmedi" döner; bu takılma değil, keşiftir.
-          if (use.name === 'uzerine_gel' || !isStuck(outcome)) progressed = true
-          reply(outcome)
+          // İpucu taraması çoğu öğede "değişmedi" döner; bu takılma değil, keşiftir. Aynı işlemin aynen tekrarı
+          // (iki durum arasında gidip gelmek) ekran değişse de ilerleme sayılmaz.
+          if (seen <= REPEAT_LIMIT && (use.name === 'uzerine_gel' || !isStuck(outcome))) progressed = true
+          reply(
+            seen > REPEAT_LIMIT
+              ? [
+                  ...(typeof outcome === 'string' ? [text(outcome)] : outcome),
+                  text('Bu işlemi aynen daha önce yaptın; görevin başka bir maddesine geç ya da bitir.'),
+                ]
+              : outcome,
+          )
         } catch (error) {
           reply(`Hata: ${firstLine(describeModelError(error))}`, true)
         }
       }
       if (summary !== null) return summary || 'Görev bitti.'
       stuck = progressed ? 0 : stuck + 1
-      if (stuck >= 2 && !finalRound) escalate('iki turdur ilerleyemedi')
-      if (steps >= this.input.maxSteps + bonus && !finalRound) {
+      if (finalRound) return closing!
+      // Üst modele geçiş sayacı sıfırlar; en üst modelde de ilerleme yoksa görev kapanır.
+      if (stuck >= 2) escalate('iki turdur ilerleyemedi')
+      if (stuck >= NO_PROGRESS_LIMIT) closing = 'İlerleme durdu (aynı yerde dönüyor).'
+      else if (steps >= this.input.maxSteps) closing = `Güvenlik tavanı (${this.input.maxSteps} adım) doldu.`
+      if (closing) {
         finalRound = true
+        hooks.emit({ type: 'bilgi', message: `"${task.baslik}" görevi kapatılıyor: ${closing}` })
         results.push(
-          text(
-            'Adım sınırı doldu. Gördüğün sorunları bulgu_bildir ile bildir ve gorevi_bitir çağır; başka işlem yapma.',
-          ),
+          text(`${closing} Gördüğün sorunları bulgu_bildir ile bildir ve gorevi_bitir çağır; başka işlem yapma.`),
         )
-      } else if (finalRound) {
-        return 'Adım sınırı doldu.'
       }
       messages.push({ role: 'user', content: results })
     }
-    return 'Adım sınırı doldu.'
+    return closing ?? 'Güvenlik tavanı doldu.'
   }
 
   private locate(ref: string): Locator {
@@ -1144,7 +1270,6 @@ export class PageController {
 
 const FINDING_KIND_SET = new Set<string>(['kesin', 'tutarsizlik', 'not'])
 /** Sayfa başına gözün en çok kaç ekran incelediği (maliyet tavanı). */
-const MAX_INSPECTIONS = 14
 
 interface Verdict {
   karar: 'kabul' | 'not' | 'ret'

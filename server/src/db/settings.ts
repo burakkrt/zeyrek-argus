@@ -24,20 +24,26 @@ export const DEFAULT_SETTINGS: Settings = {
   ruleBudget: 1500,
   autoApproveFindingRules: true,
   learnAfterDecisions: 3,
-  defaultOptions: { maxTasks: 5, maxSteps: 10 },
   author: '',
+  storageLimitGb: 10,
 }
 
 export function getSettings(db: Database): Settings {
   const row = db.prepare(`select value from settings where key = 'settings'`).get() as
     { value: string } | undefined
-  // Eski kayıtta tek 'model' alanı olabilir; rol modelleri varsayılandan gelir.
-  const { model: _legacy, ...saved } = json<Partial<Settings> & { model?: string }>(row?.value, {})
+  // Eski kayıtta tek 'model' alanı olabilir (rol modelleri varsayılandan gelir); motor deneylerinin, gün/koşu sayılı
+  // saklamanın ve koşu derinliğinin (görev/adım varsayılanı) anahtarları (2026-11) artık yok, okunurken atılır.
+  const {
+    model: _legacy,
+    experiments: _experiments,
+    retention: _retention,
+    defaultOptions: _defaultOptions,
+    ...saved
+  } = json<Partial<Settings> & { model?: string; experiments?: unknown; retention?: unknown; defaultOptions?: unknown }>(row?.value, {})
   return {
     ...DEFAULT_SETTINGS,
     ...saved,
     models: { ...DEFAULT_SETTINGS.models, ...(saved.models ?? {}) },
-    defaultOptions: { ...DEFAULT_SETTINGS.defaultOptions, ...(saved.defaultOptions ?? {}) },
   }
 }
 

@@ -1,4 +1,5 @@
-import { mkdtempSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Rule } from '@argus/shared'
@@ -34,6 +35,49 @@ describe('karar dosyası', () => {
       comments: [{ at: '2026-11-13T21:01:00.000Z', author: 'Burak', text: 'Düzelt ama\nbaşka sayfalara da bak' }],
     }
     expect(parseDecision(serializeDecision(record), 'test')).toEqual(record)
+  })
+
+  it('iki kişinin aynı karar dosyasına eşzamanlı yazdığı değişiklik Git (union) birleştirmesinden sonra kayıpsız okunur', () => {
+    const base: DecisionRecord = {
+      key: 'yz:a',
+      title: 'A',
+      kind: 'kesin',
+      status: 'acik',
+      updatedAt: '2026-11-15T09:00:00.000Z',
+      example: null,
+      history: [{ at: '2026-11-15T09:00:00.000Z', author: 'Argus', from: null, to: 'acik', note: null }],
+      comments: [],
+    }
+    // Ayşe karar verdi ve yorum yazdı; Mehmet (Ayşe'nin değişikliğini çekmeden) daha sonra yorum yazdı.
+    const ayse: DecisionRecord = {
+      ...base,
+      status: 'duzeltilecek',
+      updatedAt: '2026-11-15T10:00:00.000Z',
+      history: [...base.history, { at: '2026-11-15T10:00:00.000Z', author: 'Ayşe', from: 'acik', to: 'duzeltilecek', note: null }],
+      comments: [{ at: '2026-11-15T10:00:00.000Z', author: 'Ayşe', text: 'Düzeltilsin' }],
+    }
+    const mehmet: DecisionRecord = {
+      ...base,
+      updatedAt: '2026-11-15T11:00:00.000Z',
+      comments: [{ at: '2026-11-15T11:00:00.000Z', author: 'Mehmet', text: 'Formda da\naynısı var' }],
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'argus-karar-'))
+    const file = (name: string, r: DecisionRecord) => {
+      writeFileSync(join(dir, name), serializeDecision(r))
+      return join(dir, name)
+    }
+    // memory/.gitattributes karar dosyalarını Git'in union sürücüsüyle birleştirir; aynı algoritma: git merge-file --union.
+    const merged = execFileSync('git', ['merge-file', '-p', '--union', file('a', ayse), file('o', base), file('b', mehmet)], {
+      encoding: 'utf8',
+    })
+    expect(merged).not.toContain('<<<<<<<')
+    expect(parseDecision(merged, 'test')).toEqual({
+      ...base,
+      status: 'duzeltilecek',
+      updatedAt: '2026-11-15T11:00:00.000Z',
+      history: ayse.history,
+      comments: [...ayse.comments, ...mehmet.comments],
+    })
   })
 
   it('dosya adı okunur ve anahtara özgü', () => {

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { formatCost, formatDuration, formatMoney, formatSeconds } from './format.ts'
+import { formatBytes, formatCost, formatDuration, formatMoney, formatSeconds } from './format.ts'
 
 describe('biçim', () => {
+  it('bayt okunur birimle, Türkçe ondalıkla yazılır', () => {
+    expect(formatBytes(950)).toBe('950 B')
+    expect(formatBytes(1.25 * 1024 * 1024)).toBe('1,3 MB')
+    expect(formatBytes(12.4 * 1024 ** 3)).toBe('12 GB')
+    expect(formatBytes(0)).toBe('0 B')
+  })
+
   it('para Türkçe ondalık virgülle yazılır; bilinmeyen tutar tire olur, sıfır değil', () => {
     expect(formatMoney(1.476)).toBe('$1,48')
     expect(formatMoney(0)).toBe('$0,00')

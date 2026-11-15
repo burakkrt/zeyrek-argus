@@ -14,15 +14,15 @@ describe('bildirimler', () => {
 
   it('aynı bildirim tekrar gelince yeni kart açılmaz: sayaç artar, anahtar yenilenir, en üste çıkar', () => {
     let list: Notice[] = []
-    list = pushNotice(list, { tone: 'warning', title: 'Kapsam seçilmedi' }, 'a')
+    list = pushNotice(list, { tone: 'warning', title: 'Ne test edilsin?' }, 'a')
     list = pushNotice(list, { tone: 'info', title: 'Başka' }, 'b')
-    list = pushNotice(list, { tone: 'warning', title: 'Kapsam seçilmedi' }, 'c')
+    list = pushNotice(list, { tone: 'warning', title: 'Ne test edilsin?' }, 'c')
     expect(list.map((n) => [n.id, n.count, n.key])).toEqual([
       ['a', 2, 'a:2'],
       ['b', 1, 'b:1'],
     ])
     // Başlık aynı, ton ya da metin farklıysa ayrı bildirimdir.
-    list = pushNotice(list, { tone: 'error', title: 'Kapsam seçilmedi' }, 'd')
+    list = pushNotice(list, { tone: 'error', title: 'Ne test edilsin?' }, 'd')
     expect(list[0]).toMatchObject({ id: 'd', count: 1 })
   })
 

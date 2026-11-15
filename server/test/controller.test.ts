@@ -243,10 +243,9 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
       }).id,
     )
     expect(h.ctx.issues.detail(kesik.id).status).toBe('duzeldi')
-    expect(h.ctx.memory.decision(app, kesik.key)!.history.at(-1)).toMatchObject({
-      to: 'duzeldi',
-      author: 'Argus',
-    })
+    // "Düzeldi" Argus'un bu makinedeki gözlemidir: yerelde kayıtlı, paylaşılan karar dosyasına yazılmaz.
+    expect(h.ctx.issues.detail(kesik.id).history.at(-1)).toMatchObject({ to: 'duzeldi', author: 'Argus' })
+    expect(h.ctx.memory.decision(app, kesik.key)?.status ?? null).not.toBe('duzeldi')
 
     overrides.delete('egt-liste')
     const fourth = await h.waitFor(

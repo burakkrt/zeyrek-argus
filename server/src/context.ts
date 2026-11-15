@@ -55,6 +55,7 @@ export function createContext(
     learner,
     dataDir: config.dataDir,
     model,
+    author,
     headless: overrides.headless ?? true,
   })
   return { config, db, bus, memory, issues, platform, learner, runs, model, author }

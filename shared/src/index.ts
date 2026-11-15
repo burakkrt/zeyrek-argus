@@ -100,10 +100,16 @@ export const MODEL_ROLE_LABELS: Record<ModelRole, string> = {
 export const RUN_STATUSES = ['sirada', 'calisiyor', 'bitti', 'hata', 'durduruldu'] as const
 export type RunStatus = (typeof RUN_STATUSES)[number]
 
+/**
+ * Koşunun güvenlik tavanları: görev ve adım kullanıcıya bırakılmaz (kalite önceliklidir); tavan kapsamı daraltmak için
+ * değil, kaçağı (sonsuz döngü) durdurmak içindir. Ayrıntı: `server/src/agent/page-controller.ts`.
+ */
+export const RUN_CEILINGS = { maxTasks: 20, maxSteps: 150 } as const
+
 export interface RunOptions {
-  /** Sayfa başına en çok görev. */
+  /** Sayfa başına görev tavanı (`RUN_CEILINGS`; testler küçültür). */
   maxTasks: number
-  /** Görev başına en çok adım. */
+  /** Görev başına adım tavanı (`RUN_CEILINGS`; testler küçültür). */
   maxSteps: number
   /** Koşunun kimliği: uygulama hesabının kullanıcı adı; boşsa varsayılan hesap (yoksa platform jetonu). */
   user?: string | null
@@ -293,10 +299,24 @@ export interface Issue {
   lastShot: string | null
 }
 
+/** Takım arkadaşının makinesinde görülen (Git'teki `findings/<yazar>.md`'den okunan) son görünüm; görüntüsü yoktur. */
+export interface SharedSighting {
+  author: string
+  page: string
+  scenario: string
+  expected: string
+  observed: string
+  quote: string | null
+  lastSeen: string
+  seenCount: number
+}
+
 export interface IssueDetail extends Issue {
   occurrences: Occurrence[]
   comments: IssueComment[]
   history: IssueHistoryEntry[]
+  /** Başka makinelerde görülenler (bu makinede hiç görülmemiş olabilir). */
+  elsewhere: SharedSighting[]
 }
 
 export type ProposalAction = 'ekle' | 'guncelle' | 'birlestir' | 'emekli'
@@ -322,6 +342,30 @@ export interface MemoryBudget {
   rules: number
 }
 
+/** Yerel verinin (Git'e girmeyen `data/`) bayt olarak dağılımı; bkz. `server/src/runs/storage.ts`. */
+export interface StorageUsage {
+  recordings: number
+  evidence: number
+  attachments: number
+  database: number
+  total: number
+}
+
+export interface StorageStatus {
+  usage: StorageUsage
+  limitBytes: number
+  /** Temizliğin indirdiği düzey (sınırın %70'i): temizlikten hemen sonra yeniden uyarı çıkmasın. */
+  targetBytes: number
+  over: boolean
+}
+
+export interface StorageCleanup {
+  recordingsDropped: number
+  evidenceFilesDropped: number
+  attachmentsDropped: number
+  freedBytes: number
+}
+
 export interface Settings {
   /**
    * Rol başına model. Ucuz model son kararı vermez: gezginin bildirdiğini yargıç onaylar, ekranın içeriğini göz
@@ -339,8 +383,9 @@ export interface Settings {
   autoApproveFindingRules: boolean
   /** Bu kadar yeni karar birikince koşu sonunda ders çıkarıcı kendiliğinden çalışır (0: kapalı). */
   learnAfterDecisions: number
-  defaultOptions: RunOptions
   author: string
+  /** Yerel verinin üst sınırı (GB). Aşılınca üç günde bir kez bildirim çıkar; silme yalnız kullanıcı isteyince yapılır. */
+  storageLimitGb: number
 }
 
 export interface AppUserSetting {

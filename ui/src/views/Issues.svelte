@@ -225,6 +225,25 @@
           </dl>
         {/if}
 
+        {#if detail.elsewhere.length}
+          <div class="stack">
+            <h3>Başka makinelerde görüldü</h3>
+            {#each detail.elsewhere as s (s.author)}
+              <div class="sighting">
+                <div class="row small">
+                  <strong>{s.author}</strong>
+                  <span class="muted">{s.page} · {s.seenCount}× · son {formatDate(s.lastSeen)}</span>
+                </div>
+                {#if s.observed}<p class="small">{s.observed}</p>{/if}
+                {#if s.quote}<p class="muted small">Ekranda: “{s.quote}”</p>{/if}
+              </div>
+            {/each}
+            {#if !occurrence}<p class="muted small">
+                Bu bilgisayarda henüz görülmedi; sayfa bir sonraki koşuda yeniden denetlenir.
+              </p>{/if}
+          </div>
+        {/if}
+
         <div class="decide">
           <h3>Karar</h3>
           <textarea
@@ -368,6 +387,17 @@
   dd {
     margin: 0;
     overflow-wrap: anywhere;
+  }
+
+  .sighting {
+    display: grid;
+    gap: 2px;
+    padding: 8px 10px;
+    border-left: 3px solid var(--border);
+  }
+
+  .sighting p {
+    margin: 0;
   }
 
   .decide {

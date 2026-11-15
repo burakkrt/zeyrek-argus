@@ -41,6 +41,7 @@ import { probe } from '../platform/probe.ts'
 import { KNOWN_MODELS } from '../agent/model.ts'
 import { confirmWorkspace, resolveWorkspace } from '../workspace/workspace.ts'
 import { saveAttachment } from '../runs/attachments.ts'
+import { claimStorageNotice, cleanStorage, RECORDING_DROPPED, storageStatus } from '../runs/storage.ts'
 
 const bad = (message: string): never => {
   throw new ArgusError('BAD_REQUEST', message)
@@ -79,6 +80,20 @@ export function createApi(ctx: AppContext): Hono {
   })
 
   // --- durum ve ayarlar ---
+
+  // Yerel veri (Git dışı): disk kullanımı ve saklama politikasını hemen uygulama.
+  // Yerel depolama: tek koşul toplam boyut; silme yalnız kullanıcı isteyince (bkz. runs/storage.ts).
+  const storage = () => storageStatus(ctx.config.dataDir, getSettings(ctx.db).storageLimitGb)
+  api.get('/depolama', (c) => c.json(storage()))
+  /** Uygulama açılışında sorulur: sınır aşıldıysa üç günde en çok bir kez `notify: true` döner. */
+  api.post('/depolama/bildirim', (c) => {
+    const status = storage()
+    return c.json({ notify: claimStorageNotice(ctx.db, status), status })
+  })
+  api.post('/depolama/temizle', (c) => {
+    const result = cleanStorage(ctx.db, ctx.config.dataDir, getSettings(ctx.db).storageLimitGb)
+    return c.json({ result, status: storage() })
+  })
 
   api.get('/durum', (c) => {
     let mcp: { ok: boolean; detail: string }
@@ -135,9 +150,9 @@ export function createApi(ctx: AppContext): Hono {
       patch.autoApproveFindingRules = body.autoApproveFindingRules
     if (Number.isFinite(body.learnAfterDecisions))
       patch.learnAfterDecisions = Math.min(Math.max(Number(body.learnAfterDecisions), 0), 100)
-    if (body.defaultOptions)
-      patch.defaultOptions = { ...getSettings(ctx.db).defaultOptions, ...body.defaultOptions }
     if (typeof body.author === 'string') patch.author = body.author.trim()
+    if (Number.isFinite(body.storageLimitGb))
+      patch.storageLimitGb = Math.min(Math.max(Number(body.storageLimitGb), 1), 1000)
     return c.json({ settings: saveSettings(ctx.db, patch) })
   })
 
@@ -229,8 +244,6 @@ export function createApi(ctx: AppContext): Hono {
       ? body.sayfalar.filter((p): p is string => typeof p === 'string')
       : []
     const options = (body.secenekler ?? {}) as {
-      maxTasks?: number
-      maxSteps?: number
       user?: string | null
       brief?: string | null
       attachments?: string[]
@@ -267,18 +280,23 @@ export function createApi(ctx: AppContext): Hono {
     return c.json({ ok: true })
   })
 
-  /** Koşunun kayıt kareleri: alındıkları anlar (epoch ms), sıralı. Kayıt yoksa (eski koşu) boş. */
+  /**
+   * Koşunun kayıt kareleri: alındıkları anlar (epoch ms), sıralı. Kayıt yoksa (eski koşu) boş; `dropped` kaydın
+   * yerel temizlikte silindiğini söyler (adım görüntüleri de gitmiştir).
+   */
   api.get('/kosular/:id/kareler', (c) => {
     const id = c.req.param('id')
     if (!/^[0-9a-f-]{36}$/i.test(id)) return c.json({ hata: 'Geçersiz koşu.' }, 400)
-    const dir = resolve(ctx.config.dataDir, 'runs', id, 'kare')
-    if (!existsSync(dir)) return c.json([])
-    const times = readdirSync(dir)
-      .map((name) => /^(\d+)\.jpg$/.exec(name)?.[1])
-      .filter((t): t is string => t !== undefined)
-      .map(Number)
-      .sort((a, b) => a - b)
-    return c.json(times)
+    const base = resolve(ctx.config.dataDir, 'runs', id)
+    const dir = resolve(base, 'kare')
+    const frames = existsSync(dir)
+      ? readdirSync(dir)
+          .map((name) => /^(\d+)\.jpg$/.exec(name)?.[1])
+          .filter((t): t is string => t !== undefined)
+          .map(Number)
+          .sort((a, b) => a - b)
+      : []
+    return c.json({ frames, dropped: existsSync(resolve(base, RECORDING_DROPPED)) })
   })
 
   api.get('/kosular/:id/dosya/*', (c) => {
@@ -429,7 +447,7 @@ export function createApi(ctx: AppContext): Hono {
     }
     for (const a of apps) {
       const [project, application] = a.split('/') as [string, string]
-      ctx.issues.syncFromMemory({ project, application })
+      ctx.issues.syncFromMemory({ project, application }, ctx.author())
     }
     return c.json({ imported: count })
   })
@@ -519,7 +537,7 @@ export function createApi(ctx: AppContext): Hono {
 
   api.post('/hafiza/ogren', async (c) => {
     const app = appOf((await c.req.json()) as Record<string, unknown>)
-    ctx.issues.syncFromMemory(app)
+    ctx.issues.syncFromMemory(app, ctx.author())
     return c.json(await ctx.learner.learnFromDecisions(app, ctx.author()))
   })
 
@@ -556,14 +574,14 @@ export function createApi(ctx: AppContext): Hono {
     ctx.memory.writeFile(path, typeof body.icerik === 'string' ? body.icerik : bad('icerik gerekli.'))
     const parts = path.split('/')
     if (parts[0] === 'apps' && parts[3] === 'decisions')
-      ctx.issues.syncFromMemory({ project: parts[1]!, application: parts[2]! })
+      ctx.issues.syncFromMemory({ project: parts[1]!, application: parts[2]! }, ctx.author())
     return c.json({ ok: true })
   })
 
   api.post('/hafiza/yenile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
     const apps = typeof body.proje === 'string' ? [appOf(body)] : ctx.memory.apps()
-    const counts = apps.map((app) => ({ ...app, decisions: ctx.issues.syncFromMemory(app) }))
+    const counts = apps.map((app) => ({ ...app, decisions: ctx.issues.syncFromMemory(app, ctx.author()) }))
     return c.json(counts)
   })
 

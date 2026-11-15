@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { openDatabase } from './database.ts'
-import { deleteAppUser, getAppUser, listAppUsers, saveAppUser } from './settings.ts'
+import { deleteAppUser, getAppUser, getSettings, listAppUsers, saveAppUser } from './settings.ts'
 
 const app = { project: 'qm', application: 'web' }
 
@@ -29,5 +29,21 @@ describe('uygulama hesapları', () => {
       { project: 'qm', application: 'web', identifier: 'furkan@x', hasPassword: true, isDefault: true },
     ])
     expect(listAppUsers(db).length).toBe(2)
+  })
+})
+
+describe('ayarlar', () => {
+  it('eski kayıttaki kaldırılmış alanlar (tek model, motor deneyleri, gün/koşu sayılı saklama, koşu derinliği) okunurken atılır', () => {
+    const db = openDatabase(':memory:')
+    db.prepare(`insert into settings (key, value) values ('settings', ?)`).run(
+      JSON.stringify({ model: 'eski', experiments: { knowledge: true }, retention: { recordingDays: 14 }, defaultOptions: { maxTasks: 2 }, inspector: false }),
+    )
+    const settings = getSettings(db) as unknown as Record<string, unknown>
+    expect(settings.inspector).toBe(false)
+    expect('experiments' in settings).toBe(false)
+    expect('model' in settings).toBe(false)
+    expect('retention' in settings).toBe(false)
+    expect('defaultOptions' in settings).toBe(false)
+    expect(settings.storageLimitGb).toBe(10)
   })
 })

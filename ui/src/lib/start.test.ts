@@ -1,6 +1,6 @@
 import type { PageGroup, RunInfo } from '@argus/shared'
 import { describe, expect, it } from 'vitest'
-import { depthOf, estimateRun, pagesFromLinks, scopeRows, startProblem } from './start'
+import { estimateRun, pagesFromLinks, scopeRows, startProblem } from './start'
 
 const groups: PageGroup[] = [
   {
@@ -25,12 +25,6 @@ const run = (over: Partial<RunInfo>): RunInfo =>
   }) as RunInfo
 
 describe('yeni koşu', () => {
-  it('derinlik sayılardan çözülür; ön ayara uymayan özel sayılır', () => {
-    expect(depthOf(5, 10)).toBe('standart')
-    expect(depthOf(2, 6)).toBe('hizli')
-    expect(depthOf(5, 11)).toBe('ozel')
-  })
-
   it('bağlantılardan katalogdaki sayfalar sırayla ve tekrarsız çözülür; dal öneki ve yabancı bağlantı yok sayılır', () => {
     const text = `Şurada kayıyor http://localhost:15000/branch/feature-x/qm/web/egt-form?id=4 ve
       https://ornek.com/baska bir de http://localhost:15000/dev/qm/web/egt-liste, yine http://localhost:15000/qm/web/egt-form
@@ -39,7 +33,7 @@ describe('yeni koşu', () => {
     expect(pagesFromLinks('bağlantı yok', groups)).toEqual([])
   })
 
-  it('tahmin model çalıştırmış bitmiş koşuların sayfa × görev birim medyanından; geçmiş yoksa varsayım', () => {
+  it('tahmin model çalıştırmış bitmiş koşuların sayfa başına birim medyanından; geçmiş yoksa varsayım', () => {
     const history = [
       run({
         pages: ['a', 'b'],
@@ -51,10 +45,10 @@ describe('yeni koşu', () => {
       run({ status: 'hata', usage: { costUsd: 9 } as RunInfo['usage'] }),
       run({ finishedAt: '2026-11-01T10:00:09Z', usage: { costUsd: 0 } as RunInfo['usage'] }),
     ]
-    // Birimler: (0.25 dk, 0.2$), (3 dk, 0.3$), (1 dk, 0.1$) → medyan 1 dk, 0.2$.
-    expect(estimateRun(history, 3, 2)).toEqual({ minutes: 6, cost: expect.closeTo(1.2, 5), basis: 'gecmis' })
-    expect(estimateRun([], 1, 5)).toEqual({ minutes: 2, cost: expect.closeTo(0.8, 5), basis: 'varsayim' })
-    expect(estimateRun(history, 0, 5)).toBeNull()
+    // Birimler (sayfa başına): (0.5 dk, 0.4$), (3 dk, 0.3$), (1 dk, 0.1$) → medyan 1 dk, 0.3$.
+    expect(estimateRun(history, 3)).toEqual({ minutes: 3, cost: expect.closeTo(0.9, 5), basis: 'gecmis' })
+    expect(estimateRun([], 2)).toEqual({ minutes: 4, cost: expect.closeTo(1.6, 5), basis: 'varsayim' })
+    expect(estimateRun(history, 0)).toBeNull()
   })
 
   it('kapsam satırı: son koşu en yeni koşudan, açık bulgu yalnız açık/düzeltilecek durumdan; modülsüz boş', () => {
@@ -90,9 +84,12 @@ describe('yeni koşu', () => {
     ])
   })
 
-  it('başlatma engeli: önce kapsam, sonra süren yükleme; talimat zorunlu değil', () => {
-    expect(startProblem({ pages: 0, uploading: true })?.title).toBe('Kapsam seçilmedi')
-    expect(startProblem({ pages: 2, uploading: true })?.title).toBe('Dosyalar yükleniyor')
-    expect(startProblem({ pages: 2, uploading: false })).toBeNull()
+  it('başlatma engeli: sayfa da girdi de yoksa; sonra süren yükleme', () => {
+    expect(startProblem({ pages: 0, brief: '  ', files: 0, uploading: true })?.title).toBe('Ne test edilsin?')
+    expect(startProblem({ pages: 2, brief: '', files: 0, uploading: true })?.title).toBe('Dosyalar yükleniyor')
+    expect(startProblem({ pages: 2, brief: '', files: 0, uploading: false })).toBeNull()
+    // Sayfa seçmeden yalnız girdi ya da ek yeter: sayfalar girdiden seçilir.
+    expect(startProblem({ pages: 0, brief: 'Performans modülünü test et', files: 0, uploading: false })).toBeNull()
+    expect(startProblem({ pages: 0, brief: '', files: 1, uploading: false })).toBeNull()
   })
 })

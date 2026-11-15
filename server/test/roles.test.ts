@@ -129,7 +129,7 @@ describe('model rolleri, yargıç ve modelsiz doğrulama', () => {
     expect(run.usage.roles?.judge).toMatchObject({ requests: 2, model: 'claude-opus-5-5' })
     expect(run.usage.roles?.explorer?.model).toBe('claude-haiku-5-5+claude-sonnet-5-5')
     expect(messages(run.id)).toContainEqual(
-      'Değişiklik izi (yalnız gözlem, atlama yok): arayüz ilk ölçüm, veri uçları ilk ölçüm, Studio tanımı ilk ölçüm.',
+      'Değişiklik izi (önceki koşuya göre): arayüz ilk ölçüm, veri uçları ilk ölçüm, Studio tanımı ilk ölçüm.',
     )
   })
 
@@ -153,11 +153,11 @@ describe('model rolleri, yargıç ve modelsiz doğrulama', () => {
     const status = listEvents(h.ctx.db, run.id).find((e) => e.type === 'sorun-durumu')
     expect(status).toMatchObject({ key: 'yz:toplam-kayit-sayisi', state: 'var' })
 
-    // Gezgine "yeniden bak" diye gitmedi.
-    const after = h.calls.slice(before)
-    expect(after.some((c) => JSON.stringify(c.messages).includes('yz:toplam-kayit-sayisi —'))).toBe(false)
+    // Gezgine "yeniden bak" diye gitmedi (sayfa bilgisini damıtan öğretmen açık sorunları bilerek görür).
+    const explorer = h.calls.slice(before).filter((c) => JSON.stringify(c.messages).includes('GÖREV: '))
+    expect(explorer.some((c) => JSON.stringify(c.messages).includes('yz:toplam-kayit-sayisi —'))).toBe(false)
     expect(messages(run.id)).toContainEqual(
-      'Değişiklik izi (yalnız gözlem, atlama yok): arayüz aynı, veri uçları aynı, Studio tanımı aynı.',
+      'Değişiklik izi (sayfa bilgisine göre): arayüz aynı, veri uçları aynı, Studio tanımı aynı.',
     )
   })
 

@@ -3,7 +3,6 @@
  * `ph-duotone`), menü daraltma Phosphor `sidebar-simple`; arayüz işaretleri (ok, arama, kapat …) Material Symbols
  * Outlined 400. Yalnız burada içe aktarılan SVG pakete girer; yeni ikon önce buraya eklenir, bileşen `Icon` ile çizer.
  */
-import brain from '@phosphor-icons/core/assets/duotone/brain-duotone.svg?raw'
 import bug from '@phosphor-icons/core/assets/duotone/bug-duotone.svg?raw'
 import gear from '@phosphor-icons/core/assets/duotone/gear-duotone.svg?raw'
 import playCircle from '@phosphor-icons/core/assets/duotone/play-circle-duotone.svg?raw'
@@ -77,7 +76,6 @@ export const icons = {
   checkCircle,
   chevronLeft,
   cursor,
-  brain,
   bug,
   check,
   chevronRight,

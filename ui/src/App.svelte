@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { StorageStatus } from '@argus/shared'
   import { onMount } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import AppShell from '$lib/components/layout/AppShell.svelte'
@@ -6,10 +7,12 @@
   import Page from '$lib/components/layout/Page.svelte'
   import WorkspaceForm from '$lib/components/layout/WorkspaceForm.svelte'
   import * as Card from '$lib/components/ui/card/index.js'
-  import { api } from '$lib/api'
+  import { api, post } from '$lib/api'
+  import { formatBytes } from '$lib/format'
   import { crumbsFor, documentTitle } from '$lib/nav'
+  import { notify } from '$lib/notify.svelte'
   import { pageName } from '$lib/page-name.svelte'
-  import { route } from '$lib/router.svelte'
+  import { go, route } from '$lib/router.svelte'
   import { connect, live } from '$lib/stream.svelte'
   import { loadWorkspace, workspace } from '$lib/workspace.svelte'
   import Issues from './views/Issues.svelte'
@@ -19,6 +22,7 @@
   import Runs from './views/Runs.svelte'
   import Settings from './views/Settings.svelte'
   import Start from './views/Start.svelte'
+  import YapayZeka from './views/YapayZeka.svelte'
 
   interface Status {
     mcp: { ok: boolean; detail: string }
@@ -28,6 +32,8 @@
 
   let status = $state<Status | null>(null)
   let loadError = $state<string | null>(null)
+  // Yerel depolama sınırı aşıldıysa açılışta üç günde en çok bir kez (karar sunucuda) gösterilen şerit.
+  let storageNotice = $state<StorageStatus | null>(null)
   const activeRunId = $derived(
     Object.values(live.runs).find((r) => r.status === 'calisiyor')?.id ?? status?.activeRunId ?? null,
   )
@@ -54,6 +60,12 @@
     pageName.current = null
   })
 
+  // Bildirimler sayfaya aittir: başka sayfaya geçince kapanır (aynı sayfada seçim değişince kalır).
+  $effect.pre(() => {
+    void route.parts[0]
+    notify.clear()
+  })
+
   // Sekme başlığı sayfayla (kayıt sayfasında kaydın adıyla) değişir.
   $effect(() => {
     document.title = documentTitle(route.parts[0], pageName.current)
@@ -64,6 +76,9 @@
     loadWorkspace().catch((e: unknown) => (loadError = e instanceof Error ? e.message : String(e)))
     api<Status>('/durum')
       .then((s) => (status = s))
+      .catch(() => undefined)
+    post<{ notify: boolean; status: StorageStatus }>('/depolama/bildirim')
+      .then((r) => (storageNotice = r.notify ? r.status : null))
       .catch(() => undefined)
   })
 </script>
@@ -82,6 +97,32 @@
         type="button"
         onclick={() => (workspace.notice = null)}
         class="hover:bg-brand-border grid size-7 place-items-center rounded-md"
+        aria-label="Kapat"
+      >
+        <Icon name="close" class="size-[18px]" />
+      </button>
+    </div>
+  {/if}
+
+  {#if storageNotice}
+    <div class="bg-warning/10 text-warning flex items-center gap-2 border-b px-7 py-2 text-[13px]" role="status">
+      <Icon name="error" class="size-[18px]" />
+      <span class="text-foreground flex-1">
+        Yerel veriler {formatBytes(storageNotice.usage.total)} oldu; sınır {formatBytes(storageNotice.limitBytes)}.
+        Eski koşu kayıtlarını temizleyebilir ya da sınırı yükseltebilirsin.
+      </span>
+      <button
+        type="button"
+        class="text-brand-strong hover:bg-brand-soft rounded-md px-2 py-1 font-semibold"
+        onclick={() => {
+          storageNotice = null
+          go('ayarlar?bolum=depolama')
+        }}>Depolamayı aç</button
+      >
+      <button
+        type="button"
+        onclick={() => (storageNotice = null)}
+        class="hover:bg-warning/20 text-foreground grid size-7 place-items-center rounded-md"
         aria-label="Kapat"
       >
         <Icon name="close" class="size-[18px]" />
@@ -113,7 +154,11 @@
         <Runs />
       {:else if route.parts[0] === 'monitor' && route.parts[1]}
         {#key route.parts[1]}<Monitor runId={route.parts[1]} />{/key}
-      {:else if ['bulgular', 'hafiza', 'ayarlar'].includes(route.parts[0] ?? '')}
+      {:else if route.parts[0] === 'ayarlar'}
+        <Settings />
+      {:else if route.parts[0] === 'yapay-zeka'}
+        <YapayZeka />
+      {:else if ['bulgular', 'hafiza'].includes(route.parts[0] ?? '')}
         <!-- Henüz yeni kalıba taşınmamış sayfalar: başlık şeridi yok, eski stiller .legacy içinde. -->
         <Page>
           <div class="legacy">
@@ -121,8 +166,6 @@
               <Issues selectedId={route.parts[1] ?? null} />
             {:else if route.parts[0] === 'hafiza'}
               <Memory />
-            {:else if route.parts[0] === 'ayarlar'}
-              <Settings />
             {/if}
           </div>
         </Page>

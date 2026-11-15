@@ -9,8 +9,9 @@
 
   /**
    * Bildirimler: sayfa başlığının hemen altında, sağda (eylem düğmelerinin altı) üst üste en çok üç kart.
-   * - Görünüm: platformun "soft" toast'ı — tonun açık zemini ve renkli kenarı (beyaz sayfada belirgin), solda tonun
-   *   ikonu, başlık (14/600) ve açıklama (13), sağda kapat; altta tonun renginde geri sayım çizgisi.
+   * - Görünüm: beyaz kart, ince nötr kenar ve belirgin gölge; ton yalnız soldaki 3 px şeritte, ikonun yuvarlak açık
+   *   zemininde ve alttaki geri sayım çizgisinde görünür. Başlık 14/600 koyu, açıklama 13 ikincil renk; sağda kapat.
+   * - Sayfa değişince hepsi kapanır (`App.svelte` → `notify.clear()`).
    * - Hareket: sağ kenardan kayarak girer, sağa kayarak çıkar; diğer kartlar yerlerine yumuşakça kayar (flip).
    *   Aynı bildirim tekrar gelirse kart yerinde kalır (yeniden çizilmez, sıçramaz): "×n" artar, kısa bir vurgu yapar,
    *   sayaç baştan başlar.
@@ -19,40 +20,12 @@
    */
   const TONES: Record<
     NoticeTone,
-    { icon: IconName; label: string; color: string; bg: string; border: string; text: string }
+    { icon: IconName; label: string; color: string; soft: string }
   > = {
-    success: {
-      icon: 'checkCircle',
-      label: 'Başarılı',
-      color: '#16A34A',
-      bg: '#F0FDF4',
-      border: '#BBF7D0',
-      text: '#14532D',
-    },
-    info: {
-      icon: 'info',
-      label: 'Bilgi',
-      color: '#0C66E4',
-      bg: '#EFF6FF',
-      border: '#BFDBFE',
-      text: '#0B3E99',
-    },
-    warning: {
-      icon: 'warning',
-      label: 'Uyarı',
-      color: '#D97706',
-      bg: '#FFFBEB',
-      border: '#FCD34D',
-      text: '#78350F',
-    },
-    error: {
-      icon: 'error',
-      label: 'Hata',
-      color: '#DC2626',
-      bg: '#FEF2F2',
-      border: '#FECACA',
-      text: '#7F1D1D',
-    },
+    success: { icon: 'checkCircle', label: 'Başarılı', color: '#16A34A', soft: '#DCFCE7' },
+    info: { icon: 'info', label: 'Bilgi', color: '#0C66E4', soft: '#E9F2FF' },
+    warning: { icon: 'warning', label: 'Uyarı', color: '#D97706', soft: '#FEF3C7' },
+    error: { icon: 'error', label: 'Hata', color: '#DC2626', soft: '#FEE2E2' },
   }
 
   /** Kartın sayacı: başlar, üzerine gelince durur, kalan süreden sürer; aynı bildirim tekrar gelince baştan başlar. */
@@ -99,8 +72,7 @@
     <div
       role={notice.tone === 'error' || notice.tone === 'warning' ? 'alert' : 'status'}
       aria-label={tone.label}
-      class="group pointer-events-auto relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 overflow-hidden rounded-lg border py-3 pr-2.5 pl-3.5 shadow-[0_10px_28px_-8px_rgba(15,23,42,0.22),0_2px_6px_rgba(15,23,42,0.08)]"
-      style="background: {tone.bg}; border-color: {tone.border}"
+      class="group bg-card pointer-events-auto relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 overflow-hidden rounded-lg border py-3 pr-2.5 pl-4 shadow-[0_12px_32px_-10px_rgba(15,23,42,0.28),0_2px_6px_rgba(15,23,42,0.06)]"
       in:fly={{ x: 40, duration: 260, easing: cubicOut }}
       out:fly={{ x: 40, duration: 200, easing: cubicOut }}
       animate:flip={{ duration: 220, easing: cubicOut }}
@@ -112,20 +84,21 @@
             style="--bump: {tone.color}"
           ></span>{/if}
       {/key}
-      <span class="relative mt-px flex" style="color: {tone.color}"
-        ><Icon name={tone.icon} class="size-5" /></span
+      <span class="absolute inset-y-0 left-0 w-[3px]" style="background: {tone.color}"></span>
+      <span class="relative grid size-7 place-items-center rounded-full" style="color: {tone.color}; background: {tone.soft}"
+        ><Icon name={tone.icon} class="size-[18px]" /></span
       >
-      <div class="relative flex min-w-0 flex-col gap-0.5 text-left">
-        <p class="flex items-baseline gap-2 text-sm leading-5 font-semibold" style="color: {tone.text}">
+      <div class="relative flex min-w-0 flex-col gap-0.5 pt-0.5 text-left">
+        <p class="text-foreground flex items-baseline gap-2 text-sm leading-5 font-semibold">
           {notice.title}
           {#if notice.count > 1}
-            <span class="rounded-full px-1.5 text-xs font-semibold" style="background: {tone.border}"
+            <span class="rounded-full px-1.5 text-xs font-semibold" style="color: {tone.color}; background: {tone.soft}"
               >×{notice.count}</span
             >
           {/if}
         </p>
         {#if notice.message}
-          <p class="text-[13px] leading-[18px] break-words text-[#3F3F46]">{notice.message}</p>
+          <p class="text-muted-foreground text-[13px] leading-[18px] break-words">{notice.message}</p>
         {/if}
       </div>
       <button
@@ -140,7 +113,7 @@
       {#if notice.duration}
         {#key notice.key}
           <span
-            class="notice-progress absolute bottom-0 left-0 h-[3px] w-full origin-left opacity-70 group-hover:[animation-play-state:paused]"
+            class="notice-progress absolute bottom-0 left-0 h-[2px] w-full origin-left opacity-60 group-hover:[animation-play-state:paused]"
             style="background: {tone.color}; animation-duration: {notice.duration}ms"
           ></span>
         {/key}

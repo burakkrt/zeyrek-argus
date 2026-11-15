@@ -1,4 +1,4 @@
-import type { RunEvent, RunEventBody, RunInfo, RunOptions, RunStatus, Usage, Workspace } from '@argus/shared'
+import { RUN_CEILINGS, type RunEvent, type RunEventBody, type RunInfo, type RunOptions, type RunStatus, type Usage, type Workspace } from '@argus/shared'
 import { json, newId, now, type Database } from './database.ts'
 
 export const EMPTY_USAGE: Usage = {
@@ -46,7 +46,7 @@ function toInfo(db: Database, row: RunRow): RunInfo {
     application: row.application,
     environment: row.environment,
     pages: json<string[]>(row.pages, []),
-    options: json<RunOptions>(row.options, { maxTasks: 5, maxSteps: 10 }),
+    options: json<RunOptions>(row.options, { ...RUN_CEILINGS }),
     status: row.status,
     error: row.error,
     usage: json<Usage>(row.usage, EMPTY_USAGE),
@@ -129,6 +129,11 @@ export function nextQueuedRun(db: Database): RunInfo | null {
   const row = db.prepare(`select * from runs where status = 'sirada' order by created_at limit 1`).get() as
     RunRow | undefined
   return row ? toInfo(db, row) : null
+}
+
+/** Yalnız girdiyle başlatılan koşunun sayfaları, koşu başında girdiden seçilince yazılır. */
+export function setRunPages(db: Database, id: string, pages: string[]): void {
+  db.prepare('update runs set pages = ? where id = ?').run(JSON.stringify(pages), id)
 }
 
 export function startRun(db: Database, id: string): void {

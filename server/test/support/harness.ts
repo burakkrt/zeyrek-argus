@@ -25,6 +25,10 @@ export interface Script {
   judge?: (candidate: Record<string, string>, prompt: string) => unknown
   /** Gözün bir ekran durumunda bulduğu; verilmezse bulgu yok. */
   inspect?: (prompt: string) => unknown
+  /** Sayfa bilgisi damıtma; verilmezse boş bilgi. */
+  knowledge?: (prompt: string) => unknown
+  /** Yalnız girdiyle başlatılan koşuda sayfa seçimi; verilmezse hiçbir sayfa seçilmez. */
+  pick?: (prompt: string) => unknown
 }
 
 function judgeCandidate(prompt: string): Record<string, string> {
@@ -81,6 +85,21 @@ export function scriptedModel(script: Script): { model: CreateMessage; calls: Me
     const prompt = textOfParams(params)
     if (params.output_config?.format && prompt.includes('GÖZ GÖREVİ')) {
       const value = script.inspect?.(prompt) ?? { bulgular: [], notlar: [] }
+      return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
+    }
+    if (params.output_config?.format && prompt.includes('SAYFA BİLGİSİ GÖREVİ')) {
+      const value = script.knowledge?.(prompt) ?? {
+        amac: '',
+        ekranlar: [],
+        beklentiler: [],
+        kapsanan: [],
+        kapsanmayan: [],
+        tuhafliklar: [],
+      }
+      return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
+    }
+    if (params.output_config?.format && prompt.includes('SAYFA SEÇİMİ GÖREVİ')) {
+      const value = script.pick?.(prompt) ?? { sayfalar: [], gerekce: '' }
       return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
     }
     if (params.output_config?.format && prompt.includes('YARGIÇ GÖREVİ')) {

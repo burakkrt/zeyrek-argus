@@ -81,7 +81,10 @@ export class BrowserSession {
   ) {}
 
   static async open(options: SessionOptions): Promise<BrowserSession> {
-    const browser = await chromium.launch({ headless: options.headless ?? true }).catch((error: unknown) => {
+    // Arayüz dili Türkçe: bağlamın `locale`'i yetmez, tarih kutusu gibi yerel denetimler Chromium'un arayüz dilini
+    // izler (yoksa "mm/dd/yyyy" görünür ve uygulamanın hatası sanılır; ölçüldü 2026-11-15).
+    const launch = { headless: options.headless ?? true, args: ['--lang=tr-TR'] }
+    const browser = await chromium.launch(launch).catch((error: unknown) => {
       // Yeni klonda Playwright'ın tarayıcısı henüz indirilmemiş olabilir.
       if (error instanceof Error && /Executable doesn't exist|playwright install/i.test(error.message))
         throw new ArgusError(

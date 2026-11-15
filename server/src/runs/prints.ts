@@ -5,8 +5,9 @@ import { now, type Database } from '../db/database.ts'
 
 /**
  * Sayfanın değişiklik izi: arayüz yapısı (maskeli ağaç), veri sözleşmesi (çağrılan uçlar) ve Studio tanımı
- * (sayfa şeması). Şimdilik yalnız gözlemdir: hiçbir alan "değişmedi" diye atlanmaz; izlerin doğruluğu birkaç koşuda
- * ölçülmeden atlamaya izin verilmez.
+ * (sayfa şeması). Planlayıcı izi sayfa bilgisiyle birlikte okur (değişmeyen ve bilinen alanı yeniden gezmez, değişene
+ * yönelir); veri ucu ve Studio tanımı değişmediyse Göz daha önce incelediği ekran yapısını yeniden incelemez. Hiçbir
+ * alan modelsiz "geçti" sayılmaz: gezgin yine gezer, yalnız odak ve yeniden inceleme değişir.
  */
 export interface PagePrint {
   ui: string
@@ -126,6 +127,9 @@ const WORDS: Record<PrintChange, string> = {
   bilinmiyor: 'alınamadı',
 }
 
-export function describeChange(change: Record<keyof PagePrint, PrintChange>): string {
-  return `Değişiklik izi (yalnız gözlem, atlama yok): arayüz ${WORDS[change.ui]}, veri uçları ${WORDS[change.api]}, Studio tanımı ${WORDS[change.studio]}.`
+export function describeChange(
+  change: Record<keyof PagePrint, PrintChange>,
+  basis: 'bilgi' | 'kosu' = 'kosu',
+): string {
+  return `Değişiklik izi (${basis === 'bilgi' ? 'sayfa bilgisine göre' : 'önceki koşuya göre'}): arayüz ${WORDS[change.ui]}, veri uçları ${WORDS[change.api]}, Studio tanımı ${WORDS[change.studio]}.`
 }

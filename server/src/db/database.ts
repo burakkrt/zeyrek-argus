@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite'
  */
 export type Database = DatabaseSync
 
+/** Göçler `user_version` sırasıyla uygulanır: yeni göç yalnız sona eklenir, var olan araya girmez ya da değişmez. */
 const MIGRATIONS: string[] = [
   `
   create table runs (
@@ -168,6 +169,23 @@ const MIGRATIONS: string[] = [
       and (r.created_at < runs.created_at or (r.created_at = runs.created_at and r.id <= runs.id))
   ));
   create unique index runs_code on runs(code);
+  `,
+  // Takım arkadaşlarının bulguları (Git'teki findings/<yazar>.md'den): sorun başına, yazar başına son görünüm.
+  `
+  create table shared_sightings (
+    issue_id text not null references issues(id) on delete cascade,
+    author text not null,
+    pages text not null,
+    page text not null,
+    scenario text not null,
+    expected text not null,
+    observed text not null,
+    quote text,
+    first_seen text not null,
+    last_seen text not null,
+    seen_count integer not null,
+    primary key (issue_id, author)
+  );
   `,
 ]
 

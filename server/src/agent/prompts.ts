@@ -14,6 +14,7 @@ export const BASE_INSTRUCTIONS = `Sen Zeyrek low-code platformunda kurulmuş bir
 - Alanlara yazabilirsin (arama, filtre, form alanı). Kayıt açan, değiştiren, silen, onaya gönderen düğmeler sistemce engellenir; engellenirse başka bir şeye geç, bunu bulgu sayma.
 - Sayfa yüklenirken yargılama: liste iskelet hâlindeyse, "yükleniyor" yazıyorsa bekle ve yeniden bak.
 - Kullanıcı yönlendirmesi gelirse önceliklidir.
+- Kapsam test edilen sayfadır; görev ya da kullanıcının talimatı gerektiriyorsa sayfadaki bağlantıyla ilgili sayfaya geçebilirsin (ör. kaydın ayrıntısı). İşin bitince bastan_ac ile test edilen sayfaya dön.
 
 ## Neye bakarsın
 - Hata mesajı, açılmayan pencere, tepki vermeyen düğme, gelmeyen liste, çalışmayan filtre/sıralama/sayfalama, konsol ve ağ hataları.
@@ -63,6 +64,8 @@ export interface PageFacts {
   openIssues: Issue[]
   known: Array<{ key: string; title: string; status: string }>
   rejected: Array<{ key: string; title: string }>
+  /** Sayfa bilgisi (koşulardan damıtılmış, `pages/<sayfa>/<yazar>.md`, en yenisi); yoksa null. */
+  knowledge?: string | null
 }
 
 const list = (items: string[], empty = '(yok)') =>
@@ -82,6 +85,10 @@ export function pageFacts(facts: PageFacts, audience: 'gezgin' | 'yargic' = 'gez
       ? `Bu sayfada açık sorunlar:\n${list(facts.openIssues.map((i) => `${i.key} — ${i.title}`))}`
       : `Bu sayfada daha önce bulunan, etkileşimle yeniden bakılması gereken açık sorunlar (hâlâ var mı bak, sorun_durumu ile bildir):\n${list(facts.openIssues.map((i) => `${i.key} — ${i.title}`))}`,
   ]
+  if (facts.knowledge)
+    parts.push(
+      `Sayfa bilgisi (önceki koşulardan damıtılmış; yol gösterir ama ekranda doğrula, körü körüne güvenme):\n${facts.knowledge}`,
+    )
   if (audience === 'yargic')
     parts.push(
       `Bu modülde bilinen sorunlar (aynı kök nedense bu anahtarı ver):\n${list(facts.known.map((k) => `${k.key} — ${k.title} (${k.status})`))}`,

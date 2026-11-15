@@ -18,6 +18,7 @@ import {
 } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 import { asList, asString, parseDocument, serializeDocument } from './frontmatter.ts'
+import { authorSlug, parseFindings, serializeFindings, type SharedFinding } from './shared.ts'
 
 /**
  * Git'te paylaşılan hafıza. Dosya düzeni:
@@ -25,7 +26,10 @@ import { asList, asString, parseDocument, serializeDocument } from './frontmatte
  *   formats/<ad>.md                             çıktı biçimleri
  *   apps/<proje>/<uygulama>/app.md              uygulama notları
  *   apps/<proje>/<uygulama>/rules/<id>.md       uygulamaya özel kurallar
- *   apps/<proje>/<uygulama>/decisions/<..>.md   sorun başına karar, tarihçe, yorumlar
+ *   apps/<proje>/<uygulama>/decisions/<..>.md   sorun başına insan kararı, tarihçe, yorumlar
+ *   apps/<proje>/<uygulama>/findings/<yazar>.md kişinin açık bulguları ve son görünümleri (tek yazarlı)
+ *   apps/<proje>/<uygulama>/pages/<sayfa>/<yazar>.md  sayfa bilgisi (tek yazarlı, en yenisi kullanılır)
+ *   apps/<proje>/<uygulama>/screens/<sayfa>/<yazar>.json  ekran haritası (tek yazarlı, birleşik okunur)
  *   apps/<proje>/<uygulama>/customer/<..>.md    içe aktarılan müşteri bulguları (isteme girmez)
  */
 
@@ -38,6 +42,14 @@ export interface DecisionRecord {
   example: { page: string; scenario: string; expected: string; observed: string } | null
   history: IssueHistoryEntry[]
   comments: IssueComment[]
+}
+
+/** Sayfa bilgisi dosyası: gövde (isteme girer), yazar, güncelleme anı ve yazıldığı andaki sayfa izi. */
+export interface PageKnowledgeFile {
+  body: string
+  author: string
+  updatedAt: string
+  print: { ui: string; api: string; studio: string | null } | null
 }
 
 export interface CustomerRow {
@@ -225,6 +237,70 @@ export class MemoryStore {
     return text === null ? '' : parseDocument(text).body
   }
 
+  /**
+   * Sayfa bilgisi: ajanın sayfa için damıttığı amaç, beklentiler, kapsam ve tuhaflıklar
+   * (`apps/<p>/<u>/pages/<sayfa>/<yazar>.md`; kimin yazdığından bağımsız en yenisi). Sabit bütçelidir; koşu sonunda
+   * yazarın kendi dosyasına baştan yazılır. Yoksa null.
+   */
+  pageKnowledge(app: AppRef, page: string): PageKnowledgeFile | null {
+    const files = this.list(this.pageDir(app, page)).flatMap((rel) => {
+      const text = this.read(rel)
+      if (text === null) return []
+      const { data, body } = parseDocument(text)
+      return [
+        {
+          body,
+          author: asString(data.yazar),
+          updatedAt: asString(data.guncelleme),
+          print: asString(data.iz_arayuz)
+            ? { ui: asString(data.iz_arayuz), api: asString(data.iz_veri), studio: asString(data.iz_studio) || null }
+            : null,
+        },
+      ]
+    })
+    // Her kişi kendi dosyasını yazar (çakışma olmaz); isteme en son yazılan girer.
+    return files.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
+  }
+
+  writePageKnowledge(app: AppRef, page: string, author: string, content: string): string {
+    const rel = join(this.pageDir(app, page), `${authorSlug(author)}.md`)
+    this.write(rel, content)
+    return rel.split(sep).join('/')
+  }
+
+  /** Ekran haritasının klasörü (`screens/<sayfa>/<yazar>.json`); `ScreenMemory` okur ve yazar. */
+  screenDir(app: AppRef, page: string): string {
+    return this.abs(join(this.appDir(app), 'screens', this.pageName(page)))
+  }
+
+  private pageDir(app: AppRef, page: string): string {
+    return join(this.appDir(app), 'pages', this.pageName(page))
+  }
+
+  private pageName(page: string): string {
+    if (!/^[\p{L}\p{N}_-]+$/u.test(page)) throw new ArgusError('MEMORY_PATH', `Geçersiz sayfa adı: ${page}`)
+    return page
+  }
+
+  // --- paylaşılan bulgular (kişi başına dosya) ---
+
+  /** Herkesin açık bulgu dosyası (`findings/<yazar>.md`); bozuk dosya atlanır. */
+  sharedFindings(app: AppRef): Array<{ file: string; author: string; findings: SharedFinding[] }> {
+    return this.list(join(this.appDir(app), 'findings')).flatMap((rel) => {
+      const text = this.read(rel)
+      if (text === null) return []
+      const parsed = parseFindings(text)
+      const file = rel.split(/[\\/]/).pop()!.replace(/\.md$/, '')
+      return [{ file, author: parsed.author || file, findings: parsed.findings }]
+    })
+  }
+
+  writeSharedFindings(app: AppRef, author: string, findings: SharedFinding[], at = new Date().toISOString()): string {
+    const rel = join(this.appDir(app), 'findings', `${authorSlug(author)}.md`)
+    this.write(rel, serializeFindings(author, at, findings))
+    return rel.split(sep).join('/')
+  }
+
   /** Uygulamanın kimlik bilgisi (`kimlik.md` ön bilgisi; ör. süper giriş uçları). İsteme girmez. Yoksa boş. */
   identity(app: AppRef): Record<string, string | string[]> {
     const text = this.read(join(this.appDir(app), 'kimlik.md'))
@@ -315,11 +391,19 @@ export class MemoryStore {
 const HISTORY_LINE = /^- (\S+) · (.+?) · (\S+|—) → (\S+)(?: · (.*))?$/
 const COMMENT_LINE = /^- (\S+) · ([^:]+): (.*)$/
 
+/**
+ * Karar dosyasını birden çok insan yazar; `memory/.gitattributes` onu Git'in union sürücüsüyle birleştirir, çakışma
+ * çıkmaz. Eşzamanlı iki yazımdan sonra ön bilgide iki `durum`/`guncelleme` satırı kalabilir: güncelleme en yenisi,
+ * durum tarihçenin en son geçişidir. Tarihçe ve yorumlar zaman sırasına dizilir; sonraki yazım dosyayı yeniden düzenler.
+ */
 export function parseDecision(text: string, source: string): DecisionRecord {
   const { data, body } = parseDocument(text)
   const key = asString(data.anahtar)
   if (!key) throw new ArgusError('DECISION_FORMAT', `${source}: anahtar yok.`)
-  const status = asString(data.durum, 'acik') as IssueStatus
+  const front = /^---\n([\s\S]*?)\n---/.exec(text.replace(/\r\n/g, '\n'))?.[1] ?? ''
+  const values = (name: string) =>
+    [...front.matchAll(new RegExp(`^${name}:\\s*(.+)$`, 'gm'))].map((m) => m[1]!.trim().replace(/^["']|["']$/g, ''))
+  let status = asString(data.durum, 'acik') as IssueStatus
   if (!ISSUE_STATUSES.includes(status)) throw new ArgusError('DECISION_FORMAT', `${source}: durum geçersiz (${status}).`)
   const kind = asString(data.tur, 'kesin') as FindingKind
   const sections = new Map<string, string[]>()
@@ -348,12 +432,15 @@ export function parseDecision(text: string, source: string): DecisionRecord {
     if (m) comments.push({ at: m[1]!, author: m[2]!.trim(), text: m[3]! })
     else if (line.startsWith('  ') && comments.length) comments[comments.length - 1]!.text += `\n${line.trim()}`
   }
+  history.sort((a, b) => a.at.localeCompare(b.at))
+  comments.sort((a, b) => a.at.localeCompare(b.at))
+  if (new Set(values('durum')).size > 1 && history.length) status = history.at(-1)!.to
   return {
     key,
     title: asString(data.baslik, key),
     kind: FINDING_KINDS.includes(kind) ? kind : 'kesin',
     status,
-    updatedAt: asString(data.guncelleme),
+    updatedAt: values('guncelleme').sort().at(-1) ?? '',
     example,
     history,
     comments,

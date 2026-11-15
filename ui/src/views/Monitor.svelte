@@ -51,6 +51,7 @@
   let run = $state<RunInfo | null>(null)
   let events = $state<RunEvent[]>([])
   let frames = $state<number[]>([])
+  let dropped = $state(false)
   let liveMoves = $state<PointerMove[]>([])
   let error = $state<string | null>(null)
   let message = $state('')
@@ -79,7 +80,7 @@
   const model = $derived(buildMonitor(events))
   // Eski koşularda (kayıt yokken) adım kareleri kayıt yerine geçer.
   const fallback = $derived(
-    frames.length ? null : new Map(model.steps.filter((s) => s.shot).map((s) => [s.at, s.shot!])),
+    frames.length || dropped ? null : new Map(model.steps.filter((s) => s.shot).map((s) => [s.at, s.shot!])),
   )
   const timeline = $derived(fallback ? [...fallback.keys()].sort((a, b) => a - b) : frames)
   const clock = $derived(
@@ -410,12 +411,13 @@
       const [info, list, times] = await Promise.all([
         api<RunInfo>(`/kosular/${runId}`),
         api<RunEvent[]>(`/kosular/${runId}/olaylar`),
-        api<number[]>(`/kosular/${runId}/kareler`),
+        api<{ frames: number[]; dropped: boolean }>(`/kosular/${runId}/kareler`),
       ])
       run = info
       pageName.current = info.code
       events = list
-      frames = times
+      frames = times.frames
+      dropped = times.dropped
       // Paylaşılan an (`?t=<sn>`) varsa orada durulur; yoksa süren koşu canlıdan, biten koşu baştan oynatılır.
       const shared = Number(new URLSearchParams(location.hash.split('?')[1] ?? '').get('t'))
       following = (info.status === 'calisiyor' || info.status === 'sirada') && !shared
@@ -511,7 +513,13 @@
           finding={findingOverlay}
           paused={ready && !playing && !following && model.steps.length > 0}
           {ending}
-          placeholder={!ready ? 'Yükleniyor' : running ? 'Görüntü bekleniyor' : 'Bu koşunun kaydı yok'}
+          placeholder={!ready
+            ? 'Yükleniyor'
+            : running
+              ? 'Görüntü bekleniyor'
+              : dropped
+                ? 'Kayıt yerel temizlikte silindi; akış ve bulgular duruyor'
+                : 'Bu koşunun kaydı yok'}
           onrestart={() => seekPlay(0, true)}
         />
       </div>

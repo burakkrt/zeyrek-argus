@@ -7,9 +7,11 @@ import type {
   IssueStatus,
   Occurrence,
   OccurrenceOutcome,
+  SharedSighting,
 } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 import { json, newId, now, transaction, type Database } from '../db/database.ts'
+import { authorSlug, type SharedFinding } from '../memory/shared.ts'
 import type { DecisionRecord, MemoryStore } from '../memory/store.ts'
 
 export interface OccurrenceInput {
@@ -69,8 +71,11 @@ export interface IssueFilter {
 }
 
 /**
- * Sorunlar kök nedene göre tek kayıttır (uygulama + anahtar); her görüldüğü yer bir görünümdür. Karar, yorum ve
- * tarihçe Git'teki karar dosyasına da yazılır: takım arkadaşı pull alınca aynı sorunun kararını görür.
+ * Sorunlar kök nedene göre tek kayıttır (uygulama + anahtar); her görüldüğü yer bir görünümdür. Paylaşım:
+ * - İnsanın kararı ve yorumu Git'teki karar dosyasına yazılır; Argus'un kendi verdiği durumlar (düzeldi, yeniden
+ *   açıldı) bu makinenin gözlemidir, dosyaya yazılmaz (iki makine aynı dosyayı değiştirmesin).
+ * - Açık kesin/tutarsızlık bulguları kişinin kendi `findings/<yazar>.md` dosyasına son görünümüyle yazılır; takım
+ *   arkadaşlarınınki eşitlemede "başka makinelerde görüldü" olarak alınır (görüntüsü yok, alıntısı var).
  */
 export class IssueService {
   constructor(
@@ -79,11 +84,17 @@ export class IssueService {
   ) {}
 
   private pages(issueId: string): string[] {
-    return (
-      this.db
-        .prepare('select distinct page from occurrences where issue_id = ? order by page')
-        .all(issueId) as Array<{ page: string }>
+    const local = (
+      this.db.prepare('select distinct page from occurrences where issue_id = ?').all(issueId) as Array<{
+        page: string
+      }>
     ).map((r) => r.page)
+    const shared = (
+      this.db.prepare('select pages from shared_sightings where issue_id = ?').all(issueId) as Array<{
+        pages: string
+      }>
+    ).flatMap((r) => json<string[]>(r.pages, []))
+    return [...new Set([...local, ...shared])].sort()
   }
 
   private toIssue(row: IssueRow): Issue {
@@ -287,7 +298,23 @@ export class IssueService {
         at: string
       }>
     ).map((h) => ({ from: h.from_status, to: h.to_status, author: h.author, note: h.note, at: h.at }))
-    return { ...this.toIssue(row), occurrences, comments, history }
+    const elsewhere = (
+      this.db
+        .prepare(
+          'select author, page, scenario, expected, observed, quote, last_seen, seen_count from shared_sightings where issue_id = ? order by last_seen desc',
+        )
+        .all(id) as Array<Record<string, unknown>>
+    ).map((s): SharedSighting => ({
+      author: s.author as string,
+      page: s.page as string,
+      scenario: s.scenario as string,
+      expected: s.expected as string,
+      observed: s.observed as string,
+      quote: (s.quote as string | null) ?? null,
+      lastSeen: s.last_seen as string,
+      seenCount: s.seen_count as number,
+    }))
+    return { ...this.toIssue(row), occurrences, comments, history, elsewhere }
   }
 
   private record_(row: IssueRow): DecisionRecord {
@@ -332,7 +359,8 @@ export class IssueService {
         'insert into history (issue_id, from_status, to_status, author, note, at) values (?, ?, ?, ?, ?, ?)',
       )
       .run(row.id, row.status, status, author, note, now())
-    this.writeFile(this.row(row.id))
+    // Argus'un kendi gözlemi (düzeldi, yeniden açıldı) bu makinede kalır; paylaşılan dosyaya yalnız insan yazar.
+    if (author !== 'Argus') this.writeFile(this.row(row.id))
   }
 
   decide(id: string, status: IssueStatus, author: string, note: string | null): IssueDetail {
@@ -368,7 +396,13 @@ export class IssueService {
       const decided = (
         this.db.prepare('select count(*) as n from history where issue_id = ?').get(row.id) as { n: number }
       ).n
-      if (left === 0 && decided === 0) this.db.prepare('delete from issues where id = ?').run(row.id)
+      const shared = (
+        this.db.prepare('select count(*) as n from shared_sightings where issue_id = ?').get(row.id) as {
+          n: number
+        }
+      ).n
+      if (left === 0 && decided === 0 && shared === 0)
+        this.db.prepare('delete from issues where id = ?').run(row.id)
       else
         this.db
           .prepare('update issues set seen_count = max(0, seen_count - ?) where id = ?')
@@ -417,13 +451,16 @@ export class IssueService {
 
   /** Bu sayfada daha önce görülmüş, hâlâ açık sorunlar (kontrolcü yeniden bakar). */
   openOnPage(app: AppRef, page: string): Issue[] {
+    // Takım arkadaşının bu sayfada gördüğü açık sorun da dahildir: alıntısı ekrandaysa model çağrılmadan doğrulanır.
     const rows = this.db
       .prepare(
-        `select distinct i.* from issues i join occurrences o on o.issue_id = i.id
-         where i.project = ? and i.application = ? and o.page = ? and i.status in ('acik', 'duzeltilecek') and i.suppressed_by is null
+        `select * from issues i
+         where i.project = ? and i.application = ? and i.status in ('acik', 'duzeltilecek') and i.suppressed_by is null
+           and (exists (select 1 from occurrences o where o.issue_id = i.id and o.page = ?)
+             or exists (select 1 from shared_sightings s where s.issue_id = i.id and (s.page = ? or s.pages like ?)))
          order by i.last_seen desc limit 20`,
       )
-      .all(app.project, app.application, page) as unknown as IssueRow[]
+      .all(app.project, app.application, page, page, `%"${page}"%`) as unknown as IssueRow[]
     return rows.map((r) => this.toIssue(r))
   }
 
@@ -440,7 +477,15 @@ export class IssueService {
       )
       .get(issueId, page) as
       { quote: string; scenario: string; expected: string; observed: string } | undefined
-    return row ?? null
+    if (row) return row
+    const shared = this.db
+      .prepare(
+        `select quote, scenario, expected, observed from shared_sightings
+         where issue_id = ? and page = ? and quote is not null and quote <> '' order by last_seen desc limit 1`,
+      )
+      .get(issueId, page) as
+      { quote: string; scenario: string; expected: string; observed: string } | undefined
+    return shared ?? null
   }
 
   /** Modülde bilinen sorun anahtarları: aynı sorun başka sayfada görülürse aynı anahtarla bildirilsin. */
@@ -451,13 +496,21 @@ export class IssueService {
   ): Array<Pick<Issue, 'key' | 'title' | 'status'>> {
     return this.db
       .prepare(
-        `select distinct i.key, i.title, i.status from issues i join occurrences o on o.issue_id = i.id
-         where i.project = ? and i.application = ? and i.source = 'yz' and (o.page = ? or o.page like ?)
+        `select i.key, i.title, i.status from issues i
+         where i.project = ? and i.application = ? and i.source = 'yz'
+           and (exists (select 1 from occurrences o where o.issue_id = i.id and (o.page = ? or o.page like ?))
+             or exists (select 1 from shared_sightings s where s.issue_id = i.id and (s.page = ? or s.page like ?)))
          order by i.last_seen desc limit ?`,
       )
-      .all(app.project, app.application, modulePrefix, `${modulePrefix}-%`, limit) as Array<
-      Pick<Issue, 'key' | 'title' | 'status'>
-    >
+      .all(
+        app.project,
+        app.application,
+        modulePrefix,
+        `${modulePrefix}-%`,
+        modulePrefix,
+        `${modulePrefix}-%`,
+        limit,
+      ) as Array<Pick<Issue, 'key' | 'title' | 'status'>>
   }
 
   /** "Bulgu değil" denmiş sorunlar: kontrolcü bunları yeniden getirmesin. */
@@ -477,56 +530,177 @@ export class IssueService {
   }
 
   /**
-   * Git'ten gelen karar dosyalarını yerel aynaya işler (pull sonrası). Dosya kaynaktır: durum, tarihçe ve yorumlar
-   * dosyadakiyle değiştirilir. Bu makinede hiç görülmemiş sorun için de kayıt açılır ki karar uygulanabilsin.
+   * Git'ten gelenleri yerel aynaya işler (pull sonrası, koşu başında):
+   * - Karar dosyaları: tarihçe ve yorumlar yerelle birleştirilir (hiçbir taraf silinmez; Git'in union birleştirmesi
+   *   iki kişinin satırlarını aynı dosyada bırakır). Dosya bu makinedeki son değişiklikten yeniyse durumu o belirler;
+   *   değilse birleşik tarihçenin son geçişi (Argus'un bu makinedeki daha yeni gözlemi ezilmez). Bu makinede hiç
+   *   görülmemiş sorun için de kayıt açılır ki karar uygulanabilsin.
+   * - Takım arkadaşlarının bulgu dosyaları (`me` hariç): "başka makinelerde görüldü" olarak yeniden yüklenir. Artık
+   *   hiçbir yerde görülmeyen, kararsız ve yorumsuz uzak kayıt silinir (arkadaş düzeldiğini gördüyse burada da kalmaz).
+   * Dönen sayı işlenen karar dosyası sayısıdır.
    */
-  syncFromMemory(app: AppRef): number {
+  syncFromMemory(app: AppRef, me: string): number {
     const records = this.memory.decisions(app)
+    const others = this.memory.sharedFindings(app).filter((f) => f.file !== authorSlug(me))
     transaction(this.db, () => {
       for (const record of records) {
         let row = this.byKey(app, record.key)
-        if (!row) {
-          const id = newId()
-          const at = record.updatedAt || now()
+        if (!row)
+          row = this.insertRemote(
+            app,
+            record.key,
+            record.title,
+            record.kind,
+            record.updatedAt || now(),
+            record.status,
+          )
+        const local = this.db
+          .prepare(
+            'select max(at) as at from (select at from history where issue_id = ? union all select at from comments where issue_id = ?)',
+          )
+          .get(row.id, row.id) as { at: string | null }
+        for (const c of record.comments)
           this.db
             .prepare(
-              `insert into issues (id, project, application, key, title, kind, status, source, first_seen, last_seen, seen_count)
-               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+              `insert into comments (issue_id, author, text, at) select ?, ?, ?, ?
+               where not exists (select 1 from comments where issue_id = ? and at = ? and author = ? and text = ?)`,
+            )
+            .run(row.id, c.author, c.text, c.at, row.id, c.at, c.author, c.text)
+        for (const h of record.history)
+          this.db
+            .prepare(
+              `insert into history (issue_id, from_status, to_status, author, note, at) select ?, ?, ?, ?, ?, ?
+               where not exists (select 1 from history where issue_id = ? and at = ? and author = ? and to_status = ?)`,
+            )
+            .run(row.id, h.from, h.to, h.author, h.note, h.at, row.id, h.at, h.author, h.to)
+        // Dosya yeniyse durumu o belirler (elle düzenleme dahil); değilse birleşik tarihçenin son geçişi.
+        const last = this.db
+          .prepare('select to_status from history where issue_id = ? order by at desc limit 1')
+          .get(row.id) as { to_status: IssueStatus } | undefined
+        const status = !local.at || record.updatedAt > local.at ? record.status : (last?.to_status ?? record.status)
+        this.db.prepare('update issues set status = ?, title = ? where id = ?').run(status, record.title, row.id)
+      }
+      this.db
+        .prepare(
+          'delete from shared_sightings where issue_id in (select id from issues where project = ? and application = ?)',
+        )
+        .run(app.project, app.application)
+      for (const file of others)
+        for (const f of file.findings) {
+          const row =
+            this.byKey(app, f.key) ??
+            this.insertRemote(app, f.key, f.title, f.kind, f.lastSeen || now(), 'acik')
+          this.db
+            .prepare(
+              `insert or replace into shared_sightings (issue_id, author, pages, page, scenario, expected, observed, quote, first_seen, last_seen, seen_count)
+               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
-              id,
-              app.project,
-              app.application,
-              record.key,
-              record.title,
-              record.kind,
-              record.status,
-              record.key.startsWith('goz:') ? 'goz' : 'yz',
-              at,
-              at,
+              row.id,
+              file.author,
+              JSON.stringify(f.pages),
+              f.page,
+              f.scenario,
+              f.expected,
+              f.observed,
+              f.quote,
+              f.firstSeen || f.lastSeen,
+              f.lastSeen,
+              f.seenCount,
             )
-          row = this.row(id)
         }
-        this.db
-          .prepare('update issues set status = ?, title = ? where id = ?')
-          .run(record.status, record.title, row.id)
-        this.db.prepare('delete from comments where issue_id = ?').run(row.id)
-        this.db.prepare('delete from history where issue_id = ?').run(row.id)
-        for (const c of record.comments) {
-          this.db
-            .prepare('insert into comments (issue_id, author, text, at) values (?, ?, ?, ?)')
-            .run(row.id, c.author, c.text, c.at)
-        }
-        for (const h of record.history) {
-          this.db
-            .prepare(
-              'insert into history (issue_id, from_status, to_status, author, note, at) values (?, ?, ?, ?, ?, ?)',
-            )
-            .run(row.id, h.from, h.to, h.author, h.note, h.at)
-        }
-      }
+      this.db
+        .prepare(
+          `delete from issues where project = ? and application = ?
+             and not exists (select 1 from occurrences o where o.issue_id = issues.id)
+             and not exists (select 1 from shared_sightings s where s.issue_id = issues.id)
+             and not exists (select 1 from history h where h.issue_id = issues.id)
+             and not exists (select 1 from comments c where c.issue_id = issues.id)`,
+        )
+        .run(app.project, app.application)
     })
     return records.length
+  }
+
+  /** Git'ten gelen (bu makinede görülmemiş) sorun için yerel kayıt. */
+  private insertRemote(
+    app: AppRef,
+    key: string,
+    title: string,
+    kind: FindingKind,
+    at: string,
+    status: IssueStatus,
+  ): IssueRow {
+    const id = newId()
+    this.db
+      .prepare(
+        `insert into issues (id, project, application, key, title, kind, status, source, first_seen, last_seen, seen_count)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      )
+      .run(
+        id,
+        app.project,
+        app.application,
+        key,
+        title,
+        kind,
+        status,
+        key.startsWith('goz:') ? 'goz' : 'yz',
+        at,
+        at,
+      )
+    return this.row(id)
+  }
+
+  /**
+   * Bu makinenin paylaşılacak bulguları: burada görülmüş, açık (açık / düzeltilecek), bastırılmamış kesin ve tutarsızlık
+   * bulguları ile son görünümleri (doğrulanmış görünüm öncelikli). "Not"lar paylaşılmaz (bulgu sayılmaz, takımı
+   * gürültüye boğmasın). En yeni 300 sorun.
+   */
+  ownFindings(app: AppRef): SharedFinding[] {
+    const rows = this.db
+      .prepare(
+        `select * from issues i where i.project = ? and i.application = ? and i.status in ('acik', 'duzeltilecek')
+           and i.suppressed_by is null and i.kind in ('kesin', 'tutarsizlik')
+           and exists (select 1 from occurrences o where o.issue_id = i.id)
+         order by i.last_seen desc limit 300`,
+      )
+      .all(app.project, app.application) as unknown as IssueRow[]
+    return rows.map((row) => {
+      const sample = this.db
+        .prepare(
+          `select page, scenario, expected, observed, quote from occurrences where issue_id = ?
+           order by (outcome = 'dogrulanamadi'), at desc limit 1`,
+        )
+        .get(row.id) as {
+        page: string
+        scenario: string
+        expected: string
+        observed: string
+        quote: string | null
+      }
+      const pages = (
+        this.db
+          .prepare('select distinct page from occurrences where issue_id = ? order by page')
+          .all(row.id) as Array<{
+          page: string
+        }>
+      ).map((r) => r.page)
+      return {
+        key: row.key,
+        title: row.title,
+        kind: row.kind,
+        pages,
+        firstSeen: row.first_seen,
+        lastSeen: row.last_seen,
+        seenCount: row.seen_count,
+        page: sample.page,
+        scenario: sample.scenario,
+        expected: sample.expected,
+        observed: sample.observed,
+        quote: sample.quote,
+      }
+    })
   }
 
   /** Ders çıkarıcı için: son öğrenmeden bu yana insanın verdiği kararlar (yorumlarıyla). */

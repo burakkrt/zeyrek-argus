@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, rmSync, writeFile } from 'node:fs'
 import { join } from 'node:path'
-import { moduleOf, type AppRef, type RunInfo, type RunOptions, type Settings } from '@argus/shared'
+import { moduleOf, RUN_CEILINGS, type AppRef, type RunInfo, type RunOptions, type Settings } from '@argus/shared'
 import { PageController } from '../agent/page-controller.ts'
+import { pickPages } from '../agent/page-picker.ts'
 import { describeModelError, UsageMeter, type CreateMessage } from '../agent/model.ts'
 import { appBlock, BASE_INSTRUCTIONS } from '../agent/prompts.ts'
 import { BrowserSession } from '../browser/session.ts'
@@ -13,6 +14,7 @@ import {
   getRun,
   nextQueuedRun,
   saveUsage,
+  setRunPages,
   startRun,
 } from '../db/runs.ts'
 import { appSessionFile, getAppUser, getSettings, listAppUsers } from '../db/settings.ts'
@@ -21,6 +23,9 @@ import { parseSuperLogin, type SuperLoginSpec } from '../identity/super-login.ts
 import { endSuperLogin, reserveSuperLogin, switchUser } from '../identity/switch.ts'
 import { ArgusError, errorMessage } from '../errors.ts'
 import { loadAttachments, validAttachments } from './attachments.ts'
+import { renderKnowledge } from '../agent/knowledge.ts'
+import { ScreenMemory } from './screens.ts'
+import { authorSlug } from '../memory/shared.ts'
 import type { IssueService } from '../issues/issues.ts'
 import type { Learner } from '../memory/learn.ts'
 import { selectRules } from '../memory/select.ts'
@@ -30,7 +35,7 @@ import { assertNotProduction, pageUrl } from '../platform/catalog.ts'
 import type { Platform } from '../platform/platform.ts'
 import { fetchAccessToken } from '../platform/token.ts'
 import type { EventBus } from './bus.ts'
-import { comparePrints, describeChange, lastPrint, savePrint, studioPrint } from './prints.ts'
+import { comparePrints, describeChange, lastPrint, savePrint, studioPrint, type PagePrint } from './prints.ts'
 
 export interface RunManagerDeps {
   db: Database
@@ -42,6 +47,8 @@ export interface RunManagerDeps {
   dataDir: string
   /** Ayarlardaki modelle istek yapan işlev; anahtar yoksa hata fırlatır. */
   model: () => CreateMessage
+  /** Paylaşılan dosyalarda (`findings/`, `pages/`, `screens/`) bu makinenin yazar adı. */
+  author: () => string
   headless?: boolean
 }
 
@@ -75,11 +82,13 @@ export class RunManager {
     options?: Partial<RunOptions>
   }): RunInfo {
     assertNotProduction(input.environment)
-    if (!input.pages.length) throw new ArgusError('NO_PAGES', 'En az bir sayfa seçin.')
-    const settings = getSettings(this.deps.db)
+    // Sayfa seçmek isteğe bağlıdır: yalnız girdi (ya da ek) verilirse sayfalar koşu başında girdiden seçilir.
+    if (!input.pages.length && !input.options?.brief?.trim() && !input.options?.attachments?.length)
+      throw new ArgusError('NO_PAGES', 'Sayfa seçin ya da girdi yazın.')
+    // Görev ve adım kullanıcıya bırakılmaz (kalite önceliklidir); tavanlar yalnız kaçağı durdurur.
     const options: RunOptions = {
-      maxTasks: Math.min(Math.max(input.options?.maxTasks ?? settings.defaultOptions.maxTasks, 1), 12),
-      maxSteps: Math.min(Math.max(input.options?.maxSteps ?? settings.defaultOptions.maxSteps, 3), 40),
+      maxTasks: Math.min(Math.max(input.options?.maxTasks ?? RUN_CEILINGS.maxTasks, 1), RUN_CEILINGS.maxTasks),
+      maxSteps: Math.min(Math.max(input.options?.maxSteps ?? RUN_CEILINGS.maxSteps, 3), RUN_CEILINGS.maxSteps),
       user: input.options?.user?.trim() || null,
       brief: input.options?.brief?.trim().slice(0, BRIEF_LIMIT) || null,
       attachments: validAttachments(this.deps.dataDir, input.options?.attachments),
@@ -158,6 +167,29 @@ export class RunManager {
           page,
           environment,
         })
+      // Talimatın ekleri bir kez okunur, her sayfanın planlayıcısına gider.
+      const attachments = loadAttachments(this.deps.dataDir, run.options.attachments ?? [])
+      // Sayfa seçilmediyse (yalnız girdi) sayfalar girdiden seçilir; koşunun kaydı o sayfalarla güncellenir.
+      let pages = run.pages
+      if (!pages.length) {
+        const picked = await pickPages({
+          createMessage: model,
+          meter,
+          model: settings.models.planner,
+          brief: run.options.brief ?? null,
+          attachments,
+          catalog: await platform.catalog.pages(run.project, run.application, run.environment),
+        })
+        if (!picked.pages.length)
+          throw new ArgusError('NO_PAGES', 'Girdiden test edilecek sayfa çıkarılamadı; sayfa seçin ya da girdiyi açın.')
+        pages = picked.pages
+        setRunPages(db, run.id, pages)
+        bus.runUpdated(getRun(db, run.id)!)
+        bus.publish(run.id, null, {
+          type: 'bilgi',
+          message: `Girdiye göre ${pages.length} sayfa seçildi: ${pages.join(', ')}.${picked.reason ? ` ${picked.reason}` : ''}`,
+        })
+      }
       // Kimlik koşudan önce, modelsiz belirlenir (`identity/plan.ts`); kurulamıyorsa koşu burada durur.
       const spec = parseSuperLogin(memory.identity(app))
       const plan = planIdentity(run.options.user, listAppUsers(db, app), spec !== null)
@@ -180,7 +212,7 @@ export class RunManager {
         onFrame,
         ...(stateFile ? { storageState: stateFile } : {}),
       })
-      const signIn = await session.signIn(urlOf(run.pages[0]!), appUser).catch((error: unknown) => {
+      const signIn = await session.signIn(urlOf(pages[0]!), appUser).catch((error: unknown) => {
         // Giriş tutmadıysa saklanan oturum da geçersizdir: sonraki koşu temiz başlar.
         if (stateFile) rmSync(stateFile, { force: true })
         throw error
@@ -212,13 +244,12 @@ export class RunManager {
       session.drainBlocked()
       mkdirSync(frameDir, { recursive: true })
       recording = true
-      const synced = issues.syncFromMemory(app)
+      const author = this.deps.author()
+      const synced = issues.syncFromMemory(app, author)
       if (synced)
         bus.publish(run.id, null, { type: 'bilgi', message: `Takımın ${synced} kararı hafızadan okundu.` })
 
-      // Talimatın ekleri bir kez okunur, her sayfanın planlayıcısına gider.
-      const attachments = loadAttachments(this.deps.dataDir, run.options.attachments ?? [])
-      for (const page of run.pages) {
+      for (const page of pages) {
         if (active.stop) break
         const url = urlOf(page)
         bus.publish(run.id, page, { type: 'sayfa-basladi', url })
@@ -235,6 +266,10 @@ export class RunManager {
             message: `Kural bütçesi doldu: ${selection.dropped.length} kural isteme giremedi (${selection.dropped.map((r) => r.id).join(', ')}). Hafıza → Bakım önerilir.`,
           })
         }
+        const knowledge = memory.pageKnowledge(app, page)
+        const screens = new ScreenMemory(memory.screenDir(app, page), authorSlug(author))
+        // Bu koşunun sayfa izi: sayfa bilgisiyle birlikte saklanır (takım genelinde "ne değişti?" dayanağı).
+        let current: PagePrint | null = null
         const controller = new PageController({
           session,
           url,
@@ -243,6 +278,7 @@ export class RunManager {
             openIssues: issues.openOnPage(app, page),
             known: issues.knownInModule(app, moduleOf(page)),
             rejected: issues.rejected(app),
+            knowledge: knowledge?.body ?? null,
           },
           patterns: selection.patterns,
           system: [
@@ -280,9 +316,25 @@ export class RunManager {
                 .then(studioPrint)
                 .catch(() => null)
               const print = { ui, api, studio }
-              const change = comparePrints(lastPrint(db, app, run.environment, page), print)
+              current = print
+              // Sayfa bilgisi varsa (kimin koşusundan gelirse gelsin) değişiklik onun yazıldığı andaki ize göre, yoksa bu
+              // makinenin son koşusuna göre ölçülür.
+              const basis = knowledge?.print ? 'bilgi' : 'kosu'
+              const change = comparePrints(
+                knowledge?.print ?? lastPrint(db, app, run.environment, page),
+                print,
+              )
               savePrint(db, { ...app, environment: run.environment, page, runId: run.id, print })
-              bus.publish(run.id, page, { type: 'bilgi', message: describeChange(change) })
+              bus.publish(run.id, page, { type: 'bilgi', message: describeChange(change, basis) })
+              return change
+            },
+            screenMemory: (print) => screens.get(print),
+            rememberScreen: (print, label, notes) => screens.remember(print, label, notes),
+            saveKnowledge: (distilled) => {
+              if (!current) return
+              const at = new Date().toISOString()
+              const content = renderKnowledge(distilled, { page, author, run: run.code, at, print: current })
+              memory.writePageKnowledge(app, page, author, content)
             },
             file: (kind) => {
               counters[kind] += 1
@@ -322,6 +374,15 @@ export class RunManager {
       await session?.close()
     }
     finishRun(db, run.id, status, meter.usage, failure)
+    // Bu makinenin açık bulguları takımla paylaşılır (kişinin kendi dosyası; başkasınınkine dokunulmaz).
+    try {
+      memory.writeSharedFindings(app, this.deps.author(), issues.ownFindings(app))
+    } catch (error) {
+      bus.publish(run.id, null, {
+        type: 'hata',
+        message: `Paylaşılan bulgular yazılamadı: ${describeModelError(error)}`,
+      })
+    }
     bus.publish(run.id, null, {
       type: 'kosu-bitti',
       status,

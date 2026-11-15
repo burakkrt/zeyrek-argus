@@ -13,15 +13,20 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 3. **Görmezden gelmeyi öğrenmek insan onayı ister.** `sorun-degil` kuralı ve devredeki kuralı değiştiren öneri
    kendiliğinden uygulanmaz (`server/src/memory/learn.ts`). Kural emekliye ayrılınca bastırdıkları serbest kalır.
 4. **Ham bilgi isteme girmez.** Kararlar ve müşteri satırları ders çıkarıcıdan geçer; istem yalnız onaylı kuralları
-   bütçe içinde taşır (`server/src/memory/select.ts`). Yeni bir bilgi kaynağı isteme eklenecekse bütçesi ve kesme
-   kuralıyla eklenir.
+   bütçe içinde taşır (`server/src/memory/select.ts`). Sayfa bilgisi de damıtılmış ve sabit bütçelidir
+   (`server/src/agent/knowledge.ts`, `KNOWLEDGE_LIMITS`); her koşuda baştan yazılır, birikmez. Yeni bir bilgi kaynağı
+   isteme eklenecekse bütçesi ve kesme kuralıyla eklenir.
 5. **Konuşma geçmişi düzenlenmez.** Görev konuşmaları yalnız eklenerek büyür; bağlamı sınırlamanın yolu görevleri
    kısa tutmaktır (önbellek ve düşünme blokları korunur).
 
 ## Yapı
 
 - `shared/` türleri sunucu ve arayüz ortak kullanır; olay biçimi değişirse ikisi birlikte değişir.
-- Paylaşılan bilgi `memory/` dosyalarındadır (Git); yerel veri `data/argus.db` (SQLite), `data/runs/` ve talimat görselleri `data/ekler/` (planlayıcıya yalnız koşunun kendi ekleri gider; gezgin görmez).
+- Paylaşılan bilgi `memory/` dosyalarındadır (Git); yerel veri `data/argus.db` (SQLite), `data/runs/`, talimat görselleri `data/ekler/` (planlayıcıya yalnız koşunun kendi ekleri gider; gezgin görmez). Yerel veri toplam boyutla sınırlanır (`server/src/runs/storage.ts`): aşılınca üç günde bir bildirim, silme yalnız kullanıcı isteyince; `memory/` hiç silinmez.
+- `memory/` altında Git çakışması çıkmaz: Argus'un yazdığı paylaşılan dosyalar kişi başınadır (`findings/<yazar>.md`, `pages/<sayfa>/<yazar>.md`, `screens/<sayfa>/<yazar>.json`), karar dosyalarını yalnız insan yazar ve `memory/.gitattributes` onları union ile birleştirir. Yeni bir paylaşılan dosya türü eklerken ya tek yazarlı yap ya da birleşmesini tanımla ve test et.
+- **Motor değişikliği ölçülmeden varsayılan olmaz:** aynı sayfalarda ardışık koşu serisi, bulgular kanıt görüntüsüyle kör
+  doğrulanır; kabul ölçütü yakalanan gerçek sorunun düşmemesi, yanlış bulgunun artmaması. Görev/adım/bütçe sınırıyla
+  tasarruf yapılmaz. Ölçümü kaybeden kod aynı işte silinir.
   Karar dosyası kaynaktır; veritabanı aynadır (`IssueService.syncFromMemory`).
 - Sayaçlar (kural kullanımı) dosyaya değil veritabanına yazılır.
 - Kod adları İngilizce; arayüz, hata mesajı, hafıza ve doküman Türkçe. Model araçlarının adları Türkçedir (akışta

@@ -29,6 +29,19 @@ export function formatDuration(from: string | null, to: string | null): string {
 export const formatMoney = (usd: number | null | undefined) =>
   usd === null || usd === undefined ? '—' : `$${usd.toFixed(2).replace('.', ',')}`
 
+/** Bayt, okunur birimle ve Türkçe ondalıkla: 950 B, 1,2 MB, 12 GB (10 ve üstü tam sayı). */
+export function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  const digits = unit === 0 || value >= 10 ? 0 : 1
+  return `${value.toLocaleString('tr-TR', { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${units[unit]}`
+}
+
 export const formatCost = (usage: Usage | null | undefined) => formatMoney(usage?.costUsd)
 
 export const formatTokens = (usage: Usage) => {

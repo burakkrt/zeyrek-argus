@@ -15,6 +15,11 @@ class Notifier {
     this.items = this.items.filter((n) => n.id !== id)
   }
 
+  /** Sayfa değişince çağrılır: bildirim o sayfanın işine aittir, başka sayfada kalmaz. */
+  clear() {
+    this.items = []
+  }
+
   success = (title: string, message?: string) => this.show({ tone: 'success', title, message })
   info = (title: string, message?: string) => this.show({ tone: 'info', title, message })
   warning = (title: string, message?: string) => this.show({ tone: 'warning', title, message })

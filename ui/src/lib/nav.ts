@@ -49,8 +49,15 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Sistem',
     placement: 'bottom',
     entries: [
-      { path: 'ayarlar', label: 'Ayarlar', icon: 'gear' },
-      { path: 'hafiza', label: 'Hafıza', icon: 'brain' },
+      {
+        label: 'Ayarlar',
+        icon: 'gear',
+        children: [
+          { path: 'ayarlar', label: 'Genel' },
+          { path: 'yapay-zeka', label: 'Yapay zekâ ve öğrenme' },
+          { path: 'hafiza', label: 'Hafıza' },
+        ],
+      },
     ],
   },
 ]

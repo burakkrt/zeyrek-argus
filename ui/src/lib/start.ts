@@ -1,28 +1,10 @@
 import type { Issue, PageGroup, RunInfo } from '@argus/shared'
 
 /**
- * Yeni koşu ekranının saf mantığı: derinlik ön ayarları, yapıştırılan bağlantıdan sayfa çözme, kapsam satırları ve geçmiş
- * koşulardan süre/maliyet tahmini. Bileşen yalnız bunları çağırır.
+ * Yeni koşu ekranının saf mantığı: yapıştırılan bağlantıdan sayfa çözme, sayfa satırları, başlatma denetimi ve geçmiş
+ * koşulardan süre/maliyet tahmini. Bileşen yalnız bunları çağırır. Koşunun derinliği seçilmez: motor kalite
+ * öncelikli çalışır (bkz. `RUN_CEILINGS`).
  */
-
-export type DepthKey = 'hizli' | 'standart' | 'derin' | 'ozel'
-
-export const DEPTHS: Array<{
-  key: Exclude<DepthKey, 'ozel'>
-  label: string
-  hint: string
-  maxTasks: number
-  maxSteps: number
-}> = [
-  { key: 'hizli', label: 'Hızlı', hint: 'Açılış ve ana akış', maxTasks: 2, maxSteps: 6 },
-  { key: 'standart', label: 'Standart', hint: 'Liste, filtre, form, pencere', maxTasks: 5, maxSteps: 10 },
-  { key: 'derin', label: 'Derin', hint: 'Kenar durumlar ve tutarlılık', maxTasks: 8, maxSteps: 16 },
-]
-
-/** Sayılar bir ön ayara denk geliyorsa onun anahtarı, değilse `ozel`. */
-export function depthOf(maxTasks: number, maxSteps: number): DepthKey {
-  return DEPTHS.find((d) => d.maxTasks === maxTasks && d.maxSteps === maxSteps)?.key ?? 'ozel'
-}
 
 /** Bağlantı; cümle sonundaki noktalama bağlantıya katılmaz. */
 const URL_RE = /https?:\/\/[^\s<>"')]*[^\s<>"').,;:!?]/g
@@ -48,8 +30,8 @@ export function pagesFromLinks(text: string, groups: PageGroup[]): string[] {
   return found
 }
 
-/** Geçmiş yokken kullanılan birim (sayfa × görev başına). */
-const FALLBACK = { minutes: 0.4, cost: 0.16 }
+/** Geçmiş yokken kullanılan birim (sayfa başına). */
+const FALLBACK = { minutes: 2, cost: 0.8 }
 
 export interface Estimate {
   minutes: number
@@ -65,17 +47,17 @@ const median = (values: number[]) => {
 }
 
 /**
- * Süre ve maliyet tahmini: model çalıştırmış (maliyeti sıfırdan büyük) bitmiş son 20 koşunun "sayfa × görev" başına
- * süre ve maliyet medyanı, seçilen sayfa ve görev sayısıyla çarpılır. Modelsiz koşu (açılışta doğrulanıp biten) birimi
- * sıfıra çeker, sayılmaz. Adım sınırı görevin üst sınırıdır, ortalamayı az etkiler; hesaba katılmaz.
+ * Süre ve maliyet tahmini: model çalıştırmış (maliyeti sıfırdan büyük) bitmiş son 20 koşunun sayfa başına süre ve
+ * maliyet medyanı, seçilen sayfa sayısıyla çarpılır. Modelsiz koşu (açılışta doğrulanıp biten) birimi sıfıra çeker,
+ * sayılmaz. Sayfa seçilmediyse (sayfalar girdiden seçilecek) tahmin yoktur.
  */
-export function estimateRun(history: RunInfo[], pages: number, maxTasks: number): Estimate | null {
+export function estimateRun(history: RunInfo[], pages: number): Estimate | null {
   if (!pages) return null
   const units = history
     .filter((r) => r.status === 'bitti' && r.startedAt && r.finishedAt && (r.usage.costUsd ?? 0) > 0)
     .slice(0, 20)
     .map((r) => {
-      const work = r.pages.length * Math.max(1, r.options.maxTasks)
+      const work = Math.max(1, r.pages.length)
       const minutes = (Date.parse(r.finishedAt!) - Date.parse(r.startedAt!)) / 60_000
       return { minutes: minutes / work, cost: r.usage.costUsd! / work }
     })
@@ -83,11 +65,10 @@ export function estimateRun(history: RunInfo[], pages: number, maxTasks: number)
   const unit = units.length
     ? { minutes: median(units.map((u) => u.minutes)), cost: median(units.map((u) => u.cost)) }
     : FALLBACK
-  const work = pages * maxTasks
-  return { minutes: unit.minutes * work, cost: unit.cost * work, basis: units.length ? 'gecmis' : 'varsayim' }
+  return { minutes: unit.minutes * pages, cost: unit.cost * pages, basis: units.length ? 'gecmis' : 'varsayim' }
 }
 
-/** Kapsam tablosunun satırı: katalogdaki sayfa + bu daldaki son koşusu ve uygulamadaki açık bulgu sayısı. */
+/** Sayfa tablosunun satırı: katalogdaki sayfa + bu daldaki son koşusu ve uygulamadaki açık bulgu sayısı. */
 export interface ScopeRow {
   id: string
   slug: string
@@ -133,14 +114,12 @@ export function scopeRows(
  */
 export function startProblem(input: {
   pages: number
+  brief: string
+  files: number
   uploading: boolean
 }): { title: string; message: string } | null {
-  if (!input.pages)
-    return {
-      title: 'Kapsam seçilmedi',
-      message:
-        'Kapsam tablosundan test edilecek en az bir sayfa seç ya da talimata sayfa bağlantısı yapıştır.',
-    }
+  if (!input.pages && !input.brief.trim() && !input.files)
+    return { title: 'Ne test edilsin?', message: 'Sayfa seç ya da girdi alanına ne test edileceğini yaz.' }
   if (input.uploading)
     return { title: 'Dosyalar yükleniyor', message: 'Ekler yüklenince koşuyu yeniden başlat.' }
   return null

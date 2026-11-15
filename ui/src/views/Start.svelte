@@ -1,36 +1,26 @@
 <script lang="ts">
-  import type { AppUserSetting, Issue, PageGroup, RunInfo, Settings } from '@argus/shared'
+  import type { AppUserSetting, Issue, PageGroup, RunInfo } from '@argus/shared'
   import { onMount } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import Attachments, { type AttachedFile } from '$lib/components/form/Attachments.svelte'
   import Page from '$lib/components/layout/Page.svelte'
   import DataTable from '$lib/components/table/DataTable.svelte'
   import { Button } from '$lib/components/ui/button/index.js'
-  import { Input } from '$lib/components/ui/input/index.js'
   import { api, post, qs } from '$lib/api'
   import { formatMoney } from '$lib/format'
   import { notify } from '$lib/notify.svelte'
-  import {
-    DEPTHS,
-    depthOf,
-    estimateRun,
-    pagesFromLinks,
-    scopeRows,
-    startProblem,
-    type DepthKey,
-    type ScopeRow,
-  } from '$lib/start'
+  import { estimateRun, pagesFromLinks, scopeRows, startProblem, type ScopeRow } from '$lib/start'
   import type { TableColumn, TablePreset } from '$lib/table'
   import { cn } from '$lib/utils'
   import { workspace } from '$lib/workspace.svelte'
   import { go } from '../lib/router.svelte'
 
   /**
-   * Yeni koşu: ne test edilsin (talimat, bağlantı, ekler), hangi sayfalar (ortak tabloyla seçilir; Başlat hep etkindir; eksik varsa
-   * (`startProblem`) bildirim gösterir), ne kadar derin. Proje · uygulama · dal menünün üstündeki çalışma alanından, test kullanıcısı Ayarlar'daki
-   * varsayılan hesaptan gelir; burada yalnız özetlenir. Başlat düğmesi sayfa başlığının sağındadır (platform kalıbı).
+   * Yeni koşu: girdi (ne test edilsin; bağlantı ve ekler) ve sayfalar. İkisi de isteğe bağlıdır ama biri gerekir
+   * (`startProblem`): yalnız sayfa seçilirse o sayfalar olağan kapsamla, yalnız girdi yazılırsa sayfalar girdiden
+   * seçilerek, ikisi birlikteyse seçilen sayfalar girdi bağlamında test edilir. Derinlik seçilmez: motor kalite
+   * öncelikli çalışır. Proje · uygulama · dal çalışma alanından, test kullanıcısı Ayarlar'daki varsayılan hesaptan gelir.
    */
-  const SAVED = 'argus.baslat'
   const BRIEF_LIMIT = 2000
   /** Sunucunun kabul ettiği ek türleri (`server/src/runs/attachments.ts`). */
   const ACCEPT = [
@@ -57,9 +47,6 @@
   let files = $state<AttachedFile[]>([])
   let attachments = $state<ReturnType<typeof Attachments> | null>(null)
   let linked = $state<string[]>([])
-  let maxTasks = $state(5)
-  let maxSteps = $state(10)
-  let depth = $state<DepthKey>('standart')
   let history = $state<RunInfo[]>([])
   let account = $state<AppUserSetting | null>(null)
   let loading = $state(true)
@@ -69,7 +56,7 @@
   let starting = $state(false)
 
   const rows = $derived(scopeRows(groups, history, issues))
-  const estimate = $derived(estimateRun(history, selected.length, maxTasks))
+  const estimate = $derived(estimateRun(history, selected.length))
 
   const columns: TableColumn<ScopeRow>[] = [
     // Ad ve adres birlikte süzülür: kullanıcı ekranda gördüğü adı da, bağlantıdaki adresi de yazabilir.
@@ -98,7 +85,7 @@
   }
 
   function linkPages(text: string) {
-    // Talimattaki bağlantının sayfası kapsama bir kez eklenir (yapıştırınca ve alandan çıkınca; yazarken yarım adres
+    // Girdideki bağlantının sayfası seçime bir kez eklenir (yapıştırınca ve alandan çıkınca; yazarken yarım adres
     // başka sayfaya denk gelmesin). Kullanıcı kaldırırsa geri gelmez.
     const fresh = pagesFromLinks(text, groups).filter((slug) => !linked.includes(slug))
     if (!fresh.length) return
@@ -115,28 +102,17 @@
     void attachments?.add(pasted)
   }
 
-  function pickDepth(key: DepthKey) {
-    depth = key
-    const preset = DEPTHS.find((d) => d.key === key)
-    if (preset) ({ maxTasks, maxSteps } = preset)
-  }
-
   async function start() {
-    const problem = startProblem({ pages: selected.length, uploading })
+    const problem = startProblem({ pages: selected.length, brief, files: files.length, uploading })
     if (problem) return notify.warning(problem.title, problem.message)
     starting = true
-    try {
-      localStorage.setItem(SAVED, JSON.stringify({ maxTasks, maxSteps }))
-    } catch {
-      /* tarayıcı depolaması kapalıysa hatırlamaz */
-    }
     try {
       const run = await post<RunInfo>('/kosular', {
         proje: target.project,
         uygulama: target.application,
         ortam: target.environment,
         sayfalar: selected,
-        secenekler: { maxTasks, maxSteps, brief: brief.trim() || null, attachments: files.map((f) => f.id) },
+        secenekler: { brief: brief.trim() || null, attachments: files.map((f) => f.id) },
       })
       go(`/monitor/${run.id}`)
     } catch (e) {
@@ -147,26 +123,15 @@
 
   onMount(() => {
     const where = { proje: target.project, uygulama: target.application, ortam: target.environment }
-    let saved: { maxTasks?: unknown; maxSteps?: unknown } = {}
-    try {
-      saved = JSON.parse(localStorage.getItem(SAVED) ?? '{}') as typeof saved
-    } catch {
-      /* tarayıcı depolaması kapalı */
-    }
     void Promise.all([
-      api<{ settings: Settings }>('/ayarlar').catch(() => null),
       api<{ accounts: AppUserSetting[] }>(`/kimlik${qs(where)}`).catch(() => null),
       api<PageGroup[]>(`/katalog/sayfalar${qs(where)}`),
       api<RunInfo[]>(`/kosular${qs(where)}`).catch(() => []),
       api<Issue[]>(`/sorunlar${qs({ proje: target.project, uygulama: target.application })}`).catch(() => []),
       api<{ code: string }>('/kosular/siradaki-kod').catch(() => null),
     ])
-      .then(([settings, identity, pages, runs, found, code]) => {
+      .then(([identity, pages, runs, found, code]) => {
         nextCode = code?.code ?? null
-        const defaults = settings?.settings.defaultOptions
-        maxTasks = typeof saved.maxTasks === 'number' ? saved.maxTasks : (defaults?.maxTasks ?? 5)
-        maxSteps = typeof saved.maxSteps === 'number' ? saved.maxSteps : (defaults?.maxSteps ?? 10)
-        depth = depthOf(maxTasks, maxSteps)
         account = identity?.accounts.find((a) => a.isDefault) ?? identity?.accounts[0] ?? null
         groups = pages
         history = runs
@@ -186,7 +151,7 @@
 
 <Page
   title="Yeni koşu"
-  description="Neyi, hangi sayfalarda, ne kadar derin test edeceğini seç; Argus salt okuyarak gezsin, sen monitörden izle"
+  description="Sayfa seç ya da ne test edileceğini yaz; koşuyu monitörden izle"
 >
   {#snippet actions()}
     <Button disabled={starting} onclick={start}>
@@ -195,15 +160,12 @@
     </Button>
   {/snippet}
 
-  <!-- Solda sayfa kabı (talimat, kapsam), sağda ayrı yapışkan kutu (koşu ayarları ve özet) -->
+  <!-- Solda sayfa kabı (girdi, sayfalar), sağda ayrı yapışkan kutu (koşunun özeti) -->
   <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
     <div class="bg-card text-card-foreground min-w-0 rounded-xl border">
       <div class="flex min-w-0 flex-col gap-8 p-6">
         <section class="flex flex-col gap-3">
-          {@render heading(
-            'Ne test edilsin?',
-            'İsteğe bağlı: odak, şüphelendiğin yer, sayfa bağlantısı; ekran görüntüsü, gereksinim ya da müşteri dosyası.',
-          )}
+          {@render heading('Girdi', 'Ne test edileceğini ya da neye dikkat edileceğini yaz; boş bırakabilirsin.')}
           <div class="flex flex-col gap-3">
             <div class="relative">
               <textarea
@@ -212,8 +174,8 @@
                 onblur={() => linkPages(brief)}
                 maxlength={BRIEF_LIMIT}
                 rows="3"
-                aria-label="Talimat"
-                placeholder="Ör. Eğitim formunda tarih seçince bitiş tarihi sıfırlanıyor, buna odaklan. Sayfa bağlantısı yapıştırırsan o sayfa kapsama eklenir."
+                aria-label="Girdi"
+                placeholder="Ör. Bu sayfalardaki arayüz ve kullanım sorunlarını bul."
                 class="border-input placeholder:text-placeholder focus-visible:border-ring focus-visible:ring-ring/15 block max-h-72 min-h-24 w-full resize-none rounded-lg border bg-transparent px-3 py-2.5 text-sm leading-6 transition-colors outline-none [field-sizing:content] focus-visible:ring-2"
               ></textarea>
               {#if brief.length}
@@ -227,7 +189,7 @@
             {#if linked.length}
               <p class="text-muted-foreground flex items-center gap-1.5 text-xs">
                 <Icon name="link" class="size-4" />
-                Bağlantıdan kapsama eklendi: {linked.join(', ')}
+                Bağlantıdan seçilen sayfalar: {linked.join(', ')}
               </p>
             {/if}
 
@@ -238,17 +200,17 @@
               {upload}
               accept={ACCEPT}
               maxFiles={6}
-              description="Görsel, PDF, Excel, Word, CSV ya da metin · en çok 6 dosya, 10 MB · talimata yapıştırılan ekran görüntüsü de eklenir"
+              description="Görsel, PDF, Excel, Word, CSV ya da metin; en çok 6 dosya, her biri 10 MB."
             />
           </div>
         </section>
 
         <section class="flex min-w-0 flex-col gap-3">
           {@render heading(
-            'Kapsam',
+            'Sayfalar',
             selected.length
               ? `${selected.length} sayfa seçili.`
-              : 'Test edilecek sayfaları seç; seçim olmadan koşu başlamaz.',
+              : 'İstersen test edilecek sayfaları seç; seçmezsen girdiye göre seçilir.',
           )}
           <DataTable
             {rows}
@@ -286,55 +248,14 @@
 
     <aside class="bg-card text-card-foreground rounded-xl border p-5 lg:sticky lg:top-[148px]">
       <div class="flex flex-col gap-3">
-        {@render heading('Koşu', 'Derinlik ve koşunun özeti.')}
+        {@render heading('Koşu', 'Başlatılacak koşunun özeti.')}
         <div class="flex flex-col gap-5">
-          <div class="flex flex-col gap-2">
-            <span class="text-[13px] font-medium">Derinlik</span>
-            <div
-              role="radiogroup"
-              aria-label="Derinlik"
-              class="bg-muted grid grid-cols-4 gap-0.5 rounded-lg p-0.5"
-            >
-              {#each [...DEPTHS, { key: 'ozel' as const, label: 'Özel' }] as option (option.key)}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={depth === option.key}
-                  class={cn(
-                    'h-7 rounded-md text-[13px] transition-colors',
-                    depth === option.key
-                      ? 'bg-card text-foreground font-medium shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                  onclick={() => pickDepth(option.key)}>{option.label}</button
-                >
-              {/each}
-            </div>
-            {#if depth === 'ozel'}
-              <div class="grid grid-cols-2 gap-3 pt-1">
-                <label class="flex flex-col gap-1 text-xs">
-                  <span class="text-muted-foreground">Sayfa başına görev</span>
-                  <Input type="number" min={1} max={12} bind:value={maxTasks} class="h-8" />
-                </label>
-                <label class="flex flex-col gap-1 text-xs">
-                  <span class="text-muted-foreground">Görev başına adım</span>
-                  <Input type="number" min={3} max={40} bind:value={maxSteps} class="h-8" />
-                </label>
-              </div>
-            {:else}
-              {@const preset = DEPTHS.find((d) => d.key === depth)!}
-              <p class="text-muted-foreground text-xs">
-                {preset.hint} · sayfa başına {preset.maxTasks} görev, görev başına {preset.maxSteps} adım
-              </p>
-            {/if}
-          </div>
-
-          <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2.5 border-t pt-4 text-[13px]">
+          <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-[13px]">
             <dt class="text-muted-foreground">Kod</dt>
             <dd class="text-right font-mono text-xs" title="Koşu başlatılınca atanır">{nextCode ?? '—'}</dd>
-            <dt class="text-muted-foreground">Kapsam</dt>
+            <dt class="text-muted-foreground">Sayfalar</dt>
             <dd class={cn('text-right', !selected.length && 'text-muted-foreground')}>
-              {selected.length ? `${selected.length} sayfa` : 'Seçilmedi'}
+              {selected.length ? `${selected.length} sayfa` : brief.trim() || files.length ? 'Girdiden seçilecek' : 'Seçilmedi'}
             </dd>
             <dt class="text-muted-foreground">Dal</dt>
             <dd

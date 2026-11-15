@@ -1,0 +1,294 @@
+{
+  "043e6d87fe45a5a5": {
+    "label": "Tıklandı: \"\"",
+    "notes": [
+      "Tarih seçici açık: 'Öz değerlendirme başlangıcı' alanında, ay/yıl 'Kasım' '2026'",
+      "Takvimde bugün '15' vurgulu; 1 Kasım 2026 Pazar sütununda ve doğru gün.",
+      "Takvim gün kısaltmaları: 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cts', 'Paz'.",
+      "Takvim açılır penceresi 'Yönetici değerlendirmesi' ve 'Sonuç yayını' alanlarının üstünü örtüyor; pencere açıkken görünmüyorlar.",
+      "Aşama takvimi numaraları: '1 Hedef belirleme', '2 Öz değerlendirme başlangıcı', '2 Öz değerlendirme bitişi', '4 Kalibrasyon', '6 İtiraz süresi'.",
+      "İlerleme: '0 / 3 tamamlandı'; adımlar 'Dönem bilgileri' ('Geçerli adım'), 'Kapsam ve katılımcılar', 'Özet ve başlat'.",
+      "Form şablonu ve Bağlı performans planı yine 'Seçin' durumunda; seçim yapılmamış.",
+      "E-posta gönderimi 'Kapalı'; uyarı 'E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.' görüntüde kırmızı.",
+      "Hatırlatma zamanı '5' 'gün önce'; 'Süre geçince yöneticiye bildir' işaretli.",
+      "Sekme başlığı 'IMS | Yeni değerlendirme dönemi'; gezinti yolu 'Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi'."
+    ],
+    "at": "2026-11-15T07:24:21.926Z"
+  },
+  "2b2e0dd5ba6399c0": {
+    "label": "Tıklandı: \"Seçin expand_more\"",
+    "notes": [
+      "'Bağlı performans planı' listesi yüklendi; 17 seçenek var ve \"Seçenekler yüklenemedi\" yazısı yok.",
+      "Plan seçenek biçimi: \"PLN-2030-01 · 2030 Performans planı\".",
+      "Görünen sıra: \"PLN-2030-01\", \"PLN-2029-01\", \"PLN-2028-01\", \"PLN-2027-03\", \"PLN-2027-08\", \"PLN-2027-09\", \"PLN-2027-02\".",
+      "Test adlı plan: \"PLN-2027-08 · burak test\".",
+      "Son seçenek: \"PLN-2026-01 · 2026 Performans planı\".",
+      "Listede \"PLN-2028-01 · 2028 Performans planı\" var; DASDASDAD dönemi bu plana bağlı.",
+      "Açılır listede arama kutusu var: \"Ara\".",
+      "İlerleme: \"0 / 3 tamamlandı\".",
+      "Ağaçtaki duyuru metni hâlâ \"IMS | Dönem yönetimi\"; sekme başlığı \"IMS | Yeni değerlendirme dönemi\".",
+      "E-posta gönderimi \"Kapalı\"; hatırlatma zamanı \"5\" \"gün önce\"."
+    ],
+    "at": "2026-11-15T07:24:09.346Z"
+  },
+  "5329abacc229d17f": {
+    "label": "Tıklandı: \"Kapandı13\"",
+    "notes": [
+      "Kapandı süzgeci basılı: \"Kapandı 13\"; sayaçlar \"Tümü 20\", \"Aktif 3\", \"Taslak 4\"",
+      "Kapandı satırlarının aşama etiketi \"Kapandı\"",
+      "Kapanmış TEST dönemlerinin çoğunda Form şablonu \"Beyaz yaka\", Plan \"—\"; Ekran 1 notunda bunların ikisinin de \"—\" olduğu yazıyordu",
+      "\"DASDASDAD\" DD-2026-03: \"Mavi yaka\", \"PLN-2028-01\", Kayıt 10, \"4 Kas 2026\", Bitiş boş",
+      "\"TEST-DEG uçtan uca (ajan, silinecek)\" DD-2026-08: Kayıt 2, \"12 Kas 2026\" – \"19 Ara 2026\"",
+      "\"TEST-SIHIRBAZ geç yayın denemesi\" DD-2026-07: \"20 Kas 2026\" – \"10 Ara 2026\", Kayıt 1",
+      "Kapanmış dönemlerin bitiş tarihleri \"2 Ara 2026\", \"10 Ara 2026\", \"19 Ara 2026\", \"30 Kas 2026\"",
+      "Plan filtresinin yer tutucusu boş; Kayıt filtresinde \"–\" görünüyor; tarih filtrelerinde \"Tarih seçin\"",
+      "Sekme başlığı \"IMS | Dönem yönetimi\"; gezinti yolu \"Ana sayfa / Performans yönetimi / Dönem yönetimi\"",
+      "Menüde \"Ana sayfa\" ve \"Ana Sayfa\" birlikte geçiyor (zaten bildirildi)"
+    ],
+    "at": "2026-11-15T07:23:17.706Z"
+  },
+  "660e7836904cbbf4": {
+    "label": "Tıklandı: \"27\"",
+    "notes": [
+      "Öz değerlendirme başlangıcı alanının değeri: \"27 Eki 2026\"; biçim listedeki \"15 Şub 2027\" ile aynı",
+      "\"1 Hedef belirleme *\" boşken \"2 Öz değerlendirme başlangıcı\" dolduruldu; uyarı çıkmadı",
+      "Seçilen tarih bugünden (15 Kasım 2026) önce; uyarı yok",
+      "Dolu tarih alanında temizleme düğmesi \"close\" görünüyor",
+      "İlerleme \"0 / 3 tamamlandı\"; adımlar \"Dönem bilgileri\" (\"Geçerli adım\"), \"Kapsam ve katılımcılar\", \"Özet ve başlat\"",
+      "Form şablonu ve Bağlı performans planı hâlâ \"Seçin\"",
+      "E-posta gönderimi \"Kapalı\"; uyarı \"E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.\" görüntüde kırmızı",
+      "Hatırlatma zamanı \"5\" \"gün önce\"; \"Süre geçince yöneticiye bildir\" işaretli",
+      "Ağaçtaki duyuru metni \"IMS | Dönem yönetimi\"; sekme başlığı \"IMS | Yeni değerlendirme dönemi\"",
+      "Gezinti yolu \"Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi\""
+    ],
+    "at": "2026-11-15T07:24:35.651Z"
+  },
+  "6fc1b9cb3e8f8b71": {
+    "label": "Tıklandı: \"2026 OrtasıDD-2027-02 Beyaz yaka PLN-2026-01 Öz değerlendirme 2 15 Şub 2027 1 Şu\"",
+    "notes": [
+      "Başlık: \"2026 Ortası\", aşama rozeti \"Öz değerlendirme\", alt satır \"DD-2027-02 · Form şablonu “Beyaz yaka” · 2026 Performans planına bağlı\"",
+      "Aşama şeridi: \"Hedef belirleme\" \"15 Şub 2027’ye kadar\"; \"Öz değerlendirme\" \"1 Ara – 15 Ara 2027\"; \"Yönetici değerlendirmesi\" \"5 Oca 2028’e kadar\"; \"İtiraz süresi\" \"1 Şub 2028’e kadar\"",
+      "İlerleme: \"1 / 6 tamamlandı\"",
+      "Sayaçlar: \"Katılımcılar 2\", \"Yöneticisi eksik 1\", \"Kapsam dışı 44\"; \"Tümü 2\" = \"Hedef belirlemede 1\" + \"Öz değerlendirmede 1\"",
+      "Katılımcı sayısı listedeki \"Kayıt 2\" ile uyumlu; sayfalama \"1–2 / 2 kayıt\"",
+      "Katılımcı durum etiketleri \"Hedef belirlemede\" ve \"Öz değerlendirmede\"; aşama adları \"Hedef belirleme\" ve \"Öz değerlendirme\"",
+      "\"Yöneticisi eksik 1\" sayacı var, ama listedeki iki katılımcının da yöneticisi dolu (Çetin KOCATÜRK, Sercan AKMAZ); grup ayrı olabilir, test edilmedi",
+      "Kapsam: \"En az kıdem 10 gün (31 Ara 2026’ya göre)\", Durum \"Aktif kullanıcılar\", Kategori \"Beyaz yaka\"",
+      "Form şablonu: \"Hedefler %60 · 3–6 hedef\", \"Yetkinlikler %30\", \"360° geri bildirim %10 · en az 3 cevap\", \"Ölçek 1–5 (5 etiket)\"",
+      "Katılımcı tablosunda \"Puan\" sütunu sağda kesik görünüyor (yatay kaydırma olabilir)",
+      "Sekme başlığı \"IMS | Değerlendirme dönemi\"; gezinti yolu \"Ana sayfa / Performans yönetimi / Dönem yönetimi / 2026 Ortası\""
+    ],
+    "at": "2026-11-15T07:22:15.681Z"
+  },
+  "7e5723a1a9f7a1ea": {
+    "label": "Tıklandı: \"Seçin expand_more\"",
+    "notes": [
+      "Form şablonu açılır listesi yüklendi; seçenekler \"Beyaz yaka\", \"Mavi yaka\", \"Yönetici\" ve Türkçe alfabetik sırada.",
+      "Açılır listede arama kutusu var: \"Ara\"; \"Seçenekler yüklenemedi\" yazısı bu ekranda yok.",
+      "Form şablonu seçenekleri listedeki şablon adlarıyla uyumlu: \"Beyaz yaka\", \"Mavi yaka\".",
+      "\"Bağlı performans planı\" açılır listesi açılmadı; plan seçenekleri test edilmedi.",
+      "Aşama takvimi numaraları: \"1 Hedef belirleme\", \"2 Öz değerlendirme başlangıcı\", \"2 Öz değerlendirme bitişi\", \"3 Yönetici değerlendirmesi\", \"4 Kalibrasyon\", \"5 Sonuç yayını\", \"6 İtiraz süresi\".",
+      "İlerleme: \"0 / 3 tamamlandı\"; adımlar \"Dönem bilgileri\" (\"Geçerli adım\"), \"Kapsam ve katılımcılar\" ve \"Özet ve başlat\" (\"Dönem kaydedilince açılır\").",
+      "E-posta gönderimi \"Kapalı\"; uyarı: \"E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.\"",
+      "Hatırlatma zamanı \"5\" \"gün önce\"; \"Süre geçince yöneticiye bildir\" işaretli.",
+      "Ağaçtaki duyuru metni hâlâ \"IMS | Dönem yönetimi\"; sekme başlığı \"IMS | Yeni değerlendirme dönemi\".",
+      "Gezinti yolu: \"Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi\"."
+    ],
+    "at": "2026-11-15T07:23:51.843Z"
+  },
+  "9019d4fee82bfd20": {
+    "label": "Sayfa açıldı",
+    "notes": [
+      "Sayaçlar: \"Tümü 20\", \"Aktif 3\", \"Taslak 4\", \"Kapandı 13\" (3+4+13=20)",
+      "Aşama etiketleri: \"Taslak\", \"Hedef belirleme\", \"Öz değerlendirme\", \"Kapandı\"",
+      "Sütunlar: \"Dönem\", \"Form şablonu\", \"Plan\", \"Aşama\", \"Kayıt\", \"Başlangıç\", \"Bitiş\"",
+      "Tarih biçimi listede: \"15 Şub 2027\", \"1 Şub 2028\", \"20 Kas 2026\", \"10 Ara 2026\"",
+      "\"2027 Yıl sonu değerlendirmesi\" DD-2027-01, PLN-2027-01, \"15 Şub 2027\" – \"8 Şub 2028\", Taslak, Kayıt 0",
+      "\"2026 Ortası\" DD-2027-02, PLN-2026-01, \"Öz değerlendirme\", Kayıt 2",
+      "\"test burak değerlendirme\" DD-2027-03, PLN-2030-01, \"Hedef belirleme\", Kayıt 9",
+      "Kapandı dönemlerinde Form şablonu ve Plan \"—\"",
+      "Sekme başlığı: \"IMS | Dönem yönetimi\"",
+      "Gezinti yolu: \"Ana sayfa / Performans yönetimi / Dönem yönetimi\""
+    ],
+    "at": "2026-11-15T07:20:55.864Z"
+  },
+  "973fd6bfc0ada737": {
+    "label": "Tıklandı: \"Diğer işlemler stat_minus_1\"",
+    "notes": [
+      "\"Diğer işlemler\" menüsü açık; tek seçenek \"Kalibrasyon oturumları\" (open_in_new simgeli)",
+      "Aşama şeridi: \"Hedef belirleme\" \"15 Şub 2027’ye kadar\", \"Öz değerlendirme\" \"1 Ara – 15 Ara 2027\", \"Yönetici değerlendirmesi\" \"5 Oca 2028’e kadar\", \"İtiraz süresi\" \"1 Şub 2028’e kadar\"",
+      "Görüntüde \"Kalibrasyon\" \"20 Oca 2028’e k…\", \"Sonuç yayını\" \"25 Oca 2026\" (okunuşu belirsiz)",
+      "İlerleme: \"1 / 6 tamamlandı\"",
+      "Sayaçlar: \"Katılımcılar 2\", \"Yöneticisi eksik 1\", \"Kapsam dışı 44\"; \"Tümü 2\" = \"Hedef belirlemede 1\" + \"Öz değerlendirmede 1\"",
+      "Katılımcılar: \"Furkan ÜSTÇAYIR\" (Satış, Çetin KOCATÜRK, Hedef belirlemede, Hedef 0); \"Burak KURT\" (Yazılım & Destek, Sercan AKMAZ, Öz değerlendirmede, Hedef 3)",
+      "Kapsam: Firma \"Glomil\", Departmanlar \"Satış, Yazılım & Destek\", Kategori \"Beyaz yaka\", \"10 gün (31 Ara 2026’ya göre)\"",
+      "Başlık alt satırı: \"DD-2027-02 · Form şablonu “Beyaz yaka” · 2026 Performans planına bağlı\"",
+      "\"Bu aşamada\" açıklaması: \"Sonraki aşamaya geçişi dönem yöneticisi yapar.\"",
+      "Birincil düğme: \"Yönetici değerlendirmesi aşamasına geç\"",
+      "Sayfalama: \"1–2 / 2 kayıt\", \"Sayfa başına 20\"",
+      "Sekme başlığı \"IMS | Değerlendirme dönemi\"; gezinti yolu son öğe \"2026 Ortası\""
+    ],
+    "at": "2026-11-15T07:22:37.395Z"
+  },
+  "a021c6c4fcf37013": {
+    "label": "Tıklandı: \"test burak değerlendirmeDD-2027-03 Beyaz yaka PLN-2030-01 Hedef belirleme 9 15 Ş\"",
+    "notes": [
+      "Başlık alt satırı: \"DD-2027-03 · Form şablonu “Beyaz yaka” · 2030 Performans planına bağlı\"",
+      "Aşama rozeti \"Hedef belirleme\"; ilerleme \"0 / 6 tamamlandı\"",
+      "Aşama şeridi: \"15 Şub 2027’ye kadar\", \"1 Ara – 15 Ara 2027\", \"5 Oca 2028’e kadar\", Kalibrasyon \"20 Oca 2028’e kadar\", Sonuç yayını \"25 Oca 2026\", İtiraz \"1 Şub 2028’e kadar\"",
+      "Sayaçlar: \"Katılımcılar 9\", \"Yöneticisi eksik 26\", \"Kapsam dışı 11\"; Yöneticisi eksik sayısı katılımcı sayısından büyük",
+      "\"Tümü 9\" = \"Hedef belirlemede 8\" + \"Hedef onayında 1\"; listedeki \"Kayıt 9\" ile uyumlu",
+      "Katılımcı durum etiketleri: \"Hedef belirlemede\", \"Hedef onayında\"",
+      "Kapsam: Firma \"Glomil\", Departmanlar \"Tümü\", Kategori \"Beyaz yaka\", \"90 gün (1 Oca 2027’ye göre)\", Durum \"Aktif kullanıcılar\"",
+      "2026 Ortası kapsamı \"10 gün (31 Ara 2026’ya göre)\" idi; bu dönemde \"90 gün (1 Oca 2027’ye göre)\"",
+      "Form şablonu: Hedefler \"%60 · 3–6 hedef\", Yetkinlikler \"%30 · ünvana göre set\", 360° \"%10 · en az 3 cevap\", Ölçek \"1–5 (5 etiket)\"",
+      "Görünen katılımcıların hepsinin yöneticisi dolu (Sercan AKMAZ, Ersin KARATEKELİ, Muhammed Ali ASLAN)",
+      "Katılımcı tablosunda \"Puan\" sütunu sağda kesik görünüyor (yatay kaydırma olabilir)",
+      "Hedef belirleme bitişi (15 Şub 2027) dönem başlangıcıyla aynı gün"
+    ],
+    "at": "2026-11-15T07:23:03.246Z"
+  },
+  "afd317da24dd71cd": {
+    "label": "Tıklandı: \"26\"",
+    "notes": [
+      "Öz değerlendirme başlangıcı \"27 Eki 2026\", bitişi \"26 Eki 2026\"; bitiş başlangıçtan önce",
+      "\"1 Hedef belirleme *\" hâlâ boş; uyarı yok",
+      "Form şablonu ve Bağlı performans planı hâlâ \"Seçin\"",
+      "İlerleme \"0 / 3 tamamlandı\"; adımlar \"Dönem bilgileri\" (\"Geçerli adım\"), \"Kapsam ve katılımcılar\", \"Özet ve başlat\"",
+      "Aşama takvimi numaraları: \"1 Hedef belirleme\", \"2 Öz değerlendirme başlangıcı\", \"2 Öz değerlendirme bitişi\", \"3 Yönetici değerlendirmesi\", \"4 Kalibrasyon\", \"5 Sonuç yayını\", \"6 İtiraz süresi\"",
+      "E-posta gönderimi \"Kapalı\"; uyarı \"E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.\" kırmızı",
+      "Hatırlatma zamanı \"5\" \"gün önce\"; \"Süre geçince yöneticiye bildir\" işaretli",
+      "Ağaçtaki duyuru metni \"IMS | Dönem yönetimi\"; sekme başlığı \"IMS | Yeni değerlendirme dönemi\"",
+      "Gezinti yolu \"Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi\"",
+      "Kasım takviminde soluk \"26\" seçildi, alan \"26 Eki 2026\" oldu (önceki ay günü, aynı davranış zaten bildirildi)"
+    ],
+    "at": "2026-11-15T07:24:59.586Z"
+  },
+  "c93c06e8730aed51": {
+    "label": "Tıklandı: \"Sıradaki: Kapsam ve katılımcılar\"",
+    "notes": [
+      "Form doğrulaması çalışıyor: 'Dönem adı *', 'Form şablonu *' ve '1 Hedef belirleme *' altında 'Bu alan zorunludur.'",
+      "Öz değerlendirme bitişi '26 Eki 2026', başlangıcı '27 Eki 2026'; gönderimde hata çıktı: 'Tarih, bir önceki aşamanın tarihinden önce olamaz.'",
+      "Bitiş tarihi hatası alan seçilirken değil, 'Sıradaki' düğmesine basınca gösterildi.",
+      "İlerleme '0 / 3 tamamlandı'; adımlar 'Dönem bilgileri' ('Geçerli adım'), 'Kapsam ve katılımcılar', 'Özet ve başlat' ('Dönem kaydedilince açılır').",
+      "Aşama takvimi: '1 Hedef belirleme', '2 Öz değerlendirme başlangıcı', '2 Öz değerlendirme bitişi', '3 Yönetici değerlendirmesi', '4 Kalibrasyon', '5 Sonuç yayını', '6 İtiraz süresi'.",
+      "Form şablonu ve Bağlı performans planı 'Seçin' durumunda.",
+      "E-posta gönderimi 'Kapalı'; uyarı 'E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.'",
+      "Hatırlatma zamanı '5' 'gün önce'; 'Süre geçince yöneticiye bildir' işaretli.",
+      "Sekme başlığı 'IMS | Yeni değerlendirme dönemi'; ağaçtaki duyuru metni 'IMS | Dönem yönetimi'.",
+      "Gezinti yolu 'Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi'.",
+      "Menüde 'Ana sayfa' ve 'Ana Sayfa' birlikte geçiyor (zaten bildirildi)."
+    ],
+    "at": "2026-11-15T07:25:16.913Z"
+  },
+  "cf8ac2d0485ad5b5": {
+    "label": "Tıklandı: \"close\"",
+    "notes": [
+      "İki \"close\" tıklamasıyla Öz değerlendirme başlangıcı ve bitişi temizlendi; ikisi de yine \"Tarih seçin\" gösteriyor",
+      "Alanlar temizlenince \"Tarih, bir önceki aşamanın tarihinden önce olamaz.\" hatası kalktı",
+      "\"Bu alan zorunludur.\" hâlâ Dönem adı, Form şablonu ve \"1 Hedef belirleme *\" altında görünüyor",
+      "Görüntüde \"Öz değerlendirme bitişi\" alanı odakta (mavi çerçeve)",
+      "İlerleme \"0 / 3 tamamlandı\"; adımlar \"Dönem bilgileri\" (\"Geçerli adım\"), \"Kapsam ve katılımcılar\", \"Özet ve başlat\" (\"Dönem kaydedilince açılır\")",
+      "Aşama takvimi: \"1 Hedef belirleme\", \"2 Öz değerlendirme başlangıcı\", \"2 Öz değerlendirme bitişi\", \"3 Yönetici değerlendirmesi\", \"4 Kalibrasyon\", \"5 Sonuç yayını\", \"6 İtiraz süresi\"",
+      "Form şablonu ve Bağlı performans planı \"Seçin\" durumunda",
+      "E-posta gönderimi \"Kapalı\"; uyarı \"E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.\"",
+      "Hatırlatma zamanı \"5\" \"gün önce\"; \"Süre geçince yöneticiye bildir\" işaretli ve etkin (zaten bildirildi)",
+      "Sekme başlığı \"IMS | Yeni değerlendirme dönemi\"; ağaçtaki duyuru metni \"IMS | Dönem yönetimi\" (zaten bildirildi)",
+      "Gezinti yolu \"Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi\""
+    ],
+    "at": "2026-11-15T07:25:35.723Z"
+  },
+  "d49ea73c35970951": {
+    "label": "Tıklandı: \"\"",
+    "notes": [
+      "Öz değerlendirme bitişi tarih seçicisi açık; ay/yıl \"Kasım\" \"2026\", bugün \"15\" vurgulu",
+      "Öz değerlendirme başlangıcı alanı \"27 Eki 2026\"; bitiş takvimi başlangıç ayı Ekim yerine \"Kasım\" ile açılıyor",
+      "Bitiş takviminde önceki ay günleri \"26\"–\"31\" soluk; başlangıçtan önceki günlerin seçilip seçilemeyeceği test edilmedi",
+      "Takvim gün kısaltmaları: \"Pzt\", \"Sal\", \"Çar\", \"Per\", \"Cum\", \"Cts\", \"Paz\"",
+      "Takvim penceresi Kalibrasyon ve İtiraz süresi alanlarının üstünü örtüyor",
+      "\"1 Hedef belirleme *\" hâlâ boş; uyarı görünmüyor",
+      "Form şablonu ve Bağlı performans planı hâlâ \"Seçin\"",
+      "İlerleme \"0 / 3 tamamlandı\"; adımlar \"Dönem bilgileri\" (\"Geçerli adım\"), \"Kapsam ve katılımcılar\", \"Özet ve başlat\"",
+      "E-posta gönderimi \"Kapalı\"; uyarı \"E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.\" kırmızı",
+      "Hatırlatma zamanı \"5\" \"gün önce\"; \"Süre geçince yöneticiye bildir\" işaretli",
+      "Sekme başlığı \"IMS | Yeni değerlendirme dönemi\"; gezinti yolu \"Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi\""
+    ],
+    "at": "2026-11-15T07:24:47.030Z"
+  },
+  "d87f92dd4a159245": {
+    "label": "Tıklandı: \"add Yeni dönem\"",
+    "notes": [
+      "Form alanları bu kez yüklendi. \"Seçenekler yüklenemedi\" yazısı görülmedi; açılır listeler açılmadı, seçenekler test edilmedi.",
+      "Adımlar: \"Dönem bilgileri\" (\"Geçerli adım\"), \"Kapsam ve katılımcılar\" ve \"Özet ve başlat\" (\"Dönem kaydedilince açılır\"); ilerleme \"0 / 3 tamamlandı\".",
+      "Aşama takvimi: \"1 Hedef belirleme *\", \"2 Öz değerlendirme başlangıcı\", \"2 Öz değerlendirme bitişi\", \"3 Yönetici değerlendirmesi\", \"4 Kalibrasyon\", \"5 Sonuç yayını\", \"6 İtiraz süresi\".",
+      "Aşama adları ayrıntı sayfasındaki şeritle uyumlu: Hedef belirleme, Öz değerlendirme, Yönetici değerlendirmesi, Kalibrasyon, Sonuç yayını, İtiraz süresi.",
+      "Zorunlu alanlar: \"Dönem adı *\", \"Form şablonu *\" ve \"1 Hedef belirleme *\". \"Bağlı performans planı\" isteğe bağlı.",
+      "Dönem adı yer tutucusu: \"ör. Yıl sonu değerlendirmesi\"; açılır listelerde \"Seçin\"; tarih alanlarında \"Tarih seçin\".",
+      "E-posta gönderimi \"Kapalı\" ve anahtar devre dışı. Açıklama: \"Bu ayar bütün değerlendirme dönemleri için geçerlidir.\" ve \"Performans parametreleri\" bağlantısı var.",
+      "Hatırlatma zamanı varsayılanı \"5\" \"gün önce\"; \"Süre geçince yöneticiye bildir\" işaretli.",
+      "\"E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.\" uyarısı görüntüde kırmızı (hata rengi) yazılmış.",
+      "Ağaçta önceki sayfanın duyuru metni yükleme sonrası da duruyor: \"IMS | Dönem yönetimi\". Sekme başlığı ise doğru: \"IMS | Yeni değerlendirme dönemi\".",
+      "Form boşken \"Sıradaki: Kapsam ve katılımcılar\" düğmesi etkin görünüyor; tıklanmadı.",
+      "Gezinti yolu: \"Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi\"."
+    ],
+    "at": "2026-11-15T07:23:42.244Z"
+  },
+  "df8ec2c60f49f7fe": {
+    "label": "Tıklandı: \"add Yeni dönem\"",
+    "notes": [
+      "Ekran yükleniyor: görüntüde yalnız dönen gösterge var, form alanları henüz gelmedi; değerlendirme yapılmadı.",
+      "Adres \"performans-donem-olustur\", sekme başlığı \"IMS | Yeni değerlendirme dönemi\"",
+      "Sayfa başlığı \"Yeni değerlendirme dönemi\", açıklama \"Taslak olarak açılır; kapsamı önizleyip başlatın\"",
+      "Adımlar: \"Dönem bilgileri\" (\"Geçerli adım\"), \"Kapsam ve katılımcılar\", \"Özet ve başlat\" (\"Dönem kaydedilince açılır\")",
+      "İlerleme: \"0 / 3 tamamlandı\"; ayrıntı sayfasında \"1 / 6 tamamlandı\" biçimi kullanılıyordu",
+      "Ağaçta önceki sayfanın duyuru metni kalmış: \"IMS | Dönem yönetimi\" (yükleme sırasında görüldü)",
+      "Ağaçta anlamı belirsiz metin: \"1 2 2 3 4 5 6\" (yükleme sırasında)",
+      "Menüde \"Ana sayfa\" ve \"Ana Sayfa\" birlikte geçiyor (zaten bildirildi)",
+      "Sayfa adları: listede \"Dönem yönetimi\", ayrıntıda \"Değerlendirme dönemi\", oluşturmada \"Yeni değerlendirme dönemi\""
+    ],
+    "at": "2026-11-15T07:23:23.882Z"
+  },
+  "ec6d29123aa19189": {
+    "label": "Tıklandı: \"Aktif3\"",
+    "notes": [
+      "Aktif süzgeci: \"1–3 / 3 kayıt\", sayaç \"Aktif 3\" ile uyumlu",
+      "Aktif aşama etiketleri: \"Hedef belirleme\", \"Öz değerlendirme\", \"Sonuç yayını\"",
+      "\"2026 Yıl sonu değerlendirmesi\" DD-2026-01, PLN-2026-01, \"Sonuç yayını\", Kayıt 9, \"15 Şub 2026\" – \"24 Ara 2026\"",
+      "\"test burak değerlendirme\" DD-2027-03, PLN-2030-01, \"Hedef belirleme\", Kayıt 9, \"15 Şub 2027\" – \"1 Şub 2028\"",
+      "\"2026 Ortası\" DD-2027-02, PLN-2026-01, \"Öz değerlendirme\", Kayıt 2, \"15 Şub 2027\" – \"1 Şub 2028\"",
+      "Aktif dönemlerin hepsinde Form şablonu \"Beyaz yaka\"",
+      "Sayfalama: \"Sayfa başına 20\"",
+      "Tarih filtre yer tutucusu: \"Tarih seçin\"; metin filtrelerinde \"Filtrele\""
+    ],
+    "at": "2026-11-15T07:21:43.572Z"
+  },
+  "fa682f1fbcaef95c": {
+    "label": "Tıklandı: \"Dönem yönetimi\" — Tarayıcı penceresi açıldı: onay penceresi (\"Girilen bilgiler kaydedilmedi. Sayfadan çıkılsın mı?\"). Kontrolcü iptal etti, sayfada kalındı (düğme tepki verdi; tepkisizlik bulgusu değildir).",
+    "notes": [
+      "Çıkış onayı iptal edildi; form verisi korunmuş: Öz değerlendirme başlangıcı \"27 Eki 2026\", bitişi \"26 Eki 2026\"",
+      "Doğrulama mesajları hâlâ görünüyor: \"Bu alan zorunludur.\" (Dönem adı, Form şablonu, 1 Hedef belirleme)",
+      "Bitiş alanı hatası: \"Tarih, bir önceki aşamanın tarihinden önce olamaz.\"; başlangıç ve bitiş aynı aşamaya (2) ait",
+      "İlerleme \"0 / 3 tamamlandı\"; adımlar \"Dönem bilgileri\" (\"Geçerli adım\"), \"Kapsam ve katılımcılar\", \"Özet ve başlat\" (\"Dönem kaydedilince açılır\")",
+      "Aşama takvimi: \"1 Hedef belirleme\", \"2 Öz değerlendirme başlangıcı\", \"2 Öz değerlendirme bitişi\", \"3 Yönetici değerlendirmesi\", \"4 Kalibrasyon\", \"5 Sonuç yayını\", \"6 İtiraz süresi\"",
+      "Form şablonu ve Bağlı performans planı \"Seçin\" durumunda",
+      "E-posta gönderimi \"Kapalı\"; uyarı \"E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.\"",
+      "Hatırlatma zamanı \"5\" \"gün önce\"; \"Süre geçince yöneticiye bildir\" işaretli",
+      "Sekme başlığı \"IMS | Yeni değerlendirme dönemi\"; ağaçtaki duyuru metni \"IMS | Dönem yönetimi\" (zaten bildirildi)",
+      "Gezinti yolu \"Ana sayfa / Performans yönetimi / Dönem yönetimi / Yeni değerlendirme dönemi\"; \"Dönem yönetimi\" bağlantısı odakta",
+      "Çıkış onay metni: \"Girilen bilgiler kaydedilmedi. Sayfadan çıkılsın mı?\""
+    ],
+    "at": "2026-11-15T07:25:26.981Z"
+  },
+  "fdbef50ddf55d1e4": {
+    "label": "Tıklandı: \"2026 OrtasıDD-2027-02 Beyaz yaka PLN-2026-01 Öz değerlendirme 2 15 Şub 2027 1 Şu\"",
+    "notes": [
+      "Ekran yükleniyor: içerik alanında yalnız dönen gösterge var, dönem ayrıntısı henüz gelmedi; değerlendirme yapılmadı.",
+      "Adres: \"performans-donem?id=3\" (\"2026 Ortası\" satırından açıldı).",
+      "Sekme başlığı: \"IMS | Değerlendirme dönemi\"; liste sayfasında \"IMS | Dönem yönetimi\" idi.",
+      "Ağaçta önceki sayfanın duyuru metni kalmış: \"IMS | Dönem yönetimi\". Sayfa yüklenirken görüldü, kalıcı olup olmadığı belli değil.",
+      "Menüde \"Ana sayfa\" ve \"Ana Sayfa\" birlikte görünüyor; bu sayfada zaten bildirildi.",
+      "Sayfa adı \"Değerlendirme dönemi\", listede \"Dönem yönetimi\" kullanılıyor. Ayrıntı yüklenince başlıkla karşılaştırılmalı."
+    ],
+    "at": "2026-11-15T07:21:50.246Z"
+  }
+}
