@@ -31,6 +31,22 @@
     ],
     "at": "2026-11-15T07:24:09.346Z"
   },
+  "31fcada82bee07b7": {
+    "label": "Tuş: Enter",
+    "notes": [
+      "Aşama filtresine \"Kalibrasyon\" yazılıp Enter'a basılınca liste boş: \"Eşleşen kayıt bulunamadı\", \"0 kayıt\".",
+      "Boş durum mesajı: \"1 filtre uygulandı. Filtreleri gevşetin veya kaldırın.\"",
+      "Önceki ekranlarda görülen aşama etiketleri arasında \"Kalibrasyon\" yok (\"Hedef belirleme\", \"Öz değerlendirme\", \"Sonuç yayını\", \"Taslak\", \"Kapandı\"). Boş sonuç büyük olasılıkla veri eksikliğinden; Kalibrasyon aşamasında dönem olmadığı için test edilemedi.",
+      "Filtre uygulanmışken sekme rozetleri değişmiyor: \"Tümü 20\", \"Aktif 3\", \"Taslak 4\", \"Kapandı 13\". Listede ise \"0 kayıt\" görünüyor.",
+      "Uygulanan filtre çipi \"Aşama ≈ Kalibrasyon\" olarak görünüyor. Ağaçta adı \"Aşama içerir Kalibrasyon\".",
+      "\"Gelişmiş filtre\" düğmesindeki sayaç \"1\" ve boş durum metnindeki \"1 filtre uygulandı\" birbiriyle tutuyor.",
+      "Filtreyi temizlemek için iki düğme var: çip satırında \"Filtreleri temizle\" ve boş durumda \"Filtreleri temizle\". Adları aynı.",
+      "Sayfalama: \"0 kayıt\", \"Sayfa başına 20\", sayfa düğmesi \"1\".",
+      "Plan filtresinde yer tutucu hâlâ boş; Dönem ve Form şablonu filtrelerinde \"Filtrele\", tarih filtrelerinde \"Tarih seçin\" yazıyor.",
+      "Sekme başlığı \"IMS | Dönem yönetimi\" ile sayfa başlığı \"Dönem yönetimi\" uyuşuyor."
+    ],
+    "at": "2026-11-15T08:40:41.044Z"
+  },
   "5329abacc229d17f": {
     "label": "Tıklandı: \"Kapandı13\"",
     "notes": [
@@ -99,18 +115,19 @@
   "9019d4fee82bfd20": {
     "label": "Sayfa açıldı",
     "notes": [
-      "Sayaçlar: \"Tümü 20\", \"Aktif 3\", \"Taslak 4\", \"Kapandı 13\" (3+4+13=20)",
+      "Sekme rozetleri: \"Tümü 20\", \"Aktif 3\", \"Taslak 4\", \"Kapandı 13\" (3+4+13=20, tutuyor)",
+      "Sayfa açıklaması: \"Değerlendirme dönemlerini aşamaları ve katılımcı sayılarıyla listeler.\"",
+      "Sekme başlığı \"IMS | Dönem yönetimi\", sayfa başlığı ve gezinti yolu \"Dönem yönetimi\"",
       "Aşama etiketleri: \"Taslak\", \"Hedef belirleme\", \"Öz değerlendirme\", \"Kapandı\"",
-      "Sütunlar: \"Dönem\", \"Form şablonu\", \"Plan\", \"Aşama\", \"Kayıt\", \"Başlangıç\", \"Bitiş\"",
-      "Tarih biçimi listede: \"15 Şub 2027\", \"1 Şub 2028\", \"20 Kas 2026\", \"10 Ara 2026\"",
-      "\"2027 Yıl sonu değerlendirmesi\" DD-2027-01, PLN-2027-01, \"15 Şub 2027\" – \"8 Şub 2028\", Taslak, Kayıt 0",
-      "\"2026 Ortası\" DD-2027-02, PLN-2026-01, \"Öz değerlendirme\", Kayıt 2",
-      "\"test burak değerlendirme\" DD-2027-03, PLN-2030-01, \"Hedef belirleme\", Kayıt 9",
-      "Kapandı dönemlerinde Form şablonu ve Plan \"—\"",
-      "Sekme başlığı: \"IMS | Dönem yönetimi\"",
-      "Gezinti yolu: \"Ana sayfa / Performans yönetimi / Dönem yönetimi\""
+      "\"test burak değerlendirme\" DD-2027-03: aşama Hedef belirleme, Kayıt 9, tarih 15 Şub 2027 – 1 Şub 2028",
+      "\"2026 Ortası\" DD-2027-02: plan PLN-2026-01, aşama Öz değerlendirme, Kayıt 2",
+      "\"2027 Yıl sonu değerlendirmesi\" DD-2027-01: plan PLN-2027-01, Taslak, tarih 15 Şub 2027 – 8 Şub 2028",
+      "Kapanmış dönemlerde Plan hücresi \"—\" gösteriyor",
+      "Tarih biçimi listede tutarlı: \"15 Şub 2027\", \"20 Kas 2026\", \"10 Ara 2026\"",
+      "Filtre yer tutucuları: metin filtrelerinde \"Filtrele\", tarih filtrelerinde \"Tarih seçin\"; Plan ve Kayıt filtrelerinde boş",
+      "Ağaçta Plan filtresinin operatörü \"İçerir\" (≈) olarak geçiyor, ekran görüntüsünde \"=\" görünüyor"
     ],
-    "at": "2026-11-15T07:20:55.864Z"
+    "at": "2026-11-15T08:40:16.739Z"
   },
   "973fd6bfc0ada737": {
     "label": "Tıklandı: \"Diğer işlemler stat_minus_1\"",
@@ -251,16 +268,19 @@
   "ec6d29123aa19189": {
     "label": "Tıklandı: \"Aktif3\"",
     "notes": [
-      "Aktif süzgeci: \"1–3 / 3 kayıt\", sayaç \"Aktif 3\" ile uyumlu",
-      "Aktif aşama etiketleri: \"Hedef belirleme\", \"Öz değerlendirme\", \"Sonuç yayını\"",
-      "\"2026 Yıl sonu değerlendirmesi\" DD-2026-01, PLN-2026-01, \"Sonuç yayını\", Kayıt 9, \"15 Şub 2026\" – \"24 Ara 2026\"",
-      "\"test burak değerlendirme\" DD-2027-03, PLN-2030-01, \"Hedef belirleme\", Kayıt 9, \"15 Şub 2027\" – \"1 Şub 2028\"",
-      "\"2026 Ortası\" DD-2027-02, PLN-2026-01, \"Öz değerlendirme\", Kayıt 2, \"15 Şub 2027\" – \"1 Şub 2028\"",
-      "Aktif dönemlerin hepsinde Form şablonu \"Beyaz yaka\"",
-      "Sayfalama: \"Sayfa başına 20\"",
-      "Tarih filtre yer tutucusu: \"Tarih seçin\"; metin filtrelerinde \"Filtrele\""
+      "Aktif sekmesi: rozet \"Aktif 3\", sayfalama \"1–3 / 3 kayıt\" (tutuyor); \"Sayfa başına 20\"",
+      "\"test burak değerlendirme\" DD-2027-03: plan \"PLN-2030-01\", aşama \"Hedef belirleme\", Kayıt 9, \"15 Şub 2027\" – \"1 Şub 2028\"",
+      "\"2026 Ortası\" DD-2027-02: plan \"PLN-2026-01\", aşama \"Öz değerlendirme\", Kayıt 2, \"15 Şub 2027\" – \"1 Şub 2028\"",
+      "\"2026 Yıl sonu değerlendirmesi\" DD-2026-01: plan \"PLN-2026-01\", aşama \"Sonuç yayını\", Kayıt 9, \"15 Şub 2026\" – \"24 Ara 2026\"",
+      "Aktif sekmesindeki aşama etiketleri: \"Hedef belirleme\", \"Öz değerlendirme\", \"Sonuç yayını\"",
+      "\"PLN-2026-01\" iki aktif dönemde geçiyor (bilinen: yz:donem-ayni-plan-kodu-iki-donem)",
+      "Tarih biçimi Aktif sekmesinde tutarlı: \"15 Şub 2027\", \"1 Şub 2028\", \"24 Ara 2026\"",
+      "Plan ve Kayıt filtrelerinde yer tutucu boş; Dönem, Form şablonu, Aşama filtrelerinde \"Filtrele\", tarih filtrelerinde \"Tarih seçin\"",
+      "Sütun başlıkları: \"Dönem\", \"Form şablonu\", \"Plan\", \"Aşama\", \"Kayıt\", \"Başlangıç\", \"Bitiş\"",
+      "Satırlar dönem koduna göre azalan sırada: DD-2027-03, DD-2027-02, DD-2026-01",
+      "Filtre operatörü ağaçta \"İçerir\" (≈) olarak geçiyor; görüntüde tire benzeri bir simge görünüyor"
     ],
-    "at": "2026-11-15T07:21:43.572Z"
+    "at": "2026-11-15T08:40:31.767Z"
   },
   "fa682f1fbcaef95c": {
     "label": "Tıklandı: \"Dönem yönetimi\" — Tarayıcı penceresi açıldı: onay penceresi (\"Girilen bilgiler kaydedilmedi. Sayfadan çıkılsın mı?\"). Kontrolcü iptal etti, sayfada kalındı (düğme tepki verdi; tepkisizlik bulgusu değildir).",

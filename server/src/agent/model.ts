@@ -8,8 +8,8 @@ export type ContentBlock = Anthropic.Beta.BetaContentBlockParam
 export type MessageParam = Anthropic.Beta.BetaMessageParam
 export type Tool = Anthropic.Beta.BetaTool
 
-/** Modele tek istek. Gerçekte Anthropic API'si; testte senaryolu sahte model. */
-export type CreateMessage = (params: MessageParams) => Promise<Message>
+/** Modele tek istek, isteyen rolle (koşu izi için). Gerçekte Anthropic API'si; testte senaryolu sahte model. */
+export type CreateMessage = (params: MessageParams, role?: ModelRole) => Promise<Message>
 
 /**
  * Reddedilen istek, uygun modele sunucu tarafında devredilir (Opus/Sonnet 5.5 için önerilen varsayılan).

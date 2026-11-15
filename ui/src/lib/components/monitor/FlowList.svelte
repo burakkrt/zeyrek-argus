@@ -7,6 +7,7 @@
     actionOf,
     FINDING_TONE,
     formatClock,
+    pageLabel,
     TRAVEL_MS,
     type FlowEntry,
     type FlowSections,
@@ -229,7 +230,7 @@
       {#if sections.pages.length > 1}
         <div class="flex items-center gap-2 px-3.5 pt-3 pb-1">
           <Icon name="webAsset" class="text-muted-foreground size-4" />
-          <span class="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{page.page}</span>
+          <span class="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{pageLabel(page.page)}</span>
           {#if page.status === 'suruyor'}<Spinner />{:else if page.status === 'bitti'}<Icon
               name="checkCircle"
               class="text-success size-4"

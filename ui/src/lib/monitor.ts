@@ -1,4 +1,11 @@
-import type { NetworkEntry, RunEvent, StepTarget } from '@argus/shared'
+import {
+  DEFINITION_PAGE,
+  type NetworkEntry,
+  type RunAnswer,
+  type RunEvent,
+  type RunStrategy,
+  type StepTarget,
+} from '@argus/shared'
 import type { IconName } from './icons'
 
 /**
@@ -62,6 +69,9 @@ export interface MonitorModel {
   steps: MonitorStep[]
   findings: MonitorFinding[]
   flow: FlowRow[]
+  /** Girdili koşunun stratejisi (anla adımı) ve isteğe cevabı (gözetmen); girdisiz koşuda null. */
+  strategy: RunStrategy | null
+  answer: RunAnswer | null
   /** İlk ve son olayın anı (oynatma aralığı; kareler bunu genişletebilir). */
   start: number | null
   end: number | null
@@ -76,7 +86,22 @@ export const TOOL_LABEL: Record<string, string> = {
   kaydir: 'Kaydırma',
   ekrana_bak: 'Ekrana bakış',
   bastan_ac: 'Baştan açma',
+  platform_oku: 'Platform okuması',
+  platform_arac: 'Platform aracı',
 }
+
+/** Girdili koşunun cevap durumu: rozet adı ve tonu. */
+export const ANSWER_STATUS: Record<
+  RunAnswer['status'],
+  { label: string; tone: 'success' | 'warning' | 'error' }
+> = {
+  cevaplandi: { label: 'Cevaplandı', tone: 'success' },
+  kismen: { label: 'Kısmen', tone: 'warning' },
+  cevaplanamadi: { label: 'Cevaplanamadı', tone: 'error' },
+}
+
+/** Akışta sayfanın adı: tanım kalemlerinin satırı "Platform tanımları"dır. */
+export const pageLabel = (page: string) => (page === DEFINITION_PAGE ? 'Platform tanımları' : page)
 
 const JUDGE_PREFIX = 'Yargıç: '
 
@@ -87,6 +112,8 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
   const findings: MonitorFinding[] = []
   const flow: FlowRow[] = []
   let judge: string | null = null
+  let strategy: RunStrategy | null = null
+  let answer: RunAnswer | null = null
   const pageOf = (name: string) => {
     let page = pages.get(name)
     if (!page) pages.set(name, (page = { page: name, status: 'bekliyor', tasks: [] }))
@@ -99,6 +126,15 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
     const key = String(event.seq)
     const note = (tone: NoteTone, text: string) => flow.push({ kind: 'not', key, at, tone, text })
     if (event.type === 'kosu-basladi') event.pages.forEach(pageOf)
+    if (event.type === 'strateji') {
+      strategy = event.strategy
+      note('plan', `Strateji · ${event.strategy.understood}`)
+      continue
+    }
+    if (event.type === 'cevap') {
+      answer = event.answer
+      continue
+    }
     if (event.type === 'bilgi') {
       // Yargıç notu ayrı satır olmaz, ardından gelen bulgunun ayrıntısına girer.
       if (event.message.startsWith(JUDGE_PREFIX)) judge = event.message.slice(JUDGE_PREFIX.length)
@@ -195,6 +231,8 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
     steps,
     findings,
     flow,
+    strategy,
+    answer,
     start: times.length ? Math.min(...times) : null,
     end: times.length ? Math.max(...times) : null,
   }
@@ -408,7 +446,16 @@ export function zoomAt(moves: PointerMove[], wall: number, pointer: PointerState
 
 /** Eylemin türü: ekrana bakış ikiye ayrılır (yalnız sayfa ağacını okudu / ekran görüntüsüyle inceledi). */
 export type ActionKind =
-  'tikla' | 'uzerine_gel' | 'yaz' | 'tus' | 'kaydir' | 'okudu' | 'goruntu' | 'bastan_ac' | 'diger'
+  | 'tikla'
+  | 'uzerine_gel'
+  | 'yaz'
+  | 'tus'
+  | 'kaydir'
+  | 'okudu'
+  | 'goruntu'
+  | 'bastan_ac'
+  | 'platform'
+  | 'diger'
 
 export interface Action {
   kind: ActionKind
@@ -453,6 +500,13 @@ export function actionOf(step: { tool: string; outcome: string }): Action {
         : { kind: 'okudu', verb: 'Sayfayı okudu', object: '' }
     case 'bastan_ac':
       return { kind: 'bastan_ac', verb: 'Sayfayı baştan açtı', object: '' }
+    case 'platform_oku':
+    case 'platform_arac':
+      return {
+        kind: 'platform',
+        verb: outcome.includes('okunamadı') ? 'Tanımı okuyamadı' : 'Tanımı okudu',
+        object: outcome.replace(/^Platform(dan okundu|dan okunamadı| aracı incelendi): /, ''),
+      }
     default:
       return { kind: 'diger', verb: TOOL_LABEL[step.tool] ?? step.tool, object: outcome }
   }
@@ -467,6 +521,7 @@ export const ACTION_LEGEND: Array<{ kind: ActionKind; label: string; hint: strin
   { kind: 'kaydir', label: 'Kaydırdı', hint: 'Sayfayı kaydırdı.' },
   { kind: 'okudu', label: 'Sayfayı okudu', hint: 'Sayfanın yapısını metin olarak okudu; görüntü almadı.' },
   { kind: 'goruntu', label: 'Görüntüyle inceledi', hint: 'Ekran görüntüsü alıp görsel olarak inceledi.' },
+  { kind: 'platform', label: 'Tanımı okudu', hint: 'Uygulamanın tanımını platformdan okudu (yalnız okuma).' },
 ]
 
 export interface Lanes {
@@ -531,6 +586,7 @@ export const ACTION_ICON: Record<ActionKind, IconName> = {
   okudu: 'subject',
   goruntu: 'visibility',
   bastan_ac: 'refresh',
+  platform: 'database',
   diger: 'cursor',
 }
 

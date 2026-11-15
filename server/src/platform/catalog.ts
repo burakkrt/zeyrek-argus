@@ -68,7 +68,7 @@ export class Catalog {
     return list.sort((a, b) => a.name.localeCompare(b.name, 'tr'))
   }
 
-  private async projectId(project: string): Promise<string> {
+  async projectId(project: string): Promise<string> {
     const cached = this.ids.get(`p:${project}`)
     if (cached) return cached
     const list = parseNamed(await (await this.mcp()).call('project_list', { searchTerm: project }))
@@ -85,7 +85,7 @@ export class Catalog {
     return list
   }
 
-  private async applicationId(project: string, application: string): Promise<string> {
+  async applicationId(project: string, application: string): Promise<string> {
     const cached = this.ids.get(`a:${project}/${application}`)
     if (cached) return cached
     const match = (await this.applications(project)).find((a) => a.slug === application)

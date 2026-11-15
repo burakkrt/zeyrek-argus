@@ -1,0 +1,108 @@
+import type { StrategyItem } from '@argus/shared'
+import type { PlatformReader } from '../platform/reader.ts'
+import type { CreateMessage, MessageParams, Tool, UsageMeter } from './model.ts'
+import { toolLoop } from './tool-loop.ts'
+import { platformTools } from './tools.ts'
+
+/**
+ * Tanım kalemi: tarayıcı açılmaz; güçlü model yalnız platform tanımlarını okuyarak kalemi cevaplar ve her iddianın
+ * kaynağını (araç, kayıt, alan) yazar. Sonuç koşunun bilgisine girer: sonraki ekran kalemleri ve gözetmen onu görür.
+ */
+export const DEFINITION_MARKER = 'TANIM KALEMİ'
+const DEFINITION_CEILING = 40
+const text = (value: string) => ({ type: 'text' as const, text: value })
+
+const FINISH_TOOL: Tool = {
+  name: 'kalemi_bitir',
+  description: 'Kalemi bitirir: cevap, kanıtları ve cevaplanamayan kısım.',
+  strict: true,
+  input_schema: {
+    type: 'object',
+    properties: {
+      ozet: { type: 'string', description: 'Kalemin cevabı, 1-3 cümle.' },
+      kanitlar: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Her biri: iddia — kaynak (araç, kayıt kimliği/adı, alan).',
+      },
+      eksik: { type: 'string', description: 'Tanımdan cevaplanamayan kısım ve nedeni; yoksa boş.' },
+    },
+    required: ['ozet', 'kanitlar', 'eksik'],
+    additionalProperties: false,
+  },
+}
+
+export async function investigate(input: {
+  createMessage: CreateMessage
+  meter: UsageMeter
+  model: string
+  system: MessageParams['system']
+  reader: PlatformReader
+  item: StrategyItem
+  brief: string | null
+  notes: string[]
+  onRead: (tool: string, reason: string, ok: boolean) => void
+}): Promise<string> {
+  const tools = [...platformTools(input.reader), FINISH_TOOL]
+  const result = await toolLoop<{ ozet: string; kanitlar: string[]; eksik: string }>({
+    finishTool: FINISH_TOOL.name,
+    ceiling: DEFINITION_CEILING,
+    call: (messages) =>
+      input
+        .createMessage(
+          {
+            model: input.model,
+            max_tokens: 16_000,
+            system: input.system,
+            cache_control: { type: 'ephemeral' },
+            tools,
+            messages,
+          },
+          'planner',
+        )
+        .then((message) => {
+          input.meter.add(input.model, message, 'planner')
+          return message
+        }),
+    first: [
+      text(
+        `${DEFINITION_MARKER}: ${input.item.title}\n${input.item.goal}\n\n` +
+          (input.brief ? `Kullanıcının isteği: ${input.brief}\n\n` : '') +
+          (input.notes.length
+            ? `Bu koşuda bilinenler:\n${input.notes.map((n) => `- ${n}`).join('\n')}\n\n`
+            : '') +
+          'Yalnız platform tanımlarını okuyarak (platform_oku) bu kalemi cevapla. İlgili bütün tanımlara bak (akış, ' +
+          'süreç, mikroservis, sayfa şeması, varlık); bir tanım başka birine bağlıysa onu da oku. Her iddianın kaynağını ' +
+          'yaz. Tanımdan cevaplanamayan kısmı uydurma, "eksik"e yaz. Bitince kalemi_bitir çağır.',
+      ),
+    ],
+    handle: async (name, args) => {
+      const field = (key: string) => String((args as Record<string, unknown>)[key] ?? '')
+      if (name === FINISH_TOOL.name)
+        return { done: args as { ozet: string; kanitlar: string[]; eksik: string } }
+      if (name === 'platform_arac') return input.reader.describe(field('arac'))
+      if (name === 'platform_oku') {
+        const read = await input.reader.read(
+          field('arac'),
+          field('girdi'),
+          Number((args as Record<string, unknown>).devam) || 0,
+        )
+        input.onRead(
+          field('arac'),
+          field('neden'),
+          !read.startsWith('Okunamadı') && !read.startsWith('Girdi JSON'),
+        )
+        return read
+      }
+      return `Bilinmeyen araç: ${name}`
+    },
+  })
+  if (!result) return 'Kalem tamamlanamadı: ilerleme durdu (aynı yerde dönüyor).'
+  return [
+    result.ozet,
+    result.kanitlar.length ? `Kanıtlar: ${result.kanitlar.join(' · ')}` : '',
+    result.eksik ? `Eksik kalan: ${result.eksik}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+}

@@ -58,6 +58,8 @@ import link from '@material-symbols/svg-400/outlined/link.svg?raw'
 import skipPrevious from '@material-symbols/svg-400/outlined/skip_previous.svg?raw'
 import skipNext from '@material-symbols/svg-400/outlined/skip_next.svg?raw'
 import psychology from '@material-symbols/svg-400/outlined/psychology.svg?raw'
+import database from '@material-symbols/svg-400/outlined/database.svg?raw'
+import factCheck from '@material-symbols/svg-400/outlined/fact_check.svg?raw'
 // Oynatıcı denetimleri tek aileden (Rounded): simetrik, aynı çizgi kalınlığı.
 import mediaPlay from '@material-symbols/svg-400/rounded/play_arrow-fill.svg?raw'
 import mediaPause from '@material-symbols/svg-400/rounded/pause-fill.svg?raw'
@@ -126,6 +128,8 @@ export const icons = {
   skipPrevious,
   skipNext,
   psychology,
+  database,
+  factCheck,
   mediaPlay,
   mediaPause,
   mediaBack,

@@ -21,6 +21,7 @@ const run = (over: Partial<RunInfo>): RunInfo => ({
   startedAt: ago(1),
   finishedAt: ago(1, -1 / 12),
   counts: { new: 0, repeated: 0, suppressed: 0 },
+  answer: null,
   ...over,
 })
 

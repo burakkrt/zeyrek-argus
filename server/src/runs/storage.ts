@@ -5,10 +5,11 @@ import type { Database } from '../db/database.ts'
 import { json } from '../db/database.ts'
 
 /**
- * Yerel depolama: koşunun ham kaydı (video kareleri `kare/`, adım görüntüleri `adim/`), kanıt görüntüleri (`kanit/`),
- * talimat ekleri (`data/ekler/`) ve veritabanı yalnız bu bilgisayarda durur, Git'e girmez. Tek koşul toplam boyuttur
- * (Ayarlar → `storageLimitGb`):
- * - Sınır aşılınca uygulama açılışında üç günde en çok bir kez bildirim çıkar (kullanıcıyı sıkmadan hatırlatır); kendiliğinden hiçbir şey silinmez.
+ * Yerel depolama: koşunun ham kaydı (video kareleri `kare/`, adım görüntüleri `adim/`, model izi `iz/`), kanıt
+ * görüntüleri (`kanit/`), talimat ekleri (`data/ekler/`) ve veritabanı yalnız bu bilgisayarda durur, Git'e girmez.
+ * Tek koşul toplam boyuttur (Ayarlar → `storageLimitGb`):
+ * - Sınır aşılınca uygulama açılışında üç günde en çok bir kez bildirim çıkar (kullanıcıyı sıkmadan hatırlatır);
+ *   kendiliğinden hiçbir şey silinmez.
  * - Kullanıcı temizleyince toplam sınırın %70'ine (`TARGET_RATIO`) indirilir; böylece temizlikten sonraki ilk koşu
  *   yeniden uyarı doğurmaz. Silme sırası: hiçbir koşunun kullanmadığı ekler → en eski koşuların kaydı → en eski
  *   koşuların kanıtları. Süren koşuya, her sorunun en son kanıtına (bulgu ekranındaki görüntü) ve veritabanına
@@ -22,7 +23,7 @@ export const RECORDING_DROPPED = 'kayit-silindi'
 
 const GB = 1024 * 1024 * 1024
 const DAY = 86_400_000
-const RECORDING_DIRS = ['kare', 'adim'] as const
+const RECORDING_DIRS = ['kare', 'adim', 'iz'] as const
 
 export interface RunDisk {
   id: string
@@ -92,7 +93,12 @@ export function storageUsage(dataDir: string): StorageUsage {
 export function storageStatus(dataDir: string, limitGb: number): StorageStatus {
   const usage = storageUsage(dataDir)
   const limitBytes = Math.round(limitGb * GB)
-  return { usage, limitBytes, targetBytes: Math.round(limitBytes * TARGET_RATIO), over: usage.total > limitBytes }
+  return {
+    usage,
+    limitBytes,
+    targetBytes: Math.round(limitBytes * TARGET_RATIO),
+    over: usage.total > limitBytes,
+  }
 }
 
 /**
@@ -102,8 +108,7 @@ export function storageStatus(dataDir: string, limitGb: number): StorageStatus {
 export function claimStorageNotice(db: Database, status: StorageStatus, now = Date.now()): boolean {
   if (!status.over) return false
   const row = db.prepare(`select value from settings where key = 'storage_notice_at'`).get() as
-    | { value: string }
-    | undefined
+    { value: string } | undefined
   if (row && now - Number(row.value) < NOTICE_INTERVAL_MS) return false
   db.prepare(
     `insert into settings (key, value) values ('storage_notice_at', ?) on conflict(key) do update set value = excluded.value`,
@@ -112,7 +117,12 @@ export function claimStorageNotice(db: Database, status: StorageStatus, now = Da
 }
 
 /** Kullanıcının istediği temizlik: toplamı sınırın %70'ine indirir (bkz. dosya başı). */
-export function cleanStorage(db: Database, dataDir: string, limitGb: number, now = Date.now()): StorageCleanup {
+export function cleanStorage(
+  db: Database,
+  dataDir: string,
+  limitGb: number,
+  now = Date.now(),
+): StorageCleanup {
   const before = storageUsage(dataDir).total
   const target = Math.round(limitGb * GB * TARGET_RATIO)
   const runsDir = join(dataDir, 'runs')

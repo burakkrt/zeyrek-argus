@@ -4,7 +4,7 @@ import type { NetworkEntry } from '@argus/shared'
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'playwright'
 import { ArgusError } from '../errors.ts'
 import { ACCESS_TOKEN_COOKIE } from '../platform/token.ts'
-import { judgeRequest, type GuardState } from './guard.ts'
+import { acceptsDialog, judgeRequest, type GuardState } from './guard.ts'
 
 export interface Problem {
   kind: 'konsol' | 'istek' | 'sayfa'
@@ -17,6 +17,8 @@ export interface Problem {
 export interface BrowserDialog {
   type: string
   message: string
+  /** Kabul edildi mi (`acceptsDialog`): uyarı ve çıkış onayı kabul, iş onaylatan pencere iptal. */
+  accepted: boolean
 }
 
 /** Ekran yayını karesi en sık bu aralıkla iletilir; aradaki kareler atlanır ama son kare hep iletilir. */
@@ -129,13 +131,12 @@ export class BrowserSession {
       this.problems.push({ kind: 'konsol', text, key: text })
     })
     // Pencere kaydedilir ve modele söylenir (dinleyici yoksa Playwright sessizce kapatır, düğme "tepkisiz" görünür).
-    // Yalnız "Tamam"ı olan uyarı kabul edilir; onay ve çıkış onayı iptal edilir: sayfada kalınır, hiçbir şey silinmez.
+    // Uyarı ve sayfadan çıkış onayı kabul edilir; iş onaylatan pencere iptal edilir (`acceptsDialog`).
     page.on('dialog', (dialog) => {
-      this.dialogs.push({
-        type: dialog.type(),
-        message: dialog.message().replace(/\s+/g, ' ').trim().slice(0, 200),
-      })
-      void (dialog.type() === 'alert' ? dialog.accept() : dialog.dismiss()).catch(() => undefined)
+      const message = dialog.message().replace(/\s+/g, ' ').trim().slice(0, 200)
+      const accepted = acceptsDialog(dialog.type(), message)
+      this.dialogs.push({ type: dialog.type(), message, accepted })
+      void (accepted ? dialog.accept() : dialog.dismiss()).catch(() => undefined)
     })
     page.on('request', (request) => this.started.set(request, Date.now()))
     page.on('response', (response) => {
@@ -236,12 +237,19 @@ export class BrowserSession {
     })
   }
 
-  /** Sayfayı açar ve ağ susana kadar bekler. Açılış sırasında görülen POST uçları serbest listeye girer. */
+  /**
+   * Sayfayı açar ve ağ susana kadar bekler. Açılış sırasında görülen POST uçları serbest listeye girer. Açılış
+   * kesilirse (önceki sayfanın gezinti koruması, yarım kalan yönlendirme) boş sayfadan bir kez daha denenir: bir
+   * sayfanın bozuk durumu sonrakine geçmez.
+   */
   async open(url: string): Promise<void> {
     this.guard.loading = true
     this.guard.dirty = false
     try {
-      await this.page.goto(url, { waitUntil: 'load', timeout: 45_000 })
+      await this.page.goto(url, { waitUntil: 'load', timeout: 45_000 }).catch(async () => {
+        await this.page.goto('about:blank').catch(() => undefined)
+        await this.page.goto(url, { waitUntil: 'load', timeout: 45_000 })
+      })
       await this.settle(10_000)
     } finally {
       this.guard.loading = false

@@ -15,6 +15,40 @@ const tool = (name: string, description: string, properties: Record<string, unkn
   },
 })
 
+/**
+ * Platform okuma araçları: uygulamanın tanımı (ekranda görünmeyen kural, akış, koşul, alan, yetki). Açıklama koşunun
+ * bağlamını ve okunabilecek araçların dizinini taşır; araç listesi önbellekte durur.
+ */
+export function platformTools(platform: { index(): string; contextLine(): string }): Tool[] {
+  return [
+    tool(
+      'platform_oku',
+      'Uygulamanın tanımını platformdan okur (yalnız okuma; ortam koşunun ortamına sabittir). Ekranda görünmeyen ' +
+        'kuralı, akışı, koşulu, alanı ya da yetkiyi öğrenmek, ekranda gördüğünün nedenini açıklamak için kullan. ' +
+        `Bağlam: ${platform.contextLine()}.
+Okuma araçları:
+${platform.index()}`,
+      {
+        arac: { type: 'string', description: 'Dizindeki araç adı, ör. workflow_get' },
+        girdi: {
+          type: 'string',
+          description:
+            'Aracın girdisi, JSON nesnesi olarak (alanlar dizinde, zorunlular *; ayrıntı için platform_arac)',
+        },
+        devam: {
+          type: 'integer',
+          description: 'Uzun sonucun devamı: sonucun söylediği konum; ilk okumada 0',
+        },
+        neden: reason,
+      },
+    ),
+    tool('platform_arac', 'Bir okuma aracının açıklamasını ve girdi şemasını döner.', {
+      arac: { type: 'string' },
+      neden: reason,
+    }),
+  ]
+}
+
 /** Görev döngüsünün araçları. Adlar Türkçe: model ve insan aynı dili konuşsun (akışta bu adlar görünür). */
 export const TASK_TOOLS: Tool[] = [
   tool(

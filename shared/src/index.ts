@@ -135,6 +135,8 @@ export interface RunInfo {
   startedAt: string | null
   finishedAt: string | null
   counts: { new: number; repeated: number; suppressed: number }
+  /** Girdili koşunun isteğe cevabı; girdisiz (yalnız tarama) koşuda null. */
+  answer: RunAnswer | null
 }
 
 export interface NetworkEntry {
@@ -148,8 +150,54 @@ export interface NetworkEntry {
 export type OccurrenceOutcome = 'yeni' | 'tekrar' | 'bastirildi' | 'dogrulanamadi' | 'yeniden-acildi'
 
 /** Bir koşunun akış olayları; saklanır ve monitörde sırayla gösterilir. */
+/**
+ * Koşunun stratejisi (anla adımı, `server/src/agent/strategist.ts`): isteğin türü, cevaplanacak sorular, başarı ölçütü,
+ * tanımdan bilinenler, salt okumada yapılamayanlar ve iş kalemleri. Her kalemin kaynağı tanım (platform okuması),
+ * ekran (tarayıcı) ya da ikisidir; ekran kalemleri bir sayfaya bağlıdır.
+ */
+export type StrategyKind = 'arayuz' | 'kural' | 'akis' | 'karisik'
+export type ItemSource = 'tanim' | 'ekran' | 'ikisi'
+
+export interface StrategyItem {
+  title: string
+  goal: string
+  source: ItemSource
+  /** Ekran ve ikisi kalemlerinde test edilen sayfa (katalogdaki slug); tanım kaleminde null. */
+  page: string | null
+  /** Sayfanın tamamı taransın mı (planlayıcı sayfanın görevlerini kendisi çıkarır); değilse kalem tek görevdir. */
+  fullScan: boolean
+}
+
+export interface RunStrategy {
+  kind: StrategyKind
+  understood: string
+  questions: string[]
+  success: string
+  known: string[]
+  infeasible: string[]
+  items: StrategyItem[]
+}
+
+/**
+ * Koşunun isteğe cevabı (gözetmen, `server/src/agent/supervisor.ts`): girdili koşuda soru cevaplandı mı, cevabın
+ * kendisi, kanıtları (tanım: araç + kayıt + alan; ekran: bulgu ya da gözlem) ve cevaplanamayan kısım.
+ */
+export type AnswerStatus = 'cevaplandi' | 'kismen' | 'cevaplanamadi'
+
+export interface RunAnswer {
+  status: AnswerStatus
+  answer: string
+  evidence: string[]
+  missing: string
+}
+
+/** Tanım kalemlerinin akıştaki sayfası (katalog slug'ı olamaz: '@' içerir). */
+export const DEFINITION_PAGE = '@tanimlar'
+
 export type RunEventBody =
   | { type: 'kosu-basladi'; pages: string[] }
+  | { type: 'strateji'; strategy: RunStrategy }
+  | { type: 'cevap'; answer: RunAnswer }
   | { type: 'kosu-bitti'; status: RunStatus; usage: Usage; error?: string }
   | { type: 'sayfa-basladi'; url: string }
   | { type: 'sayfa-bitti'; summary: string }

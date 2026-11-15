@@ -301,13 +301,15 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
     const events = listEvents(h.ctx.db, run.id)
     const click = events.find((e) => e.type === 'adim' && e.outcome.startsWith('Tıklandı: "Vazgeç"'))
     if (click?.type !== 'adim') throw new Error('Vazgeç tıklaması akışta yok')
-    expect(click.outcome).toContain('onay penceresi ("Kaydedilmemiş değişiklikler var. Çıkılsın mı?")')
-    // Model aynı notu tıklamanın sonucunda okur; iptal edildiği için sayfada kalınır.
+    expect(click.outcome).toContain(
+      'onay penceresi ("Kaydedilmemiş değişiklikler var. Çıkılsın mı?") → kabul edildi',
+    )
+    // Model aynı notu tıklamanın sonucunda okur; çıkış onayı kabul edildiği için sayfadan çıkılır (formda kilitlenmez).
     const after = h.calls.find(
       (c) => c.tools && JSON.stringify(c.messages.at(-1)).includes('Tıklandı: \\"Vazgeç\\"'),
     )!
     expect(JSON.stringify(after.messages.at(-1))).toContain('Tarayıcı penceresi açıldı')
-    expect(JSON.stringify(after.messages.at(-1))).toContain('/dev/qm/web/egt-form')
+    expect(JSON.stringify(after.messages.at(-1))).toContain('/dev/qm/web/egt-temiz')
     // İşlem anı kayıtla hizalı: tıklama, adım olayından önce yapıldı.
     expect(click.actAt).toBeLessThanOrEqual(Date.parse(click.at))
     // Kayıt: ekran yayınının kareleri koşu klasöründe, adlarında alındıkları an.

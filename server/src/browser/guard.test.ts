@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { endpointKey, isUnsafeLabel, isWriteRequest, judgeRequest, type GuardState } from './guard.ts'
+import {
+  acceptsDialog,
+  endpointKey,
+  isUnsafeLabel,
+  isUnsafeTarget,
+  isWriteRequest,
+  judgeRequest,
+  type GuardState,
+} from './guard.ts'
 
 describe('isUnsafeLabel', () => {
   it.each([
@@ -73,5 +81,31 @@ describe('judgeRequest', () => {
     expect(endpointKey('post', 'http://s/a/123/b/0191abcd-1234-4abc-8def-1234567890ab?x=1')).toBe(
       'POST /a/:id/b/:id',
     )
+  })
+})
+
+describe('isUnsafeTarget', () => {
+  it('etiket kuralı düğmeye ve kısa etikete uygulanır; uzun satır metnindeki "silinecek" veridir', () => {
+    expect(isUnsafeTarget('Sil', true)).toBe(true)
+    expect(isUnsafeTarget('Sil', false)).toBe(true)
+    expect(isUnsafeTarget('Seçili kayıtları toplu olarak kalıcı biçimde sil', true)).toBe(true)
+    expect(
+      isUnsafeTarget(
+        'TEST-SIHIRBAZ geç yayın denemesi (ajan, silinecek)DD-2026-07 Beyaz yaka — Kapandı',
+        false,
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('acceptsDialog', () => {
+  it('uyarı ve sayfadan çıkış onayı kabul edilir; silme, gönderme ve giriş penceresi iptal', () => {
+    expect(acceptsDialog('beforeunload', '')).toBe(true)
+    expect(acceptsDialog('alert', 'Bilgi')).toBe(true)
+    expect(acceptsDialog('confirm', 'Girilen bilgiler kaydedilmedi. Sayfadan çıkılsın mı?')).toBe(true)
+    expect(acceptsDialog('confirm', 'Kaydedilmemiş değişiklikler kaybolacak, kayıt silinsin mi?')).toBe(false)
+    expect(acceptsDialog('confirm', 'Bu kayıt silinsin mi?')).toBe(false)
+    expect(acceptsDialog('confirm', 'Onaya gönderilsin mi?')).toBe(false)
+    expect(acceptsDialog('prompt', 'Ad girin')).toBe(false)
   })
 })

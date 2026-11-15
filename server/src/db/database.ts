@@ -187,6 +187,10 @@ const MIGRATIONS: string[] = [
     primary key (issue_id, author)
   );
   `,
+  // Girdili koşunun isteğe cevabı (gözetmen): durum, cevap, kanıtlar, eksik (json).
+  `
+  alter table runs add column answer text;
+  `,
 ]
 
 export function openDatabase(file: string): Database {

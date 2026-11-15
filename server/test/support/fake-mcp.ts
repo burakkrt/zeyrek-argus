@@ -15,24 +15,25 @@ const PAGES = ['egt-liste', 'egt-sorunlu', 'egt-temiz'].map((slug) => ({
 }))
 
 const server = new McpServer({ name: 'sahte-zeyrek-mcp', version: '0.0.0' })
+const readOnly = { readOnlyHint: true }
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] })
 
-server.registerTool('platform_whoami', { description: 'sahte' }, async () =>
+server.registerTool('platform_whoami', { description: 'sahte', annotations: readOnly }, async () =>
   json({ user: process.env.USERNAME ?? null }),
 )
 server.registerTool(
   'project_list',
-  { description: 'sahte', inputSchema: { searchTerm: z.string().optional() } },
+  { description: 'sahte', annotations: readOnly, inputSchema: { searchTerm: z.string().optional() } },
   async () => json({ items: [{ id: PROJECT_ID, slug: 'qm', name: 'IMS Cortex' }] }),
 )
 server.registerTool(
   'application_list',
-  { description: 'sahte', inputSchema: { projectId: z.string().optional() } },
+  { description: 'sahte', annotations: readOnly, inputSchema: { projectId: z.string().optional() } },
   async () => json({ items: [{ id: APPLICATION_ID, slug: 'web', name: 'Web' }] }),
 )
 server.registerTool(
   'environment_list',
-  { description: 'sahte', inputSchema: { projectId: z.string() } },
+  { description: 'sahte', annotations: readOnly, inputSchema: { projectId: z.string() } },
   async () =>
     json([
       { name: 'development', slug: 'development', state: 'ready' },
@@ -45,6 +46,7 @@ server.registerTool(
   'page_list',
   {
     description: 'sahte',
+    annotations: readOnly,
     inputSchema: {
       project: z.string().optional(),
       environment: z.string().optional(),
@@ -57,6 +59,7 @@ server.registerTool(
   'page_schema_get',
   {
     description: 'sahte',
+    annotations: readOnly,
     inputSchema: {
       project: z.string().optional(),
       environment: z.string().optional(),
@@ -67,5 +70,23 @@ server.registerTool(
   async ({ pageId }) => json({ pageId, version: 7, schema: { root: { type: 'stack', children: [pageId] } } }),
 )
 server.registerTool('page_schema_patch', { description: 'sahte yazan araç' }, async () => json({ ok: true }))
+// Tanım okuma: dönem akışı (kalibrasyon aşaması atlanabilir mi). Okuma işaretli; kara listedeki araç da okuma işaretli.
+server.registerTool(
+  'workflow_get',
+  {
+    description: 'Akış tanımını getirir.',
+    annotations: readOnly,
+    inputSchema: { workflowId: z.string(), environment: z.string().optional() },
+  },
+  async ({ workflowId, environment }) =>
+    json({
+      workflowId,
+      environment: environment ?? null,
+      steps: [{ name: 'Kalibrasyon', condition: 'donem.kalibrasyonAcik == true', onFalse: 'Sonuç yayını' }],
+    }),
+)
+server.registerTool('user_list', { description: 'Kullanıcılar.', annotations: readOnly }, async () =>
+  json([{ email: 'kisi@ornek.com' }]),
+)
 
 await server.connect(new StdioServerTransport())

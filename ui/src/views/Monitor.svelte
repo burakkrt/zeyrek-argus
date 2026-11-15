@@ -3,6 +3,7 @@
   import { onDestroy, onMount } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import Page from '$lib/components/layout/Page.svelte'
+  import AnswerCard from '$lib/components/monitor/AnswerCard.svelte'
   import FindingDetail from '$lib/components/monitor/FindingDetail.svelte'
   import FlowList from '$lib/components/monitor/FlowList.svelte'
   import PlayerBar from '$lib/components/monitor/PlayerBar.svelte'
@@ -573,6 +574,9 @@
           onback={() => (selected = null)}
         />
       {:else}
+        {#if model.strategy || model.answer}
+          <AnswerCard strategy={model.strategy} answer={model.answer} {running} />
+        {/if}
         <div class="flex h-11 shrink-0 items-center gap-2 border-b px-4">
           <h2 class="text-sm font-semibold">Akış</h2>
           <span class="text-muted-foreground text-xs"

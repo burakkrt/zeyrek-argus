@@ -1,9 +1,21 @@
 import { existsSync, mkdirSync, rmSync, writeFile } from 'node:fs'
 import { join } from 'node:path'
-import { moduleOf, RUN_CEILINGS, type AppRef, type RunInfo, type RunOptions, type Settings } from '@argus/shared'
+import {
+  DEFINITION_PAGE,
+  moduleOf,
+  RUN_CEILINGS,
+  type RunAnswer,
+  type StrategyItem,
+  type AppRef,
+  type RunInfo,
+  type RunOptions,
+  type Settings,
+} from '@argus/shared'
 import { PageController } from '../agent/page-controller.ts'
-import { pickPages } from '../agent/page-picker.ts'
-import { describeModelError, UsageMeter, type CreateMessage } from '../agent/model.ts'
+import { investigate } from '../agent/investigator.ts'
+import { inspectsScreens, normalizeItems, pageWork, planRun, scanStrategy } from '../agent/strategist.ts'
+import { supervise, SUPERVISE_ROUNDS } from '../agent/supervisor.ts'
+import { describeModelError, UsageMeter, type CreateMessage, type MessageParams } from '../agent/model.ts'
 import { appBlock, BASE_INSTRUCTIONS } from '../agent/prompts.ts'
 import { BrowserSession } from '../browser/session.ts'
 import type { Database } from '../db/database.ts'
@@ -14,6 +26,7 @@ import {
   getRun,
   nextQueuedRun,
   saveUsage,
+  setRunAnswer,
   setRunPages,
   startRun,
 } from '../db/runs.ts'
@@ -25,6 +38,8 @@ import { ArgusError, errorMessage } from '../errors.ts'
 import { loadAttachments, validAttachments } from './attachments.ts'
 import { renderKnowledge } from '../agent/knowledge.ts'
 import { ScreenMemory } from './screens.ts'
+import { RunTrace } from './trace.ts'
+import { PlatformReader } from '../platform/reader.ts'
 import { authorSlug } from '../memory/shared.ts'
 import type { IssueService } from '../issues/issues.ts'
 import type { Learner } from '../memory/learn.ts'
@@ -87,8 +102,14 @@ export class RunManager {
       throw new ArgusError('NO_PAGES', 'Sayfa seçin ya da girdi yazın.')
     // Görev ve adım kullanıcıya bırakılmaz (kalite önceliklidir); tavanlar yalnız kaçağı durdurur.
     const options: RunOptions = {
-      maxTasks: Math.min(Math.max(input.options?.maxTasks ?? RUN_CEILINGS.maxTasks, 1), RUN_CEILINGS.maxTasks),
-      maxSteps: Math.min(Math.max(input.options?.maxSteps ?? RUN_CEILINGS.maxSteps, 3), RUN_CEILINGS.maxSteps),
+      maxTasks: Math.min(
+        Math.max(input.options?.maxTasks ?? RUN_CEILINGS.maxTasks, 1),
+        RUN_CEILINGS.maxTasks,
+      ),
+      maxSteps: Math.min(
+        Math.max(input.options?.maxSteps ?? RUN_CEILINGS.maxSteps, 3),
+        RUN_CEILINGS.maxSteps,
+      ),
       user: input.options?.user?.trim() || null,
       brief: input.options?.brief?.trim().slice(0, BRIEF_LIMIT) || null,
       attachments: validAttachments(this.deps.dataDir, input.options?.attachments),
@@ -156,9 +177,23 @@ export class RunManager {
     let status: RunInfo['status'] = 'bitti'
     let failure: string | null = null
     try {
-      const model = this.deps.model()
+      // Koşunun bütün model çağrıları ve platform okumaları yerel ize yazılır (data/runs/<id>/iz/).
+      const trace = new RunTrace(runDir)
+      const model = trace.wrap(this.deps.model())
       const access = platform.access()
       const environment = await platform.catalog.environment(run.project, run.environment)
+      // Modelin platform okuma kapısı (tanımlar): yalnız okuma işaretli araçlar, ortam bu koşununkine sabit.
+      const reader = new PlatformReader(
+        await platform.mcp(),
+        {
+          project: run.project,
+          application: run.application,
+          environment: run.environment,
+          projectId: await platform.catalog.projectId(run.project),
+          applicationId: await platform.catalog.applicationId(run.project, run.application),
+        },
+        trace,
+      )
       const urlOf = (page: string) =>
         pageUrl({
           studioBaseUrl: access.credentials.studioBaseUrl,
@@ -169,90 +204,160 @@ export class RunManager {
         })
       // Talimatın ekleri bir kez okunur, her sayfanın planlayıcısına gider.
       const attachments = loadAttachments(this.deps.dataDir, run.options.attachments ?? [])
-      // Sayfa seçilmediyse (yalnız girdi) sayfalar girdiden seçilir; koşunun kaydı o sayfalarla güncellenir.
-      let pages = run.pages
-      if (!pages.length) {
-        const picked = await pickPages({
-          createMessage: model,
-          meter,
-          model: settings.models.planner,
-          brief: run.options.brief ?? null,
-          attachments,
-          catalog: await platform.catalog.pages(run.project, run.application, run.environment),
+      // Anla adımı: girdi varsa güçlü model isteği çözümler (gerekirse tanımları okur) ve stratejiyi yazar; girdisiz
+      // koşuda seçilen sayfalar baştan sona taranır. Koşunun sayfaları stratejinin ekran kalemlerinden gelir.
+      const system: MessageParams['system'] = [
+        { type: 'text', text: BASE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+      ]
+      const onRead = (tool: string, reason: string, ok: boolean) =>
+        bus.publish(run.id, DEFINITION_PAGE, {
+          type: 'adim',
+          tool: 'platform_oku',
+          reason: reason || null,
+          outcome: ok ? `Platformdan okundu: ${tool}` : `Platformdan okunamadı: ${tool}`,
+          shot: null,
+          target: null,
         })
-        if (!picked.pages.length)
-          throw new ArgusError('NO_PAGES', 'Girdiden test edilecek sayfa çıkarılamadı; sayfa seçin ya da girdiyi açın.')
-        pages = picked.pages
-        setRunPages(db, run.id, pages)
-        bus.runUpdated(getRun(db, run.id)!)
+      const briefed = Boolean(run.options.brief || attachments.length)
+      const catalog = briefed
+        ? await platform.catalog.pages(run.project, run.application, run.environment)
+        : []
+      const strategy = briefed
+        ? await planRun({
+            createMessage: model,
+            meter,
+            model: settings.models.planner,
+            system,
+            reader,
+            brief: run.options.brief ?? null,
+            attachments,
+            catalog,
+            selected: run.pages,
+            onRead,
+          })
+        : scanStrategy(run.pages)
+      if (!strategy)
+        throw new ArgusError(
+          'STRATEGY',
+          'Koşunun stratejisi yazılamadı (anla adımı ilerleyemedi); girdiyi açıp yeniden deneyin.',
+        )
+      bus.publish(run.id, null, { type: 'strateji', strategy })
+      // Koşunun bilgisi: tanımdan bilinenler ve tanım kalemlerinin sonuçları (ekran kalemleri görür); gözetmen ayrıca
+      // sayfa sonuçlarını görür.
+      const notes = [...strategy.known]
+      const results: string[] = []
+      const tested = new Set<string>()
+      const definitions: StrategyItem[] = []
+      const writer = this.deps.author()
+      // Tarayıcı ilk ekran kaleminde açılır (yalnız tanım kalemli koşu tarayıcısız biter).
+      const openBrowser = async (firstPage: string): Promise<BrowserSession> => {
+        if (session) return session
+        // Kimlik koşudan önce, modelsiz belirlenir (`identity/plan.ts`); kurulamıyorsa koşu burada durur.
+        const spec = parseSuperLogin(memory.identity(app))
+        const plan = planIdentity(run.options.user, listAppUsers(db, app), spec !== null)
+        if (plan.kind === 'yok') throw new ArgusError('IDENTITY', plan.message)
+        const appUser =
+          plan.kind === 'hesap'
+            ? getAppUser(db, app, plan.identifier)
+            : plan.kind === 'super'
+              ? getAppUser(db, app, plan.base)
+              : null
+        const origin = new URL(access.credentials.studioBaseUrl).origin
+        const token = await fetchAccessToken(access.credentials)
+        // Uygulama oturumu saklanır: her koşu yeniden giriş yapmaz, süresi dolunca giriş ekranından yeniden girilir.
+        const stateFile = appUser ? appSessionFile(this.deps.dataDir, app, appUser.identifier) : null
+        const hadState = stateFile !== null && existsSync(stateFile)
+        session = await BrowserSession.open({
+          origin,
+          accessToken: token,
+          headless: this.deps.headless ?? true,
+          onFrame,
+          ...(stateFile ? { storageState: stateFile } : {}),
+        })
+        const signIn = await session.signIn(urlOf(firstPage), appUser).catch((error: unknown) => {
+          // Giriş tutmadıysa saklanan oturum da geçersizdir: sonraki koşu temiz başlar.
+          if (stateFile) rmSync(stateFile, { force: true })
+          throw error
+        })
+        // Saklanan oturum hep asıl hesabındır: süper girişten önce yazılır, sonra yazılmaz.
+        if (stateFile && (signIn === 'girildi' || hadState)) await session.saveState(stateFile)
+        const who = appUser ? ` (${appUser.identifier})` : ''
         bus.publish(run.id, null, {
           type: 'bilgi',
-          message: `Girdiye göre ${pages.length} sayfa seçildi: ${pages.join(', ')}.${picked.reason ? ` ${picked.reason}` : ''}`,
+          message:
+            signIn === 'girildi'
+              ? `Uygulamanın giriş ekranından girildi${who}; oturum sonraki koşular için saklandı.`
+              : hadState
+                ? `Saklanan uygulama oturumu sürdürüldü${who}; yeniden giriş yapılmadı.`
+                : 'Platform jetonuyla girildi.',
         })
+        if (spec) reserveSuperLogin(session, origin, app, spec)
+        if (plan.kind === 'super' && spec) {
+          const person = await switchUser(session, app, spec, plan.target, run.environment)
+          superLogin = spec
+          bus.publish(run.id, null, {
+            type: 'bilgi',
+            message: `Süper girişle ${person.label} kişisine geçildi (asıl hesap: ${plan.base}); koşu sonunda kapatılacak.`,
+          })
+        }
+        // Girişten önceki açılışın 401'leri ve konsol kayıtları sayfa bulgusu değildir.
+        session.drainNetwork()
+        session.drainProblems()
+        session.drainBlocked()
+        mkdirSync(frameDir, { recursive: true })
+        recording = true
+        const synced = issues.syncFromMemory(app, writer)
+        if (synced)
+          bus.publish(run.id, null, { type: 'bilgi', message: `Takımın ${synced} kararı hafızadan okundu.` })
+        return session
       }
-      // Kimlik koşudan önce, modelsiz belirlenir (`identity/plan.ts`); kurulamıyorsa koşu burada durur.
-      const spec = parseSuperLogin(memory.identity(app))
-      const plan = planIdentity(run.options.user, listAppUsers(db, app), spec !== null)
-      if (plan.kind === 'yok') throw new ArgusError('IDENTITY', plan.message)
-      const appUser =
-        plan.kind === 'hesap'
-          ? getAppUser(db, app, plan.identifier)
-          : plan.kind === 'super'
-            ? getAppUser(db, app, plan.base)
-            : null
-      const origin = new URL(access.credentials.studioBaseUrl).origin
-      const token = await fetchAccessToken(access.credentials)
-      // Uygulama oturumu saklanır: her koşu yeniden giriş yapmaz, süresi dolunca giriş ekranından yeniden girilir.
-      const stateFile = appUser ? appSessionFile(this.deps.dataDir, app, appUser.identifier) : null
-      const hadState = stateFile !== null && existsSync(stateFile)
-      session = await BrowserSession.open({
-        origin,
-        accessToken: token,
-        headless: this.deps.headless ?? true,
-        onFrame,
-        ...(stateFile ? { storageState: stateFile } : {}),
-      })
-      const signIn = await session.signIn(urlOf(pages[0]!), appUser).catch((error: unknown) => {
-        // Giriş tutmadıysa saklanan oturum da geçersizdir: sonraki koşu temiz başlar.
-        if (stateFile) rmSync(stateFile, { force: true })
-        throw error
-      })
-      // Saklanan oturum hep asıl hesabındır: süper girişten önce yazılır, sonra yazılmaz.
-      if (stateFile && (signIn === 'girildi' || hadState)) await session.saveState(stateFile)
-      const who = appUser ? ` (${appUser.identifier})` : ''
-      bus.publish(run.id, null, {
-        type: 'bilgi',
-        message:
-          signIn === 'girildi'
-            ? `Uygulamanın giriş ekranından girildi${who}; oturum sonraki koşular için saklandı.`
-            : hadState
-              ? `Saklanan uygulama oturumu sürdürüldü${who}; yeniden giriş yapılmadı.`
-              : 'Platform jetonuyla girildi.',
-      })
-      if (spec) reserveSuperLogin(session, origin, app, spec)
-      if (plan.kind === 'super' && spec) {
-        const person = await switchUser(session, app, spec, plan.target, run.environment)
-        superLogin = spec
-        bus.publish(run.id, null, {
-          type: 'bilgi',
-          message: `Süper girişle ${person.label} kişisine geçildi (asıl hesap: ${plan.base}); koşu sonunda kapatılacak.`,
+      const runDefinitions = async (items: StrategyItem[]) => {
+        const offset = definitions.length
+        definitions.push(...items)
+        bus.publish(run.id, DEFINITION_PAGE, { type: 'sayfa-basladi', url: '' })
+        bus.publish(run.id, DEFINITION_PAGE, {
+          type: 'plan',
+          summary: 'Tanım kalemleri: platform tanımlarından cevaplanır.',
+          tasks: definitions.map((i) => ({ title: i.title, goal: i.goal })),
         })
+        for (const [i, item] of items.entries()) {
+          if (active.stop) break
+          bus.publish(run.id, DEFINITION_PAGE, {
+            type: 'gorev-basladi',
+            index: offset + i,
+            title: item.title,
+          })
+          const summary = await investigate({
+            createMessage: model,
+            meter,
+            model: settings.models.planner,
+            system,
+            reader,
+            item,
+            brief: run.options.brief ?? null,
+            notes,
+            onRead,
+          })
+          notes.push(`${item.title}: ${summary}`)
+          results.push(`Tanım — ${item.title}: ${summary}`)
+          bus.publish(run.id, DEFINITION_PAGE, { type: 'gorev-bitti', index: offset + i, summary })
+        }
+        bus.publish(run.id, DEFINITION_PAGE, { type: 'sayfa-bitti', summary: 'Tanım kalemleri bitti.' })
       }
-      // Girişten önceki açılışın 401'leri ve konsol kayıtları sayfa bulgusu değildir.
-      session.drainNetwork()
-      session.drainProblems()
-      session.drainBlocked()
-      mkdirSync(frameDir, { recursive: true })
-      recording = true
-      const author = this.deps.author()
-      const synced = issues.syncFromMemory(app, author)
-      if (synced)
-        bus.publish(run.id, null, { type: 'bilgi', message: `Takımın ${synced} kararı hafızadan okundu.` })
-
-      for (const page of pages) {
-        if (active.stop) break
+      const runPage = async (
+        browser: BrowserSession,
+        page: string,
+        work: { scan: boolean; tasks: Array<{ baslik: string; amac: string }> },
+      ) => {
         const url = urlOf(page)
         bus.publish(run.id, page, { type: 'sayfa-basladi', url })
+        const eye = settings.inspector && inspectsScreens(strategy.kind, work.scan)
+        if (settings.inspector && !eye)
+          bus.publish(run.id, page, {
+            type: 'bilgi',
+            message:
+              'Göz bu sayfada kapalı: istek bir kural/akış sorusu ve sayfa baştan sona taranmıyor; ekran soruyu teyit için açıldı.',
+          })
         const rules = memory.rules(app)
         const stats = ruleStats(db)
         const selection = selectRules(rules, app, page, settings.ruleBudget, (id) => stats.get(id)?.uses ?? 0)
@@ -267,11 +372,11 @@ export class RunManager {
           })
         }
         const knowledge = memory.pageKnowledge(app, page)
-        const screens = new ScreenMemory(memory.screenDir(app, page), authorSlug(author))
+        const screens = new ScreenMemory(memory.screenDir(app, page), authorSlug(writer))
         // Bu koşunun sayfa izi: sayfa bilgisiyle birlikte saklanır (takım genelinde "ne değişti?" dayanağı).
         let current: PagePrint | null = null
         const controller = new PageController({
-          session,
+          session: browser,
           url,
           page,
           facts: {
@@ -279,6 +384,7 @@ export class RunManager {
             known: issues.knownInModule(app, moduleOf(page)),
             rejected: issues.rejected(app),
             knowledge: knowledge?.body ?? null,
+            notes,
           },
           patterns: selection.patterns,
           system: [
@@ -287,9 +393,11 @@ export class RunManager {
           ],
           createMessage: model,
           meter,
-          settings,
+          settings: { ...settings, inspector: eye },
+          platform: reader,
           maxTasks: run.options.maxTasks,
           maxSteps: run.options.maxSteps,
+          work,
           brief: run.options.brief ?? null,
           attachments,
           ruleStats: {
@@ -333,8 +441,14 @@ export class RunManager {
             saveKnowledge: (distilled) => {
               if (!current) return
               const at = new Date().toISOString()
-              const content = renderKnowledge(distilled, { page, author, run: run.code, at, print: current })
-              memory.writePageKnowledge(app, page, author, content)
+              const content = renderKnowledge(distilled, {
+                page,
+                author: writer,
+                run: run.code,
+                at,
+                print: current,
+              })
+              memory.writePageKnowledge(app, page, writer, content)
             },
             file: (kind) => {
               counters[kind] += 1
@@ -352,9 +466,77 @@ export class RunManager {
             },
           },
         })
-        await controller.run().catch((error: unknown) => {
-          bus.publish(run.id, page, { type: 'hata', message: `${page}: ${describeModelError(error)}` })
+        const summary = await controller.run().catch((error: unknown) => {
+          const message = `${page}: ${describeModelError(error)}`
+          bus.publish(run.id, page, { type: 'hata', message })
+          return message
         })
+        results.push(`Ekran — ${page}: ${summary}`)
+        return controller.redirectedTo
+      }
+      const runItems = async (items: StrategyItem[]) => {
+        const own = items.filter((i) => i.source === 'tanim')
+        if (own.length) await runDefinitions(own)
+        for (const page of new Set(items.flatMap((i) => (i.page ? [i.page] : [])))) {
+          if (active.stop) break
+          tested.add(page)
+          if ([...tested].join() !== getRun(db, run.id)!.pages.join()) {
+            setRunPages(db, run.id, [...tested])
+            bus.runUpdated(getRun(db, run.id)!)
+          }
+          const work = pageWork(items, page)
+          const redirected = await runPage(await openBrowser(page), page, work)
+          // Kayıt sayfası doğrudan açılamaz (kimliksiz açılınca listeye yönlendirir): kalemleri yönlendirdiği sayfada,
+          // ilgili kaydı açarak sürdür (KOS-2026-0038: dönem detayı kalemi atlanmıştı).
+          if (redirected && work.tasks.length && !active.stop) {
+            bus.publish(run.id, page, {
+              type: 'bilgi',
+              message: `${page} bir kayıt sayfası; kalemleri ${redirected} sayfasında ilgili kaydı açarak sürdürülüyor.`,
+            })
+            await runPage(await openBrowser(redirected), redirected, {
+              scan: false,
+              tasks: work.tasks.map((t) => ({
+                baslik: t.baslik,
+                amac: `${t.amac} (Hedef "${page}" bir kayıt sayfası, doğrudan açılamıyor: bu sayfadan ilgili kaydı açarak ilerle.)`,
+              })),
+            })
+          }
+        }
+      }
+      await runItems(strategy.items)
+      // Gözetmen (girdili koşu): sonucu başarı ölçütüyle karşılaştırır, isteğin cevabını yazar; cevap eksikse ve yol
+      // kaldıysa ek kalem ister (en çok SUPERVISE_ROUNDS tur).
+      if (briefed && !active.stop) {
+        let answer: RunAnswer | null = null
+        for (let round = 1; round <= SUPERVISE_ROUNDS && !active.stop; round += 1) {
+          const verdict = await supervise({
+            createMessage: model,
+            meter,
+            model: settings.models.planner,
+            system,
+            brief: run.options.brief ?? null,
+            strategy,
+            results,
+            findings: issues
+              .list({ app, runId: run.id })
+              .map((i) => `${i.title} (${i.kind}; ${i.pages.join(', ')})`),
+            pages: [...tested],
+            lastRound: round === SUPERVISE_ROUNDS,
+          })
+          answer = verdict.answer
+          const extra = normalizeItems(verdict.extra, catalog)
+          if (!extra.length) break
+          bus.publish(run.id, null, {
+            type: 'bilgi',
+            message: `Gözetmen cevabı tamamlamak için ${extra.length} ek kalem istedi: ${extra.map((i) => i.title).join(', ')}.`,
+          })
+          await runItems(extra)
+        }
+        if (answer) {
+          setRunAnswer(db, run.id, answer)
+          bus.publish(run.id, null, { type: 'cevap', answer })
+          bus.runUpdated(getRun(db, run.id)!)
+        }
       }
       if (active.stop) status = 'durduruldu'
     } catch (error) {
@@ -362,8 +544,11 @@ export class RunManager {
       failure = describeModelError(error)
       bus.publish(run.id, null, { type: 'hata', message: failure })
     } finally {
-      if (session && superLogin) {
-        const ended = await endSuperLogin(session, app, superLogin, run.environment)
+      // Oturum ve süper giriş tarayıcı açılırken (ilk ekran kaleminde, kapanış içinde) atanır; TS bunu izleyemez.
+      const opened = session as BrowserSession | null
+      const login = superLogin as SuperLoginSpec | null
+      if (opened && login) {
+        const ended = await endSuperLogin(opened, app, login, run.environment)
         bus.publish(run.id, null, {
           type: ended ? 'bilgi' : 'hata',
           message: ended
@@ -371,7 +556,7 @@ export class RunManager {
             : 'Süper giriş kapatılamadı; uygulamada kullanıcı menüsünden sonlandırın.',
         })
       }
-      await session?.close()
+      await opened?.close()
     }
     finishRun(db, run.id, status, meter.usage, failure)
     // Bu makinenin açık bulguları takımla paylaşılır (kişinin kendi dosyası; başkasınınkine dokunulmaz).

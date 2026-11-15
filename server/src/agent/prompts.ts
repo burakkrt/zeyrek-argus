@@ -16,6 +16,13 @@ export const BASE_INSTRUCTIONS = `Sen Zeyrek low-code platformunda kurulmuş bir
 - Kullanıcı yönlendirmesi gelirse önceliklidir.
 - Kapsam test edilen sayfadır; görev ya da kullanıcının talimatı gerektiriyorsa sayfadaki bağlantıyla ilgili sayfaya geçebilirsin (ör. kaydın ayrıntısı). İşin bitince bastan_ac ile test edilen sayfaya dön.
 
+## Ekran mı, tanım mı
+İki bilgi kaynağın var; ikisini aynı görevde birlikte kullanabilirsin, karar senin:
+- Tanım (platform_oku): uygulamanın nasıl çalışması gerektiği — kural, akış, aşama geçişi, koşul, zorunlu alan, yetki, hesap. "Hangi koşulda olur, izin verir mi, atlanabilir mi" sorusu önce tanımdan cevaplanır; ekranda gözlenebilen sonucu ekranda teyit et.
+- Ekran (tarayıcı araçları): kullanıcının gördüğü ve yaşadığı — görünüm, tutarlılık, tepki, hata. Ekranda gördüğün şüpheli davranışın nedenini tanımdan açıkla.
+- Veri değiştirmeyi gerektiren senaryoyu (kayıt oluşturma, aşama ilerletme, onaya gönderme) salt okumada deneyemezsin: tanımdan çıkar, "yazma gerektirir" diye söyle; engellenen düğmeyi tekrar deneme.
+- Tanımdan bir iddiada bulunursan kaynağını yaz (araç, kayıt, alan). Tanımda olup ekranda farklı davranan şey bulgudur.
+
 ## Neye bakarsın
 - Hata mesajı, açılmayan pencere, tepki vermeyen düğme, gelmeyen liste, çalışmayan filtre/sıralama/sayfalama, konsol ve ağ hataları.
 - Tutarsızlık: aynı kavramın farklı adlarla geçmesi, aynı sayfada farklı tarih/sayı biçimi, toplamların tutmaması, durum etiketlerinin çelişmesi, sayfa açıklamasının söylediğiyle ekranın uyuşmaması.
@@ -66,6 +73,8 @@ export interface PageFacts {
   rejected: Array<{ key: string; title: string }>
   /** Sayfa bilgisi (koşulardan damıtılmış, `pages/<sayfa>/<yazar>.md`, en yenisi); yoksa null. */
   knowledge?: string | null
+  /** Koşunun bilgisi: stratejide tanımdan bilinenler ve tanım kalemlerinin kaynaklı sonuçları. */
+  notes?: string[]
 }
 
 const list = (items: string[], empty = '(yok)') =>
@@ -85,6 +94,9 @@ export function pageFacts(facts: PageFacts, audience: 'gezgin' | 'yargic' = 'gez
       ? `Bu sayfada açık sorunlar:\n${list(facts.openIssues.map((i) => `${i.key} — ${i.title}`))}`
       : `Bu sayfada daha önce bulunan, etkileşimle yeniden bakılması gereken açık sorunlar (hâlâ var mı bak, sorun_durumu ile bildir):\n${list(facts.openIssues.map((i) => `${i.key} — ${i.title}`))}`,
   ]
+  if (facts.notes?.length)
+    parts.push(`Bu koşuda platform tanımlarından öğrenilenler (kaynaklı; ekranda teyit et):
+${list(facts.notes)}`)
   if (facts.knowledge)
     parts.push(
       `Sayfa bilgisi (önceki koşulardan damıtılmış; yol gösterir ama ekranda doğrula, körü körüne güvenme):\n${facts.knowledge}`,

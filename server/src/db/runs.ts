@@ -1,4 +1,14 @@
-import { RUN_CEILINGS, type RunEvent, type RunEventBody, type RunInfo, type RunOptions, type RunStatus, type Usage, type Workspace } from '@argus/shared'
+import {
+  RUN_CEILINGS,
+  type RunEvent,
+  type RunEventBody,
+  type RunAnswer,
+  type RunInfo,
+  type RunOptions,
+  type RunStatus,
+  type Usage,
+  type Workspace,
+} from '@argus/shared'
 import { json, newId, now, type Database } from './database.ts'
 
 export const EMPTY_USAGE: Usage = {
@@ -24,6 +34,7 @@ interface RunRow {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  answer: string | null
 }
 
 function counts(db: Database, runId: string): RunInfo['counts'] {
@@ -54,6 +65,7 @@ function toInfo(db: Database, row: RunRow): RunInfo {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     counts: counts(db, row.id),
+    answer: json<RunAnswer | null>(row.answer, null),
   }
 }
 
@@ -131,7 +143,11 @@ export function nextQueuedRun(db: Database): RunInfo | null {
   return row ? toInfo(db, row) : null
 }
 
-/** Yalnız girdiyle başlatılan koşunun sayfaları, koşu başında girdiden seçilince yazılır. */
+export function setRunAnswer(db: Database, id: string, answer: RunAnswer): void {
+  db.prepare('update runs set answer = ? where id = ?').run(JSON.stringify(answer), id)
+}
+
+/** Koşunun sayfaları: stratejinin (ve gözetmenin ek kalemlerinin) ekran kalemlerinden gelince yazılır. */
 export function setRunPages(db: Database, id: string, pages: string[]): void {
   db.prepare('update runs set pages = ? where id = ?').run(JSON.stringify(pages), id)
 }

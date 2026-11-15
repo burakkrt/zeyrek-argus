@@ -1,7 +1,15 @@
 <script lang="ts">
   import type { FindingKind } from '@argus/shared'
   import Icon from '$lib/components/Icon.svelte'
-  import { ACTION_ICON, FINDING_TONE, formatClock, rulerTicks, stackLabels, type Lanes } from '$lib/monitor'
+  import {
+    ACTION_ICON,
+    FINDING_TONE,
+    formatClock,
+    pageLabel,
+    rulerTicks,
+    stackLabels,
+    type Lanes,
+  } from '$lib/monitor'
   import { cn } from '$lib/utils'
 
   /**
@@ -147,7 +155,7 @@
             {@const on = position >= page.start && position < page.end}
             <button
               type="button"
-              aria-label={`${page.page} sayfasının başına git`}
+              aria-label={`${pageLabel(page.page)} başına git`}
               class={cn(
                 'absolute inset-y-[3px] flex items-center truncate rounded-[5px] border bg-white px-2 text-left text-xs font-medium hover:border-zinc-400',
                 on && 'border-brand-border bg-brand-soft text-brand-strong hover:border-brand-border',
@@ -155,7 +163,7 @@
               style={`left:calc(${pct(page.start)}% + 2px);width:calc(${pct(page.end) - pct(page.start)}% - 4px)`}
               onmouseenter={(e) => showTip(e, page.page)}
               onmouseleave={() => (tip = null)}
-              onclick={() => onseek(page.start)}>{page.page}</button
+              onclick={() => onseek(page.start)}>{pageLabel(page.page)}</button
             >
           {/each}
         </div>

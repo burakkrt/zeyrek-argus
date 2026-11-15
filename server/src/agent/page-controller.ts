@@ -10,7 +10,7 @@ import {
   type StateShot,
 } from '../browser/evidence.ts'
 import { describeHit, runEyes, type EyeHit, type PatternRule } from '../browser/eyes.ts'
-import { isUnsafeLabel } from '../browser/guard.ts'
+import { isUnsafeTarget } from '../browser/guard.ts'
 import { landedOn } from '../platform/catalog.ts'
 import { ariaTree, harvestTooltips, visibleText } from '../browser/research.ts'
 import type { BrowserDialog, BrowserSession, Problem } from '../browser/session.ts'
@@ -29,10 +29,12 @@ import {
   type CreateMessage,
   type MessageParam,
   type MessageParams,
+  type Tool,
   type UsageMeter,
 } from './model.ts'
 import { INSPECT_TASK, JUDGE_TASK, pageFacts, type PageFacts } from './prompts.ts'
-import { INSPECT_SCHEMA, JUDGE_SCHEMA, PLAN_SCHEMA, TASK_TOOLS } from './tools.ts'
+import { INSPECT_SCHEMA, JUDGE_SCHEMA, PLAN_SCHEMA, platformTools, TASK_TOOLS } from './tools.ts'
+import type { PlatformReader } from '../platform/reader.ts'
 
 export interface FindingDraft {
   key: string
@@ -86,9 +88,13 @@ export interface PageInput {
   createMessage: CreateMessage
   meter: UsageMeter
   settings: Pick<Settings, 'models' | 'effort' | 'escalate' | 'inspector'>
+  /** Stratejinin bu sayfadaki işi: kalemler (birer görev) ve tam tarama istenip istenmediği. */
+  work: { scan: boolean; tasks: Array<{ baslik: string; amac: string }> }
   /** Güvenlik tavanları (`RUN_CEILINGS`); kullanıcı seçmez, testler küçültür. */
   maxTasks: number
   maxSteps: number
+  /** Platform okuma kapısı (tanımlar); gezgin ekranla birlikte kullanır. */
+  platform: PlatformReader
   /** Kullanıcının talimatı (yoksa null): planlayıcı önce bunu karşılar, gezgin görevde akılda tutar. */
   brief: string | null
   /** Talimatın ekleri (görsel, PDF, Excel, Word, metin): yalnız planlayıcı görür. */
@@ -122,9 +128,12 @@ const DIALOG_KIND: Record<string, string> = {
 function dialogNote(dialogs: BrowserDialog[]): string {
   if (!dialogs.length) return ''
   const shown = dialogs
-    .map((d) => `${DIALOG_KIND[d.type] ?? d.type}${d.message ? ` ("${d.message}")` : ''}`)
+    .map(
+      (d) =>
+        `${DIALOG_KIND[d.type] ?? d.type}${d.message ? ` ("${d.message}")` : ''} → ${d.accepted ? 'kabul edildi' : 'iptal edildi, sayfada kalındı'}`,
+    )
     .join(', ')
-  return `Tarayıcı penceresi açıldı: ${shown}. Kontrolcü iptal etti, sayfada kalındı (düğme tepki verdi; tepkisizlik bulgusu değildir).`
+  return `Tarayıcı penceresi açıldı: ${shown}. Düğme tepki verdi; tepkisizlik bulgusu değildir. Sayfadan çıkış onayı kabul edilir (kaydedilmemiş girdi yok sayılır), iş onaylatan pencere iptal edilir.`
 }
 const firstLine = (value: string) => value.split('\n')[0] ?? value
 const field = (input: unknown, name: string): string => {
@@ -328,7 +337,14 @@ export class PageController {
     return job.catch(() => undefined)
   }
 
-  constructor(private readonly input: PageInput) {}
+  /** Gezginin araçları: tarayıcı + platform okuması (tek araç kutusu; hangisinin gerektiğine gezgin karar verir). */
+  private readonly tools: Tool[]
+  /** Sayfa doğrudan açılamayıp yönlendirdiyse (kayıt sayfası) yönlendirdiği sayfa; koşu kalemleri orada sürer. */
+  redirectedTo: string | null = null
+
+  constructor(private readonly input: PageInput) {
+    this.tools = [...TASK_TOOLS, ...platformTools(input.platform)]
+  }
 
   /**
    * Açık sorunların modelsiz doğrulaması: bu açılışta gözlerin yeniden bulduğu ya da düzeldi denen sorun
@@ -568,14 +584,17 @@ export class PageController {
   ) {
     const model = options.model ?? this.input.settings.models[role]
     return this.input
-      .createMessage({
-        model,
-        max_tokens: 16_000,
-        system: this.input.system,
-        ...(options.cache === false ? {} : { cache_control: { type: 'ephemeral' as const } }),
-        ...params,
-        output_config: { effort: this.input.settings.effort, ...(params.output_config ?? {}) },
-      })
+      .createMessage(
+        {
+          model,
+          max_tokens: 16_000,
+          system: this.input.system,
+          ...(options.cache === false ? {} : { cache_control: { type: 'ephemeral' as const } }),
+          ...params,
+          output_config: { effort: this.input.settings.effort, ...(params.output_config ?? {}) },
+        },
+        role,
+      )
       .then((message) => {
         this.input.meter.add(model, message, role)
         this.input.hooks.usageChanged()
@@ -598,6 +617,7 @@ export class PageController {
     // Kayıt sayfası kimliksiz açılınca uygulama başka sayfaya yönlendirir: model çağrılmaz, bulgu yazılmaz.
     const landed = landedOn(this.input.url, this.page.url())
     if (landed) {
+      this.redirectedTo = landed
       const summary = `Doğrudan açılamadı: uygulama "${landed}" sayfasına yönlendirdi. Bu bir kayıt sayfası olabilir (bir kayıttan ?id= ile açılır); sayfa atlandı, model çağrılmadı.`
       hooks.emit({ type: 'hata', message: summary })
       hooks.emit({ type: 'sayfa-bitti', summary })
@@ -644,11 +664,12 @@ export class PageController {
       )
     this.judgeFacts = () => facts('yargic')
 
-    // 2. Plan: tek çağrı, yapılandırılmış çıktı.
+    // 2. Plan: stratejinin bu sayfadaki kalemleri önce; tam tarama istendiyse planlayıcı sayfanın görevlerini de çıkarır
+    // (tek çağrı, yapılandırılmış çıktı). Tek görevli taramada ayrı plan çağrısı yapılmaz: görev sayfanın tamamını kapsar.
     if (hooks.stopped()) return 'Durduruldu.'
-    // Tek görevde ayrı plan çağrısı yapılmaz: görev sayfanın tamamını kapsar, planı kendisi yapar.
-    const planned =
-      this.input.maxTasks === 1
+    const planned = !this.input.work.scan
+      ? { summary: 'Strateji kalemleri.', tasks: [] }
+      : this.input.maxTasks === 1
         ? {
             summary: '',
             tasks: [
@@ -662,8 +683,8 @@ export class PageController {
           }
         : await this.plan(facts)
     const summary = planned.summary
-    const tasks = planned.tasks.length
-      ? planned.tasks
+    const tasks = [...this.input.work.tasks, ...planned.tasks].length
+      ? [...this.input.work.tasks, ...planned.tasks]
       : [
           {
             baslik: 'Genel gezinti',
@@ -677,6 +698,11 @@ export class PageController {
     for (const [index, task] of tasks.entries()) {
       if (hooks.stopped()) break
       hooks.emit({ type: 'gorev-basladi', index, title: task.baslik })
+      // Her görev sayfanın temiz hâlinden başlar: önceki görevin bıraktığı form, pencere ya da gezinti ona bulaşmaz.
+      if (index > 0) {
+        await this.input.session.open(this.input.url)
+        this.trail = []
+      }
       const result = await this.runTask(task, notebook, facts).catch((error: unknown) => {
         hooks.emit({ type: 'hata', message: `Görev yarım kaldı: ${describeModelError(error)}` })
         return `Yarım kaldı: ${describeModelError(error)}`
@@ -893,7 +919,7 @@ export class PageController {
         ;(last.content as ContentBlock[]).push(text(`KULLANICI YÖNLENDİRMESİ: ${message}`))
         hooks.emit({ type: 'yonlendirme', message })
       }
-      const response = await this.call('explorer', { messages, tools: TASK_TOOLS }, { model })
+      const response = await this.call('explorer', { messages, tools: this.tools }, { model })
       if (response.stop_reason === 'refusal') {
         if (escalate('yanıt vermedi')) continue
         return 'Model bu adımı yanıtlamadı.'
@@ -993,7 +1019,9 @@ export class PageController {
         finalRound = true
         hooks.emit({ type: 'bilgi', message: `"${task.baslik}" görevi kapatılıyor: ${closing}` })
         results.push(
-          text(`${closing} Gördüğün sorunları bulgu_bildir ile bildir ve gorevi_bitir çağır; başka işlem yapma.`),
+          text(
+            `${closing} Gördüğün sorunları bulgu_bildir ile bildir ve gorevi_bitir çağır; başka işlem yapma.`,
+          ),
         )
       }
       messages.push({ role: 'user', content: results })
@@ -1019,12 +1047,15 @@ export class PageController {
                 .trim()
                 .slice(0, 80),
               submit: button.type === 'submit' && Boolean(button.form),
+              control: el.matches(
+                'button, [role=button], [role=menuitem], input[type=button], input[type=submit]',
+              ),
             }
           })
           .catch(() => null)
         if (!target) return `'${ref}' bulunamadı; ekran değişmiş olabilir, ekrana_bak ile yeniden bak.`
         const frame = await this.frame(name, ref)
-        if (isUnsafeLabel(target.label) || target.submit) {
+        if (isUnsafeTarget(target.label, target.control) || target.submit) {
           await this.step(name, reason, `Salt okuma: "${target.label}" basılmadı.`, frame)
           return `Salt okuma: "${target.label}" yazma işi yapabilir, basılmadı. Başka bir şey dene.`
         }
@@ -1102,6 +1133,27 @@ export class PageController {
         )
         // Ağaç zaten her adımda geliyor; bakışta yalnız fark (ve istenirse görüntü) gider.
         return this.screen(withImage, [], true)
+      }
+      case 'platform_arac': {
+        const arac = field(input, 'arac')
+        await this.step(name, reason, `Platform aracı incelendi: ${arac}`)
+        return this.input.platform.describe(arac)
+      }
+      case 'platform_oku': {
+        const arac = field(input, 'arac')
+        const result = await this.input.platform.read(
+          arac,
+          field(input, 'girdi'),
+          Number((input as Record<string, unknown> | null)?.devam) || 0,
+        )
+        await this.step(
+          name,
+          reason,
+          result.startsWith('Okunamadı') || result.startsWith('Girdi JSON')
+            ? `Platformdan okunamadı: ${arac}`
+            : `Platformdan okundu: ${arac}`,
+        )
+        return result
       }
       case 'bastan_ac': {
         const at = Date.now()

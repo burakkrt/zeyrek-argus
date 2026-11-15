@@ -1,7 +1,8 @@
-import type { RunEvent, RunEventBody } from '@argus/shared'
+import { DEFINITION_PAGE, type RunEvent, type RunEventBody } from '@argus/shared'
 import { describe, expect, it } from 'vitest'
 import {
   actionOf,
+  ANSWER_STATUS,
   buildFlowSections,
   rulerTicks,
   buildClock,
@@ -11,6 +12,7 @@ import {
   buildMonitor,
   formatClock,
   frameIndexAt,
+  pageLabel,
   pointerAt,
   scenarioSteps,
   stepIndexAt,
@@ -101,6 +103,43 @@ describe('monitör modeli', () => {
     expect(model.flow[2]).toMatchObject({ status: 'bitti' })
     expect(model.findings.map((f) => [f.event.key, f.judge])).toEqual([['vazgec', 'kabul — düğme tepkisiz']])
     expect(model.steps[0]!.dialog).toBe('Kaydedilmemiş değişiklikler var')
+  })
+
+  it('strateji ve cevap modele girer; tanım kalemlerinin satırı adlandırılır, platform okuması eylem olur', () => {
+    const strategy = {
+      kind: 'akis' as const,
+      understood: 'Kalibrasyon atlanabilir mi',
+      questions: [],
+      success: 'Kanıtla cevap',
+      known: [],
+      infeasible: [],
+      items: [],
+    }
+    const answer = {
+      status: 'cevaplandi' as const,
+      answer: 'Atlanır.',
+      evidence: ['workflow_get'],
+      missing: '',
+    }
+    const model = buildMonitor([
+      ev(null, { type: 'strateji', strategy }),
+      ev(DEFINITION_PAGE, { type: 'sayfa-basladi', url: '' }),
+      step(DEFINITION_PAGE, 'Platformdan okundu: workflow_get', { tool: 'platform_oku', shot: null }),
+      ev(null, { type: 'cevap', answer }),
+    ])
+    expect(model.strategy).toEqual(strategy)
+    expect(model.answer).toEqual(answer)
+    expect(
+      model.flow.some((r) => r.kind === 'not' && r.text === 'Strateji · Kalibrasyon atlanabilir mi'),
+    ).toBe(true)
+    expect(ANSWER_STATUS[answer.status]).toEqual({ label: 'Cevaplandı', tone: 'success' })
+    expect(pageLabel(DEFINITION_PAGE)).toBe('Platform tanımları')
+    expect(pageLabel('egt-liste')).toBe('egt-liste')
+    expect(actionOf(model.steps[0]!)).toEqual({
+      kind: 'platform',
+      verb: 'Tanımı okudu',
+      object: 'workflow_get',
+    })
   })
 
   it('sayfa bitince süren görev de biter', () => {

@@ -41,19 +41,40 @@ soru yalnız bunlar çıkarılamazsa sorulur. Koşular dala, bulgular ve hafıza
 
 ## Kontrolcü nasıl çalışır
 
+**Koşu: anla → araştır → gözet → cevapla.**
+
+- **Anla (girdili koşu):** güçlü model isteği çözümler ve gerekirse uygulamanın tanımlarını platformdan okur
+  (akış, süreç, mikroservis, sayfa şeması, varlık…). Sonra koşunun stratejisini yazar: isteğin türü (arayüz taraması,
+  kural/akış sorusu, karışık), cevaplanacak sorular, başarı ölçütü, tanımdan bilinenler ve salt okumada
+  yapılamayanlar (ör. aşama ilerletmek yazma ister). İş kalemleri de burada çıkar; her kalemin kaynağı **tanım**
+  (platform okuması), **ekran** (tarayıcı, bir sayfada) ya da **ikisi**dir (tanımı oku, sonucu ekranda teyit et). Sayfa
+  seçilmediyse kalemlerin sayfalarını bu adım seçer. Girdisiz koşuda (yalnız sayfa seçildi) bu adım atlanır ve
+  seçilen sayfalar baştan sona taranır.
+- **Araştır:** tanım kalemleri tarayıcı açılmadan, yalnız platform okumasıyla ve kaynaklı cevaplanır; sonuçları
+  sonraki ekran kalemlerine geçer. Ekran kalemleri ilgili sayfada birer görevdir. Gezginin araç kutusunda tarayıcı
+  araçlarıyla birlikte platform okuması da vardır: aynı görevde tanımı okuyup ekranda teyit edebilir. Yalnız tanım
+  kalemi olan koşu tarayıcı açmaz.
+- **Gözet:** kalemler bitince gözetmen sonucu başarı ölçütüyle karşılaştırır; cevap eksikse ve kanıt toplanacak yol
+  kaldıysa ek kalem ister (en çok bir tur).
+- **Cevapla:** koşunun "Cevap"ı (cevaplandı / kısmen / cevaplanamadı, cevap, kanıtlar, eksik kalan) koşu kaydında
+  ve izleme ekranında akışın üstünde durur; bulgular bunun altındadır.
+- **Platform okuması** yalnız sunucunun "salt okuma" (`readOnlyHint`) işaretli araçlarıyla yapılır; kimlik bilgisi ve
+  kişisel veri döndüren araçlar kara listededir; ortam her okumada koşunun ortamına sabitlenir.
+
 Sayfa başına:
 
 1. **Araştırma (token yok):** sayfa açılır, ağ susana kadar beklenir. `?` ipuçları okunur (tanımlar). Belirlenimci
    gözler bakar: ham değer, GUID, ham tarih/dönem, renk kodu, çeviri anahtarı, kesik metin ve yer tutucu, deseni olan
    kurallar, konsol hataları, başarısız istekler. Her biri kutulu kanıtla, kesin olarak kaydedilir.
-2. **Plan (1 çağrı):** sıkıştırılmış sayfa ağacı + ekran + ipuçları + göz bulguları + ilgili kurallar + bu sayfadaki
-   açık sorunlar → en çok N görev.
+2. **Plan:** stratejinin bu sayfadaki kalemleri birer görevdir. Sayfa baştan sona taranacaksa planlayıcı (1 çağrı)
+   sıkıştırılmış ağaç + ekran + ipuçları + göz bulguları + kurallar + açık sorunlardan sayfanın görevlerini de çıkarır.
+   Her görev sayfanın temiz hâlinden başlar (önceki görevin formu, penceresi bulaşmaz).
 3. **Görevler (gezgin):** her görev ayrı ve kısa bir konuşma (bağlam büyümez). Gezgin tıklar, üzerine gelir, filtre
    ve arama alanlarına yazar, kaydırır; her etkileşimden sonra belirlenimci gözler yeniden bakar. Gezginin işi görevin
    her maddesine ulaşmak ve davranış sorunlarını (tepki vermeyen düğme, açılmayan pencere, çalışmayan filtre)
    bildirmektir; ulaşamadığı madde olursa bir üst modele geçer.
-4. **Göz:** gezginin ulaştığı her yeni ekranın (ağaç belirgin biçimde değiştiyse; ekran sayısına sınır yok, aynı ekran iki kez incelenmez) o anki hâli
-   yakalanır ve Opus onu gezgini bekletmeden inceler: veri tutarlılığı, adlar, sayaçlar, başlık ve açıklama, görsel
+4. **Göz:** gezginin ulaştığı her yeni ekranın (ağaç belirgin biçimde değiştiyse; ekran sayısına sınır yok, aynı
+   ekran iki kez incelenmez) o anki hâli yakalanır ve Opus onu gezgini bekletmeden inceler: veri tutarlılığı, adlar, sayaçlar, başlık ve açıklama, görsel
    sorunlar. Her incelemenin kısa **ekran notları** (durum adları, sayaçlar, "kısmi" işaretleri) sonraki incelemeye
    taşınır; böylece ekranlar arası tutarsızlık da görülür. Bulgu, yakalanan görüntünün üstüne kutuyla çizilir.
 5. **Doğrulama:** bildirilen bulgunun alıntısı ekranda aranır; yoksa "doğrulanamadı" notuna iner. Gezginin bildirdiği
@@ -63,7 +84,9 @@ Sayfa başına:
 
 **Salt okur.** Yazma işi anlatan düğmeye ("Kaydet", "Sil", "Onaya gönder", "Oluştur"…) basmaz; veriyi değiştiren
 istekler (PUT/PATCH/DELETE, satır yazan POST) ağdan geçmez; kontrolcü bir alana yazdıktan sonra sayfa açılışında
-görülmemiş POST uçları da engellenir. Kalan risk: etiketi masum ("Tamam") olup açılışta görülmüş bir uca yazan
+görülmemiş POST uçları da engellenir. Etiket kuralı düğmelere uygulanır; satır ve hücre metni veridir (adı "silinecek"
+geçen kaydın satırı açılır). Sayfadan çıkış onayı ("kaydedilmedi, çıkılsın mı?") kabul edilir, kaydedilmemiş girdi yok
+sayılır; silme ve gönderme onayı iptal edilir. Açılamayan sayfa boş sayfa üzerinden yeniden denenir. Kalan risk: etiketi masum ("Tamam") olup açılışta görülmüş bir uca yazan
 düğme. Bu yüzden yalnız development ve dallarda koşulur; production listelenmez.
 
 ## Öğrenme ve güvenlik

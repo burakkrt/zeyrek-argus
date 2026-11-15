@@ -1,14 +1,14 @@
 ---
 yazar: krtbu
-guncelleme: "2026-11-15T07:26:17.726Z"
+guncelleme: "2026-11-15T08:44:25.455Z"
 ---
 ## yz:ana-sayfa-buyuk-kucuk-harf
 - baslik: "Ana sayfa" ve "Ana Sayfa" aynı sayfada farklı büyük/küçük harfle geçiyor
 - tur: tutarsizlik
 - sayfalar: performans-calisma-alanim, performans-donemler, performans-gosterge-olustur
 - ilk: 2026-11-14T14:21:59.450Z
-- son: 2026-11-15T07:20:56.067Z
-- gorulme: 4
+- son: 2026-11-15T08:39:56.847Z
+- gorulme: 5
 - sayfa: performans-donemler
 - senaryo: Dönem yönetimi sayfasını aç; sol menüdeki ve gezinti yolundaki ana sayfa bağlantılarına bak.
 - beklenen: Aynı bağlantı tek biçimde yazılmalı.
@@ -72,8 +72,8 @@ guncelleme: "2026-11-15T07:26:17.726Z"
 - tur: tutarsizlik
 - sayfalar: performans-donem, performans-donemler
 - ilk: 2026-11-13T21:06:52.944Z
-- son: 2026-11-15T07:20:55.951Z
-- gorulme: 2
+- son: 2026-11-15T08:39:57.046Z
+- gorulme: 3
 - sayfa: performans-donemler
 - senaryo: Dönem yönetimi sayfasını aç; Tümü listesinde "2026 Ortası" satırına bak.
 - beklenen: Dönem adı, kodu ve tarih aralığı aynı yılı göstermeli.
@@ -93,13 +93,26 @@ guncelleme: "2026-11-15T07:26:17.726Z"
 - gozlenen: Anahtar devre dışı ve "Kapalı" yazıyor, altında "E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez." uyarısı var. Buna rağmen "Hatırlatma zamanı" (5 gün önce) düzenlenebiliyor, ok düğmeleri etkin ve "Süre geçince yöneticiye bildir" kutusu işaretli ve tıklanabilir. Ayar etkisiz olduğu hâlde kullanıcı değer giriyor.
 - alinti: E-posta gönderimi kapalı olduğu için hatırlatma gönderilmez.
 
+## yz:donem-kayit-filtresi-yer-tutucu-eksik
+- baslik: Kayıt sütun filtresinde yer tutucu yok
+- tur: tutarsizlik
+- sayfalar: performans-donemler
+- ilk: 2026-11-15T08:40:16.825Z
+- son: 2026-11-15T08:40:16.825Z
+- gorulme: 1
+- sayfa: performans-donemler
+- senaryo: 1) Dönem yönetimi sayfasını açın. 2) Tablonun ikinci başlık satırındaki filtre kutularına bakın. 3) Kayıt sütunundaki filtreyi Dönem, Form şablonu ve Aşama filtreleriyle karşılaştırın.
+- beklenen: Kayıt filtresi de öteki metin filtreleri gibi bir yer tutucu göstermeli (ör. "Filtrele").
+- gozlenen: Dönem, Form şablonu ve Aşama filtrelerinde "Filtrele" yer tutucusu var. Kayıt filtresi ise yalnız "=" operatörünü gösteriyor, kutu boş. Plan filtresinde aynı eksiklik bilinen sorun olarak kayıtlı (yz:donem-plan-filtresi-yer-tutucu-eksik); "=" operatörlü filtrelerin ortak kök nedeni olabilir.
+- alinti: 
+
 ## yz:donem-kayit-katilimci-ad-farki
 - baslik: Sayfa açıklaması "katılımcı sayıları" diyor, sütun adı "Kayıt"
 - tur: tutarsizlik
 - sayfalar: performans-donem, performans-donemler
 - ilk: 2026-11-13T21:06:22.745Z
-- son: 2026-11-15T07:20:56.015Z
-- gorulme: 2
+- son: 2026-11-15T08:39:56.946Z
+- gorulme: 3
 - sayfa: performans-donemler
 - senaryo: Dönem yönetimi sayfasını aç; sayfa açıklamasını ve tablo sütun başlıklarını karşılaştır.
 - beklenen: Açıklamada ve sütun başlığında aynı kavram aynı adla geçmeli.
@@ -137,8 +150,8 @@ guncelleme: "2026-11-15T07:26:17.726Z"
 - tur: tutarsizlik
 - sayfalar: performans-donemler, performans-planlar
 - ilk: 2026-11-13T21:45:35.398Z
-- son: 2026-11-15T07:20:36.695Z
-- gorulme: 3
+- son: 2026-11-15T08:39:57.152Z
+- gorulme: 4
 - sayfa: performans-donemler
 - senaryo: Performans → Dönem yönetimi → Tümü sekmesi; "test burak dönem 2" (DD-2027-05) ve "test değerlendirme bir" (DD-2027-04) satırlarındaki Plan sütununa bak.
 - beklenen: Plan kodunun yılı, dönem kodunun yılı ve tarih aralığıyla uyumlu olmalı (ör. PLN-2027-xx).

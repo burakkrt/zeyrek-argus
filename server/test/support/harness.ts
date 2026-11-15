@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { RunInfo } from '@argus/shared'
+import { DEFINITION_MARKER } from '../../src/agent/investigator.ts'
 import type { CreateMessage, Message, MessageParams } from '../../src/agent/model.ts'
+import { STRATEGY_MARKER } from '../../src/agent/strategist.ts'
+import { SUPERVISE_MARKER } from '../../src/agent/supervisor.ts'
 import type { Config } from '../../src/config.ts'
 import { createContext, type AppContext } from '../../src/context.ts'
 import { getRun } from '../../src/db/runs.ts'
@@ -27,8 +30,15 @@ export interface Script {
   inspect?: (prompt: string) => unknown
   /** Sayfa bilgisi damıtma; verilmezse boş bilgi. */
   knowledge?: (prompt: string) => unknown
-  /** Yalnız girdiyle başlatılan koşuda sayfa seçimi; verilmezse hiçbir sayfa seçilmez. */
-  pick?: (prompt: string) => unknown
+  /**
+   * Anla adımı (girdili koşu): araç hamleleri; `plani_yaz` bitirir. Verilmezse seçilen her sayfa baştan sona taranır
+   * (girdisiz koşuyla aynı).
+   */
+  strategy?: (conversation: string, turn: number) => Move | Move[]
+  /** Gözetmen kararı (girdili koşu sonunda); verilmezse cevaplandı, ek kalem yok. */
+  supervise?: (prompt: string) => unknown
+  /** Tanım kalemi: araç hamleleri; `kalemi_bitir` bitirir. Verilmezse hemen biter. */
+  define?: (conversation: string, turn: number) => Move | Move[]
 }
 
 function judgeCandidate(prompt: string): Record<string, string> {
@@ -61,6 +71,25 @@ const usage = {
   output_tokens: 50,
   cache_creation_input_tokens: 0,
   cache_read_input_tokens: 0,
+}
+
+/** Varsayılan strateji: seçilen her sayfa baştan sona taranır. */
+function scanPlan(pages: string[]) {
+  return {
+    tur: 'arayuz',
+    anlasilan: 'Tarama',
+    sorular: [],
+    basari: 'Bulgular',
+    bilinenler: [],
+    yapilamayan: [],
+    kalemler: pages.map((sayfa) => ({
+      baslik: 'Sayfanın tamamı',
+      amac: '',
+      kaynak: 'ekran',
+      sayfa,
+      tam_tarama: true,
+    })),
+  }
 }
 
 /** Senaryolu sahte model: plan, görev ve ders çağrılarını ayırıp senaryodaki cevabı döner; çağrıları saklar. */
@@ -98,8 +127,14 @@ export function scriptedModel(script: Script): { model: CreateMessage; calls: Me
       }
       return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
     }
-    if (params.output_config?.format && prompt.includes('SAYFA SEÇİMİ GÖREVİ')) {
-      const value = script.pick?.(prompt) ?? { sayfalar: [], gerekce: '' }
+    if (params.output_config?.format && prompt.includes(SUPERVISE_MARKER)) {
+      const value = script.supervise?.(prompt) ?? {
+        durum: 'cevaplandi',
+        cevap: 'Tamam.',
+        kanitlar: [],
+        eksik: '',
+        ek_kalemler: [],
+      }
       return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
     }
     if (params.output_config?.format && prompt.includes('YARGIÇ GÖREVİ')) {
@@ -118,14 +153,33 @@ export function scriptedModel(script: Script): { model: CreateMessage; calls: Me
       const value = isTeacher ? (script.learn?.(prompt) ?? { oneriler: [] }) : script.plan(prompt)
       return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
     }
+    const toolMoves = (moves: Move | Move[]) =>
+      reply(
+        [moves]
+          .flat()
+          .map((m, i) => ({ type: 'tool_use', id: `tu_${n}_${i}`, name: m.name, input: m.input })),
+        'tool_use',
+      )
+    if (prompt.includes(STRATEGY_MARKER)) {
+      const turn = (turns.get(STRATEGY_MARKER) ?? 0) + 1
+      turns.set(STRATEGY_MARKER, turn)
+      const selected = /KULLANICININ SEÇTİĞİ SAYFALAR[^:]*: (.+)/.exec(prompt)?.[1]?.split(', ') ?? []
+      return toolMoves(script.strategy?.(prompt, turn) ?? { name: 'plani_yaz', input: scanPlan(selected) })
+    }
+    if (prompt.includes(DEFINITION_MARKER)) {
+      const turn = (turns.get(DEFINITION_MARKER) ?? 0) + 1
+      turns.set(DEFINITION_MARKER, turn)
+      return toolMoves(
+        script.define?.(prompt, turn) ?? {
+          name: 'kalemi_bitir',
+          input: { ozet: 'Bakıldı.', kanitlar: [], eksik: '' },
+        },
+      )
+    }
     const task = /GÖREV: (.+)/.exec(prompt)?.[1]?.trim() ?? ''
     const turn = (turns.get(task) ?? 0) + 1
     turns.set(task, turn)
-    const moves = [script.task(prompt, task, turn)].flat()
-    return reply(
-      moves.map((m, i) => ({ type: 'tool_use', id: `tu_${n}_${i}`, name: m.name, input: m.input })),
-      'tool_use',
-    )
+    return toolMoves(script.task(prompt, task, turn))
   }
   return { model, calls }
 }

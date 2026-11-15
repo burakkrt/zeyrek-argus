@@ -29,16 +29,24 @@ afterAll(async () => {
 })
 
 describe('döngü koruması', () => {
-  it.each(['ayni', 'gidip-gel'] as const)('%s işlemi tekrarlayan gezginin görevi tavandan çok önce kapanır, koşu biter', async (m) => {
-    mode = m
-    const before = h.calls.length
-    const run = h.ctx.runs.create({ ...app, environment: 'development', pages: ['egt-liste'], options: { maxTasks: 1 } })
-    expect(run.options.maxSteps).toBe(RUN_CEILINGS.maxSteps)
-    const done = await h.waitFor(run.id)
-    expect(done.status).toBe('bitti')
-    const explorer = h.calls.slice(before).filter((c) => JSON.stringify(c.messages).includes('GÖREV: '))
-    expect(explorer.length).toBeLessThanOrEqual(10)
-    const info = listEvents(h.ctx.db, done.id).flatMap((e) => (e.type === 'bilgi' ? [e.message] : []))
-    expect(info).toContainEqual(expect.stringContaining('görevi kapatılıyor: İlerleme durdu'))
-  })
+  it.each(['ayni', 'gidip-gel'] as const)(
+    '%s işlemi tekrarlayan gezginin görevi tavandan çok önce kapanır, koşu biter',
+    async (m) => {
+      mode = m
+      const before = h.calls.length
+      const run = h.ctx.runs.create({
+        ...app,
+        environment: 'development',
+        pages: ['egt-liste'],
+        options: { maxTasks: 1 },
+      })
+      expect(run.options.maxSteps).toBe(RUN_CEILINGS.maxSteps)
+      const done = await h.waitFor(run.id)
+      expect(done.status).toBe('bitti')
+      const explorer = h.calls.slice(before).filter((c) => JSON.stringify(c.messages).includes('GÖREV: '))
+      expect(explorer.length).toBeLessThanOrEqual(10)
+      const info = listEvents(h.ctx.db, done.id).flatMap((e) => (e.type === 'bilgi' ? [e.message] : []))
+      expect(info).toContainEqual(expect.stringContaining('görevi kapatılıyor: İlerleme durdu'))
+    },
+  )
 })

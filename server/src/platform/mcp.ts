@@ -6,28 +6,42 @@ import { ArgusError } from '../errors.ts'
 import type { McpLaunch, PlatformCredentials } from './credentials.ts'
 
 /**
- * Argus platforma yazmaz. Bu liste yalnız okuyan araçlarla büyür; create, update, patch, delete, publish,
- * execute gibi yazan bir araç eklenmez.
+ * Argus platforma yazmaz. Çağrılabilen araçlar bağlanırken sunucudan okunur: yalnız `readOnlyHint: true` işaretli
+ * olanlar, kara liste hariç. Yazan, yayınlayan, çalıştıran (create, update, patch, delete, publish, execute, preview)
+ * hiçbir araç bu kapıdan geçmez; işaretsiz araç da geçmez.
  */
-export const READ_ONLY_TOOLS = [
-  'platform_whoami',
-  'project_list',
-  'application_list',
-  'environment_list',
-  'page_list',
-  'page_get',
-  'page_schema_get',
-] as const
 
-export type ReadOnlyTool = (typeof READ_ONLY_TOOLS)[number]
+/** Okuma işaretli olsa da çağrılmayan araçlar: kimlik bilgisi, oturum ayarı ve kişisel veri döndürenler. */
+export const DENIED_TOOLS: ReadonlySet<string> = new Set([
+  'connector_credential_list',
+  'application_sign_in_get',
+  'user_list',
+  'user_position_list',
+  'access_decision_log_list',
+  'access_decision_log_summary',
+  'access_decision_log_users',
+  'notification_device_list',
+  'notification_history',
+])
 
-export function assertReadOnlyTool(name: string): asserts name is ReadOnlyTool {
-  if (!(READ_ONLY_TOOLS as readonly string[]).includes(name)) {
-    throw new ArgusError(
-      'TOOL_NOT_ALLOWED',
-      `'${name}' aracı izin listesinde yok; Argus yalnız okuyan araçları çağırır.`,
-    )
-  }
+export interface McpToolInfo {
+  name: string
+  description: string
+  inputSchema: unknown
+}
+
+/** Sunucunun araç listesinden çağrılabilecekler: okuma işaretli ve kara listede olmayanlar. */
+export function readableTools(
+  tools: Array<{
+    name: string
+    description?: string
+    inputSchema?: unknown
+    annotations?: { readOnlyHint?: boolean }
+  }>,
+): McpToolInfo[] {
+  return tools
+    .filter((t) => t.annotations?.readOnlyHint === true && !DENIED_TOOLS.has(t.name))
+    .map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema ?? {} }))
 }
 
 /** Alt sürece üst sürecin ortamından yalnız bunlar geçer; platform bilgisi açıkça verilir. */
@@ -80,7 +94,9 @@ export function childEnv(
 }
 
 export interface McpClient {
-  call(tool: ReadOnlyTool, args?: Record<string, unknown>): Promise<unknown>
+  /** Yalnız `readTools()` içindeki bir araç; başkası `TOOL_NOT_ALLOWED` ile reddedilir. */
+  call(tool: string, args?: Record<string, unknown>): Promise<unknown>
+  readTools(): McpToolInfo[]
   close(): Promise<void>
 }
 
@@ -126,9 +142,23 @@ export async function connectMcp(input: {
       cause: error,
     })
   }
+  const listed: Parameters<typeof readableTools>[0] = []
+  for (let cursor: string | undefined; ;) {
+    const page = await client.listTools(cursor ? { cursor } : {})
+    listed.push(...(page.tools as Parameters<typeof readableTools>[0]))
+    cursor = page.nextCursor
+    if (!cursor) break
+  }
+  const readable = readableTools(listed)
+  const allowed = new Set(readable.map((t) => t.name))
   return {
+    readTools: () => readable,
     async call(tool, args = {}) {
-      assertReadOnlyTool(tool)
+      if (!allowed.has(tool))
+        throw new ArgusError(
+          'TOOL_NOT_ALLOWED',
+          `'${tool}' çağrılamaz: Argus yalnız okuma işaretli (readOnlyHint) ve kara listede olmayan araçları çağırır.`,
+        )
       const result = (await client.callTool({ name: tool, arguments: args })) as {
         content?: unknown
         structuredContent?: unknown

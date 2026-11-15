@@ -4,9 +4,10 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 
 ## Değişmez ilkeler
 
-1. **Platforma yazılmaz.** MCP istemcisi yalnız `server/src/platform/mcp.ts` içindeki `READ_ONLY_TOOLS` listesini
-   çağırır; liste yalnız okuyan araçla büyür. Tarayıcıda yazma korumaları (`server/src/browser/guard.ts`) testle
-   kanıtlıdır; gevşetilmez. production'a koşulmaz.
+1. **Platforma yazılmaz.** MCP istemcisi (`server/src/platform/mcp.ts`) yalnız sunucunun `readOnlyHint: true`
+   işaretli araçlarını, `DENIED_TOOLS` kara listesi (kimlik bilgisi, kişisel veri) hariç çağırır; işaretsiz araç geçmez.
+   Modelin okuma kapısı `server/src/platform/reader.ts`: ortam koşununkine sabitlenir. Tarayıcıda yazma korumaları
+   (`server/src/browser/guard.ts`) testle kanıtlıdır; gevşetilmez. production'a koşulmaz.
 2. **Karar kanıta bağlıdır.** Bulgu türü: kesin (görüldü), tutarsızlık (neyle çeliştiği yazılı), not (bulgu
    sayılmaz). Alıntısı ekranda bulunmayan bulgu kesin olamaz. Giriş ekranında kalan ya da başka sayfaya yönlenen
    (kimliksiz açılan kayıt sayfası) sayfaya "bakılamadı" denir; model çağrılmaz, bulgu yazılmaz.
@@ -49,7 +50,12 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 - Uygulama oturumu koşular arasında saklanır (`data/oturumlar/`, hesap başına dosya 0600, Git dışı; platform jetonu
   yazılmaz): her koşu yeniden giriş yapmaz, süresi dolunca yeniden girilir. Parola değişince, hesap silinince ya da
   giriş tutmayınca saklanan oturum silinir; bozuk dosya koşuyu düşürmez. Kanıt: `controller.test.ts`.
-- Model çağrısı yalnız `CreateMessage` üzerinden; testler senaryolu sahte modelle koşar, gerçek API'ye gitmez.
+- Model çağrısı yalnız `CreateMessage` üzerinden, rolüyle; testler senaryolu sahte modelle koşar, gerçek API'ye
+  gitmez. Koşunun her model çağrısı ve platform okuması `data/runs/<id>/iz/iz.jsonl`'e yazılır (`runs/trace.ts`);
+  koşu sonrası inceleme oradan yapılır.
+- Koşunun yapısı: anla (`agent/strategist.ts`) → tanım kalemleri (`agent/investigator.ts`) ve sayfa kalemleri
+  (`agent/page-controller.ts`) → gözetmen (`agent/supervisor.ts`); ortak araç döngüsü `agent/tool-loop.ts`. Sınır
+  kapsamı daraltmak için konmaz; yalnız kaçağı (aynı işlemin tekrarı, ilerlemesizlik) durdurur.
 - `pnpm check` ve `pnpm test:e2e` yeşil olmadan iş bitmiş sayılmaz.
 - Sürümler tam sabitlenir; kullanılmayan bağımlılık eklenmez.
 - Commit'i insan atar.
@@ -122,9 +128,10 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
   ve otomatik yakınlaştırma (`pointerAt`, `zoomAt`) buradan hesaplanır. Kayıtta model düşünürken geçen durgunluk
   `buildClock` ile kısaltılır; animasyonlar oynatma saatinde, canlıda gerçek saatte koşar (yoksa kısaltılan aralıkta
   sıçrar). Monitöre yeni bilgi eklenecekse önce olaylarda var mı bakılır; model çıktısı bunun için büyütülmez.
-- Sayfanın açtığı tarayıcı penceresi (confirm, çıkış onayı) kaydedilir, iptal edilir (alert kabul) ve adımın sonucuyla
-  modele söylenir; yargıç da son adımları görür. Dinleyicisiz Playwright pencereyi sessizce kapatır ve düğme
-  "tepkisiz" sanılır (ölçüldü 2026-11-14: Vazgeç yanlış bulgusu; `controller.test.ts` kanıtlar).
+- Sayfanın açtığı tarayıcı penceresi kaydedilir ve adımın sonucuyla modele söylenir; yargıç da son adımları görür.
+  Uyarı ve sayfadan çıkış onayı kabul edilir, iş onaylatan pencere iptal edilir (`acceptsDialog`). Çıkış onayını iptal
+  etmek kontrolcüyü formda kilitledi, kalan bütün görev ve sayfalar düştü (KOS-2026-0035; `isolation.test.ts`).
+  Dinleyicisiz Playwright pencereyi sessizce kapatır ve düğme "tepkisiz" sanılır (`controller.test.ts`).
 - Yükleme: kısa işlemde gri `Spinner` (sm/md/lg; tek biçim, IMS Cortex yükleyicisi gibi), yeri belli içeriğin ilk
   yüklemesinde aynı ölçüde `Skeleton`
   (`ui/skeleton`; içerik gelince yer değişmez, zıplama olmaz — örnek `WorkspaceSwitcher`).

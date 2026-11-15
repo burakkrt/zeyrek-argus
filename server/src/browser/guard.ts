@@ -15,6 +15,27 @@ export function isUnsafeLabel(label: string): boolean {
   return [label.toLocaleLowerCase('tr'), label.toLowerCase()].some((form) => UNSAFE_LABEL.test(form))
 }
 
+/**
+ * Etiket kuralı düğme gibi denetimlere ve kısa etiketlere uygulanır. Tablo satırı ya da hücrenin metni veridir: adı
+ * "(silinecek)" geçen bir kaydın satırına tıklamak yazma değildir. Satıra tıklamanın yazdığı durumda ağ katmanı
+ * (2 ve 3) yine geçirmez.
+ */
+export function isUnsafeTarget(label: string, control: boolean): boolean {
+  return (control || label.length <= 30) && isUnsafeLabel(label)
+}
+
+const LEAVE_CONFIRM = /(sayfadan çık|çıkılsın|ayrıl|kaydedilmedi|kaydedilmemiş|kaybol|unsaved|leave)/u
+
+/**
+ * Tarayıcı penceresine yanıt: uyarı ve sayfadan çıkış onayı kabul edilir (kaydedilmemiş girdi yok sayılır, hiçbir şey
+ * yazılmaz); silme, gönderme ya da başka bir işi onaylatan pencere iptal edilir. Çıkış onayını iptal etmek kontrolcüyü
+ * formda kilitler: sonraki her görev ve sayfa açılamaz (KOS-2026-0035).
+ */
+export function acceptsDialog(type: string, message: string): boolean {
+  if (type === 'alert' || type === 'beforeunload') return true
+  return type === 'confirm' && LEAVE_CONFIRM.test(message.toLocaleLowerCase('tr')) && !isUnsafeLabel(message)
+}
+
 const WRITING_POST = /\/row(\/bulk(\/delete)?|\/reassign)?\/?$/
 
 export function isWriteRequest(method: string, url: string): boolean {
