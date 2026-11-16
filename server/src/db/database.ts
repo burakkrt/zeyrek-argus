@@ -170,7 +170,7 @@ const MIGRATIONS: string[] = [
   ));
   create unique index runs_code on runs(code);
   `,
-  // Takım arkadaşlarının bulguları (Git'teki findings/<yazar>.md'den): sorun başına, yazar başına son görünüm.
+  // Takım arkadaşlarının bulguları (Git'teki findings/<kimlik>.md'den): sorun başına, yazar başına son görünüm.
   `
   create table shared_sightings (
     issue_id text not null references issues(id) on delete cascade,

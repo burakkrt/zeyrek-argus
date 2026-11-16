@@ -116,6 +116,16 @@ geçen kaydın satırı açılır). Sayfadan çıkış onayı ("kaydedilmedi, ç
 sayılır; silme ve gönderme onayı iptal edilir. Açılamayan sayfa boş sayfa üzerinden yeniden denenir. Kalan risk: etiketi masum ("Tamam") olup açılışta görülmüş bir uca yazan
 düğme. Bu yüzden yalnız development ve dallarda koşulur; production listelenmez.
 
+## Test yöntemleri
+
+Testin nasıl yapılacağı `memory/test/` (bütün uygulamalar) ve `memory/apps/<p>/<u>/test/` (uygulama ve modül)
+altındaki Markdown dosyalarındadır; takım Git'te geliştirir. Bugünkü yöntemler: `genel` (her koşuda: neyin bulgu
+olduğu, öncelik sırası, test verisi), `akis` (bir işlemi baştan sona yapmak, hata yolları, sonucun veride
+doğrulanması), `arayuz` (görünüm ve tutarlılık; seçilirse göz de çalışır), `kural`, `yetki`; uygulamada `performans` ve
+`dif` (kritik akışlar). Planlayıcı isteğe göre seçer: "DİF talebini basitçe test et" → `genel + akis + dif`, göz kapalı;
+girdisiz sayfa taraması → `genel + arayuz`. Seçilenler akışta ve kapsam kartında görünür. Biçim ve kurallar:
+[memory/README.md](memory/README.md#test-yöntemleri).
+
 ## Öğrenme ve güvenlik
 
 - **Ham bilgi isteme girmez.** Kararlar ve müşteri satırları ders çıkarıcıdan geçip kısa kurallara dönüşür; istem
@@ -139,7 +149,7 @@ Gezgin takılırsa (iki tur ilerleyemezse, yanıt reddedilirse) ya da görevin b
 geçer; göz açıkken en çok Sonnet'e (içeriği zaten Opus inceliyor), kapalıyken Opus'a. Ucuz model son kararı vermez.
 
 **Öğrenen motor.** Her sayfa koşusunun sonunda öğretmen modeli sayfa bilgisini damıtır
-(`memory/apps/<p>/<u>/pages/<sayfa>/<yazar>.md`: amaç, ekranlar, güven dereceli beklentiler, kapsanan / kapsanmayan alanlar,
+(`memory/apps/<p>/<u>/pages/<sayfa>/<kimlik>.md`: amaç, ekranlar, güven dereceli beklentiler, kapsanan / kapsanmayan alanlar,
 bulgu sayılmayan tuhaflıklar; liste başına üst sınırlı, ~1.500 token). Bilgi sonraki koşuda planlayıcıya, gezgine,
 göze ve yargıca gider. Planlayıcı değişiklik izini de okur: sayfa değişmediyse bilinen alanı yeniden gezmez, kapsanmayan
 alana ve güveni düşük beklentiye yönelir; değiştiyse önce değişikliğin etkileyebileceği yere. Göz, önceki koşuda
@@ -192,8 +202,10 @@ Pull sonrası **Hafıza → Dosyalar → Yenile** kararları yerel aynaya işler
 Sayfa bilgisi ve açık bulgular da paylaşılır: bir kişinin koşusunun öğrendiği ötekinin koşusunu
 yönlendirir, arkadaşın bulduğu sorun senin koşunda alıntısıyla (çoğu kez modelsiz) yeniden denetlenir ve bulgu ekranında
 "Başka makinelerde görüldü" altında görünür. Git çakışması çıkmaz: bu dosyaları herkes yalnız kendi adına yazar
-(`<yazar>`), karar dosyaları Git'in union birleştirmesiyle birleşir (ayrıntı: [memory/README.md](memory/README.md)).
-Bu yüzden **Ayarlar → Genel**'de adını gir; boş kalırsa bilgisayarın kullanıcı adı kullanılır.
+(`<kimlik>`), karar dosyaları Git'in union birleştirmesiyle birleşir (ayrıntı: [memory/README.md](memory/README.md)).
+Kimlik elle girilmez: makinenin işletim sistemi kimliği ile oturumdaki kullanıcının özetidir (`m-` + 12 hane;
+uygulama silinip kurulsa, depo yeniden indirilse de aynı kalır). Kararlarda ve yorumlarda görünen ad Git'in `user.name`
+ayarıdır. İkisi de **Ayarlar → Genel → Bu makine**'de görünür.
 
 Yerel veri (`data/`: koşu kayıtları, kanıt görüntüleri, ekler, ayarlar, hesaplar, oturumlar) Git'e girmez. Tek sınırı
 toplam boyuttur (varsayılan 10 GB, **Ayarlar → Genel → Yerel depolama**). Sınır aşılınca uygulama açılışında üç günde

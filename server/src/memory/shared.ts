@@ -1,17 +1,14 @@
 import { FINDING_KINDS, type FindingKind } from '@argus/shared'
 import { parseDocument, serializeDocument } from './frontmatter.ts'
-import { slugify } from './store.ts'
 
 /**
- * Takımla paylaşılan, tek yazarlı kayıtlar. Paylaşılan her dosyanın tek yazarı vardır (`<yazar>` adıyla): iki kişi
- * aynı dosyayı hiç değiştirmez, bu yüzden Git birleştirmesinde çakışma çıkmaz. Okuyan herkesinkini birleştirir.
+ * Takımla paylaşılan, tek yazarlı kayıtlar. Paylaşılan her dosyanın tek yazarı vardır (makinenin yazar kimliğiyle,
+ * `author.ts`): iki kişi aynı dosyayı hiç değiştirmez, bu yüzden Git birleştirmesinde çakışma çıkmaz. Okuyan
+ * herkesinkini birleştirir.
  */
 
-/** Dosya adında kullanılan yazar kısaltması: Türkçe harf sadeleşir, yalnız küçük harf, rakam ve tire. */
-export const authorSlug = (author: string) => slugify(author, 40) || 'argus'
-
 /**
- * Bir kişinin açık bulgusu ve son görünümü (`findings/<yazar>.md`). Ham koşu kaydı (görüntü, video) paylaşılmaz;
+ * Bir kişinin açık bulgusu ve son görünümü (`findings/<kimlik>.md`). Ham koşu kaydı (görüntü, video) paylaşılmaz;
  * alıntı paylaşılır, böylece başkasının makinesi bulguyu modelsiz doğrulayabilir.
  */
 export interface SharedFinding {

@@ -24,9 +24,7 @@ export const BASE_INSTRUCTIONS = `Sen Zeyrek low-code platformunda kurulmuş bir
 - Tanımdan bir iddiada bulunursan kaynağını yaz (araç, kayıt, alan). Tanımda olup ekranda farklı davranan şey bulgudur.
 
 ## Neye bakarsın
-- Hata mesajı, açılmayan pencere, tepki vermeyen düğme, gelmeyen liste, çalışmayan filtre/sıralama/sayfalama, konsol ve ağ hataları.
-- Tutarsızlık: aynı kavramın farklı adlarla geçmesi, aynı sayfada farklı tarih/sayı biçimi, toplamların tutmaması, durum etiketlerinin çelişmesi, sayfa açıklamasının söylediğiyle ekranın uyuşmaması.
-- Türkçe: yazım, eksik çeviri, alfabetik sıralama (Ç, Ğ, İ, Ö, Ş, Ü), büyük/küçük harf tutarlılığı.
+- Neye ve nasıl bakacağın, öncelik sırası ve neyin bulgu sayılmadığı bu koşu için seçilen test yöntemlerindedir (talimatın sonunda, "Bu koşunun test yöntemleri"). Görevin amacı yöntemle çelişirse görevin amacı önceliklidir.
 - Belirlenimci gözler zaten bakıyor: ham değer (undefined, null, NaN), GUID, ham tarih/dönem, renk kodu, çeviri anahtarı, kesik metin ve deseni olan kurallar. Bunları sana "zaten bulunanlar" olarak verilir; yeniden bildirme.
 - "?" ipuçlarındaki tanımlar sana verilir. Tutarsızlık demeden önce tanıma bak; tanım durumu açıklıyorsa bulgu değildir.
 
@@ -70,7 +68,7 @@ export interface PageFacts {
   openIssues: Issue[]
   known: Array<{ key: string; title: string; status: string }>
   rejected: Array<{ key: string; title: string }>
-  /** Sayfa bilgisi (koşulardan damıtılmış, `pages/<sayfa>/<yazar>.md`, en yenisi); yoksa null. */
+  /** Sayfa bilgisi (koşulardan damıtılmış, `pages/<sayfa>/<kimlik>.md`, en yenisi); yoksa null. */
   knowledge?: string | null
   /** Koşunun bilgisi: stratejide tanımdan bilinenler ve tanım kalemlerinin kaynaklı sonuçları. */
   notes?: string[]
@@ -118,17 +116,11 @@ export const eyeFindingsText = (found: Array<{ key: string; title: string }>) =>
  * yanlış olduğunu görmek bu rolün işidir (içerik tutarlılığı ucuz modelin kaçırdığı sınıftı).
  */
 export const INSPECT_TASK = `GÖZ GÖREVİ: Sen bu ekranın titiz incelemecisisin. Gezgin ekranı aşağıdaki hâle getirdi; sen yalnız ekranda görüleni incele ve müşterinin bulgu olarak bildireceği her sorunu bul.
-Bak:
-- Veri tutarlılığı: adlar, kodlar, yıllar ve tarih aralıkları birbirini tutuyor mu; toplamlar, sayaçlar, rozetler ve sayfalama satırlarla uyuşuyor mu; durum ve aşama etiketleri çelişiyor mu.
-- Sayfa başlığı ve açıklaması ekranın gösterdiğiyle uyuşuyor mu; tarayıcı sekme başlığı bu sayfanın adı mı.
-- Aynı kavramın farklı adla geçmesi, aynı sayfada farklı tarih/sayı biçimi, eksik yer tutucu ya da etiket, yazım, çeviri, ham değer, hata mesajı.
-- Görsel: hiza, taşma, kesilme, üst üste binme (görüntüye bak).
+Neye bakacağın talimattaki arayüz yöntemindedir (Yöntem: arayuz); genel yöntemdeki "bulgu sayılmaz" listesine uy.
 Kurallar:
 - alinti: ekranda birebir görünen kısa metin; sistem onu ekranda arar ve kutuyla işaretler.
-- Tahmin ve özellik isteği bulgu değildir. "?" tanımı durumu açıklıyorsa bulgu değildir. Boş liste çoğunlukla veri eksikliğidir.
 - Engellenen yazma isteklerinden doğmuş olabilecek hata (ör. "seçenekler yüklenemedi") not olarak bildirilir.
 - Bilinen bir sorunun aynısıysa onun anahtarını kullan; insanın "bulgu değil" dediğini bildirme; bu sayfada zaten bildirileni yeniden bildirme.
-- Test amaçlı kayıt adları ("test", "silinecek", anlamsız harfler) bulgu değildir. Filtreye yazılmış ama listeye henüz yansımamış değer (Enter'a basılmamış olabilir) bulgu değildir.
 - tur: kesin (açık hata), tutarsizlik (neyle çeliştiğini gozlenen'de yaz), not (zayıf kanıt, görüş).
 - Önceki ekranların notları verildiyse bu ekranı onlarla da karşılaştır: aynı durum için farklı ad, aynı sayının farklı değeri, bir ekranda "kısmi" ya da "eksik" denen verinin başka ekranda tam sayılması.
 - Sorun yoksa bulgular boş liste.

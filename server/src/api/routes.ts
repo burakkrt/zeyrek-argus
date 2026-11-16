@@ -177,7 +177,6 @@ export function createApi(ctx: AppContext): Hono {
       patch.autoApproveFindingRules = body.autoApproveFindingRules
     if (Number.isFinite(body.learnAfterDecisions))
       patch.learnAfterDecisions = Math.min(Math.max(Number(body.learnAfterDecisions), 0), 100)
-    if (typeof body.author === 'string') patch.author = body.author.trim()
     if (Number.isFinite(body.storageLimitGb))
       patch.storageLimitGb = Math.min(Math.max(Number(body.storageLimitGb), 1), 1000)
     return c.json({ settings: saveSettings(ctx.db, patch) })
@@ -400,12 +399,12 @@ export function createApi(ctx: AppContext): Hono {
     const status = str(body.durum, 'durum') as IssueStatus
     if (!ISSUE_STATUSES.includes(status)) bad('durum geçersiz.')
     const note = typeof body.not === 'string' && body.not.trim() ? body.not.trim() : null
-    return c.json(ctx.issues.decide(c.req.param('id'), status, ctx.author(), note))
+    return c.json(ctx.issues.decide(c.req.param('id'), status, ctx.author().name, note))
   })
 
   api.post('/sorunlar/:id/yorum', async (c) => {
     const body = (await c.req.json()) as Record<string, unknown>
-    return c.json(ctx.issues.comment(c.req.param('id'), ctx.author(), str(body.metin, 'metin')))
+    return c.json(ctx.issues.comment(c.req.param('id'), ctx.author().name, str(body.metin, 'metin')))
   })
 
   api.get('/disa-aktar', (c) => {
@@ -535,8 +534,8 @@ export function createApi(ctx: AppContext): Hono {
       state: 'onayli',
       text,
       ...(pattern ? { pattern } : {}),
-      sources: [`insan:${ctx.author()}`],
-      author: ctx.author(),
+      sources: [`insan:${ctx.author().name}`],
+      author: ctx.author().name,
       date: new Date().toISOString().slice(0, 10),
       app,
     })
@@ -559,20 +558,22 @@ export function createApi(ctx: AppContext): Hono {
     )
   })
 
-  api.post('/hafiza/oneriler/:id/kabul', (c) => c.json(ctx.learner.accept(c.req.param('id'), ctx.author())))
+  api.post('/hafiza/oneriler/:id/kabul', (c) =>
+    c.json(ctx.learner.accept(c.req.param('id'), ctx.author().name)),
+  )
   api.post('/hafiza/oneriler/:id/ret', (c) => c.json(ctx.learner.reject(c.req.param('id'))))
 
   api.post('/hafiza/ogren', async (c) => {
     const app = appOf((await c.req.json()) as Record<string, unknown>)
     ctx.issues.syncFromMemory(app, ctx.author())
-    return c.json(await ctx.learner.learnFromDecisions(app, ctx.author()))
+    return c.json(await ctx.learner.learnFromDecisions(app, ctx.author().name))
   })
 
   api.post('/hafiza/bakim', async (c) => {
     const body = (await c.req.json()) as Record<string, unknown>
     const app = appOf(body)
-    const proposals = ctx.learner.hygiene(app, ctx.author())
-    if (body.model === true) proposals.push(...(await ctx.learner.consolidate(app, ctx.author())))
+    const proposals = ctx.learner.hygiene(app, ctx.author().name)
+    if (body.model === true) proposals.push(...(await ctx.learner.consolidate(app, ctx.author().name)))
     return c.json(proposals)
   })
 
@@ -586,7 +587,7 @@ export function createApi(ctx: AppContext): Hono {
     const saved = ctx.memory.writeCustomer(app, xlsx.name, rows)
     const learn = form.get('ogren') !== '0'
     const result = learn
-      ? await ctx.learner.learnFromCustomer(app, rows, ctx.author())
+      ? await ctx.learner.learnFromCustomer(app, rows, ctx.author().name)
       : { proposals: [], classes: null }
     return c.json({ rows: rows.length, file: saved, ...result })
   })

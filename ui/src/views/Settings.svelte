@@ -37,7 +37,7 @@
     provider: 'abonelik' | 'api'
     memoryDir: string
     dataDir: string
-    author: string
+    author: { id: string; name: string }
   }
 
   let status = $state<Status | null>(null)
@@ -201,31 +201,14 @@
         {/snippet}
         {#snippet memory()}<code class="text-xs">{status!.memoryDir}</code>{/snippet}
         {#snippet data()}<code class="text-xs">{status!.dataDir}</code>{/snippet}
+        {#snippet identity()}<span>{status!.author.name}</span>
+          <code class="text-muted-foreground text-xs">{status!.author.id}</code>{/snippet}
         {@render row('Zeyrek App', zeyrek)}
         {@render row('Platform (MCP)', mcp)}
         {@render row('Model sağlayıcısı', key)}
         {@render row('Hafıza (Git)', memory)}
         {@render row('Yerel veri', data)}
-      {/if}
-      {#if settings}
-        <div class="mt-4 flex items-end gap-2">
-          <div class="flex-1">
-            <Field
-              label="Adın"
-              for="yazar"
-              description="Kararlarda, yorumlarda ve takımla paylaşılan dosyaların adında görünür; takımda herkesinki farklı olmalı."
-            >
-              <Input id="yazar" bind:value={settings.author} placeholder={status?.author ?? ''} />
-            </Field>
-          </div>
-        </div>
-        <div class="mt-3 flex justify-end">
-          <Button
-            size="sm"
-            disabled={!!busy}
-            onclick={() => save({ author: settings!.author }, 'Adın kaydedildi.')}>Kaydet</Button
-          >
-        </div>
+        {@render row('Bu makine', identity)}
       {/if}
     </Panel>
 

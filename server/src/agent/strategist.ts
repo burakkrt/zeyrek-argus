@@ -53,6 +53,10 @@ const PLAN_TOOL: Tool = {
         ...strings,
         description: 'Bu koşuda yapılamayanlar ve nedeni (ör. canlı e-posta gönderimi, başka rolün yetkisi).',
       },
+      yontemler: {
+        ...strings,
+        description: 'İsteğe uyan test yöntemlerinin kimlikleri (TEST YÖNTEMLERİ dizininden).',
+      },
       kalemler: {
         type: 'array',
         items: {
@@ -72,7 +76,16 @@ const PLAN_TOOL: Tool = {
         },
       },
     },
-    required: ['tur', 'anlasilan', 'senaryolar', 'bitti_olcutu', 'bilinenler', 'yapilamayan', 'kalemler'],
+    required: [
+      'tur',
+      'anlasilan',
+      'senaryolar',
+      'bitti_olcutu',
+      'bilinenler',
+      'yapilamayan',
+      'yontemler',
+      'kalemler',
+    ],
     additionalProperties: false,
   },
 }
@@ -84,6 +97,7 @@ interface RawPlan {
   bitti_olcutu: string
   bilinenler: string[]
   yapilamayan: string[]
+  yontemler?: string[]
   kalemler: Array<{ baslik: string; amac: string; kaynak: string; sayfa: string; tam_tarama: boolean }>
 }
 
@@ -96,6 +110,7 @@ export function scanStrategy(pages: string[]): RunStrategy {
     doneWhen: 'Sayfaların bütün bölgeleri ve akışları denenir, sorunlar kanıtıyla bulunur.',
     known: [],
     infeasible: [],
+    guides: ['arayuz'],
     items: pages.map((page) => ({
       title: 'Sayfanın tamamı',
       goal: '',
@@ -127,13 +142,20 @@ export function normalizeItems(kalemler: RawPlan['kalemler'], catalog: CatalogPa
 
 /**
  * Modelin planını doğrular (`normalizeItems`); kullanıcının seçtiği ama planda olmayan sayfa baştan sona taranır
- * (seçim kullanıcının açık isteğidir).
+ * (seçim kullanıcının açık isteğidir). Yöntemlerden yalnız var olanlar kalır; tam tarama arayüz taramasıdır (arayuz).
  */
-export function normalizeStrategy(raw: RawPlan, catalog: CatalogPage[], selected: string[]): RunStrategy {
+export function normalizeStrategy(
+  raw: RawPlan,
+  catalog: CatalogPage[],
+  selected: string[],
+  guideIds: string[],
+): RunStrategy {
   const items = normalizeItems(raw.kalemler, catalog)
   for (const page of selected)
     if (!items.some((i) => i.page === page))
       items.push({ title: 'Sayfanın tamamı', goal: '', source: 'ekran', page, fullScan: true })
+  const guides = (raw.yontemler ?? []).filter((id) => guideIds.includes(id))
+  if (items.some((i) => i.fullScan) && !guides.includes('arayuz')) guides.push('arayuz')
   return {
     kind: KINDS.includes(raw.tur as StrategyKind) ? (raw.tur as StrategyKind) : 'karisik',
     understood: raw.anlasilan,
@@ -142,6 +164,7 @@ export function normalizeStrategy(raw: RawPlan, catalog: CatalogPage[], selected
     known: raw.bilinenler,
     infeasible: raw.yapilamayan,
     items,
+    guides: [...new Set(guides)],
   }
 }
 
@@ -155,6 +178,8 @@ export async function planRun(input: {
   attachments: Attachment[]
   catalog: CatalogPage[]
   selected: string[]
+  /** Test yöntemlerinin dizini (kimlik — açıklama) ve kimlikleri. */
+  guides: { index: string; ids: string[] }
   /** Her platform okuması (akışa adım olarak yazılır). */
   onRead: (reason: string, read: PlatformRead) => void
 }): Promise<RunStrategy | null> {
@@ -201,6 +226,11 @@ export async function planRun(input: {
           '"yapilamayan"a koyma (tanımdaki hata ve tutarsızlık da bulgudur). İstek bir sayfanın ' +
           'ya da modülün genel arayüz kalitesini test ettiriyorsa o sayfalar için tam_tarama=true kalem aç. Kalemler ' +
           'kapsamı eksiksiz örtsün ama kapsam dışı genel tarama ekleme.\n\n' +
+          'Testin nasıl yapılacağı aşağıdaki test yöntemlerindedir: isteğe uyanları "yontemler"e yaz (kalemleri yürütenler ' +
+          'onları okur). arayuz seçilirse ekranları ayrıca göz inceler; istek arayüz kalitesini istemiyorsa (ör. bir ' +
+          'işlemi ya da kuralı test et) seçme. İsteğe uyan yöntem yoksa ya da istenen test bu araçlarla yapılamıyorsa ' +
+          'nedenini "yapilamayan"a yaz, tahminle doldurma.\n\n' +
+          `TEST YÖNTEMLERİ (kimlik — açıklama):\n${input.guides.index || '(yazılmamış)'}\n\n` +
           `İSTEK:\n${input.brief ?? '(yalnız dosya eklendi)'}\n${files}\n\n` +
           (input.selected.length
             ? `KULLANICININ SEÇTİĞİ SAYFALAR (kapsam bunlar; gerekirse bağlantılı sayfa eklenebilir): ${input.selected.join(', ')}\n\n`
@@ -224,7 +254,7 @@ export async function planRun(input: {
       return `Bilinmeyen araç: ${name}`
     },
   })
-  return raw ? normalizeStrategy(raw, input.catalog, input.selected) : null
+  return raw ? normalizeStrategy(raw, input.catalog, input.selected, input.guides.ids) : null
 }
 
 /**
@@ -255,6 +285,5 @@ export function pageWork(
  * taranıyorsa ya da istek arayüz/karışık türündeyse. Kural ve akış sorusunda ekran yalnız teyit için açılır; gözün
  * genel bulguları soruya katkı vermez, maliyetin çoğunu yer (KOS-2026-0035: %66).
  */
-export function inspectsScreens(kind: StrategyKind, scan: boolean): boolean {
-  return scan || kind === 'arayuz' || kind === 'karisik'
-}
+/** Göz yalnız arayüz yöntemi seçildiyse ekranları inceler (akış ve kural testinde arayüz bulgusu gürültüdür). */
+export const inspectsScreens = (strategy: RunStrategy): boolean => strategy.guides.includes('arayuz')

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFINITION_PAGE, type RunStrategy } from '@argus/shared'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -351,6 +351,52 @@ describe('anla adımı', () => {
     const issue = h.ctx.issues.list({ app }).find((i) => i.key === 'yz:ikinci-acik-oturum-engellenmiyor')!
     // İkinci kalemin bulgusu aynı soruna eklendi; aynı koşuda aynı sayfada ikinci görünüm yazılmaz.
     expect(h.ctx.issues.detail(issue.id).occurrences.filter((o) => o.runId === done.id)).toHaveLength(1)
+  })
+
+  it('test yöntemleri: planlayıcı dizini görür, seçilenler ve her koşu yüklenen talimata girer; akış testinde göz kapalı', async () => {
+    const dir = join(h.ctx.config.memoryDir, 'test')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'genel.md'),
+      '---\nkimlik: genel\naciklama: Ortak ilkeler\nher_kosu: evet\n---\nGENEL YÖNTEM GÖVDESİ\n',
+    )
+    writeFileSync(join(dir, 'akis.md'), '---\nkimlik: akis\naciklama: Akış testi\n---\nAKIŞ YÖNTEM GÖVDESİ\n')
+    writeFileSync(
+      join(dir, 'arayuz.md'),
+      '---\nkimlik: arayuz\naciklama: Arayüz taraması\n---\nARAYÜZ YÖNTEM GÖVDESİ\n',
+    )
+    try {
+      plan = () => ({
+        name: 'plani_yaz',
+        input: {
+          ...plani([item('Kural', 'tanim', ''), item('Ekranda teyit', 'ikisi', 'egt-liste')]).input,
+          yontemler: ['akis'],
+        },
+      })
+      const before = h.calls.length
+      const done = await h.waitFor(start('Kayıt açmayı basitçe test et').id)
+      expect(done.status).toBe('bitti')
+      const calls = h.calls.slice(before)
+      const text = (c: (typeof calls)[number]) => JSON.stringify({ system: c.system, messages: c.messages })
+      // Planlayıcı yalnız dizini görür (gövdeleri değil).
+      const planner = text(calls.find((c) => text(c).includes('TEST YÖNTEMLERİ'))!)
+      expect(planner).toContain('- akis — Akış testi')
+      expect(planner).not.toContain('AKIŞ YÖNTEM GÖVDESİ')
+      // Araştırmacı ve gezgin seçilen ve her koşu yüklenen yöntemleri talimatında görür; seçilmeyen girmez.
+      for (const marker of ['TANIM KALEMİ', 'GÖREV: Ekranda teyit']) {
+        const call = text(calls.find((c) => text(c).includes(marker))!)
+        expect(call).toContain('GENEL YÖNTEM GÖVDESİ')
+        expect(call).toContain('AKIŞ YÖNTEM GÖVDESİ')
+        expect(call).not.toContain('ARAYÜZ YÖNTEM GÖVDESİ')
+      }
+      const info = listEvents(h.ctx.db, done.id).flatMap((e) => (e.type === 'bilgi' ? [e.message] : []))
+      expect(info).toContain('Test yöntemleri: genel, akis.')
+      expect(info.some((m) => m.startsWith('Göz bu sayfada kapalı: arayüz yöntemi seçilmedi'))).toBe(true)
+      expect(calls.some((c) => text(c).includes('GÖZ GÖREVİ'))).toBe(false)
+      expect(strategyOf(done.id).guides).toEqual(['akis'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('yalnız tanım kalemi olan koşu tarayıcı açmadan biter', async () => {

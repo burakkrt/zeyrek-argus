@@ -12,7 +12,8 @@ import type {
 import { DEFINITION_PAGE } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 import { json, newId, now, transaction, type Database } from '../db/database.ts'
-import { authorSlug, type SharedFinding } from '../memory/shared.ts'
+import type { Author } from '../author.ts'
+import type { SharedFinding } from '../memory/shared.ts'
 import type { DecisionRecord, MemoryStore } from '../memory/store.ts'
 
 export interface OccurrenceInput {
@@ -77,7 +78,7 @@ export interface IssueFilter {
  * Sorunlar kök nedene göre tek kayıttır (uygulama + anahtar); her görüldüğü yer bir görünümdür. Paylaşım:
  * - İnsanın kararı ve yorumu Git'teki karar dosyasına yazılır; Argus'un kendi verdiği durumlar (düzeldi, yeniden
  *   açıldı) bu makinenin gözlemidir, dosyaya yazılmaz (iki makine aynı dosyayı değiştirmesin).
- * - Açık kesin/tutarsızlık bulguları kişinin kendi `findings/<yazar>.md` dosyasına son görünümüyle yazılır; takım
+ * - Açık kesin/tutarsızlık bulguları kişinin kendi `findings/<kimlik>.md` dosyasına son görünümüyle yazılır; takım
  *   arkadaşlarınınki eşitlemede "başka makinelerde görüldü" olarak alınır (görüntüsü yok, alıntısı var).
  */
 export class IssueService {
@@ -572,9 +573,9 @@ export class IssueService {
    *   hiçbir yerde görülmeyen, kararsız ve yorumsuz uzak kayıt silinir (arkadaş düzeldiğini gördüyse burada da kalmaz).
    * Dönen sayı işlenen karar dosyası sayısıdır.
    */
-  syncFromMemory(app: AppRef, me: string): number {
+  syncFromMemory(app: AppRef, me: Author): number {
     const records = this.memory.decisions(app)
-    const others = this.memory.sharedFindings(app).filter((f) => f.file !== authorSlug(me))
+    const others = this.memory.sharedFindings(app).filter((f) => f.file !== me.id)
     transaction(this.db, () => {
       for (const record of records) {
         let row = this.byKey(app, record.key)

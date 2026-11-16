@@ -139,7 +139,8 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
     const note = (tone: NoteTone, text: string) => flow.push({ kind: 'not', key, at, tone, text })
     if (event.type === 'kosu-basladi') event.pages.forEach(pageOf)
     if (event.type === 'strateji') {
-      strategy = event.strategy
+      // Test yöntemlerinden önceki koşuların stratejisinde yöntem listesi yoktur (2026-11-16).
+      strategy = { ...event.strategy, guides: event.strategy.guides ?? [] }
       note('plan', `Test planı · ${event.strategy.understood}`)
       continue
     }

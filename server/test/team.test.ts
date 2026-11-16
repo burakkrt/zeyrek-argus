@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { authorSlug, parseFindings, serializeFindings } from '../src/memory/shared.ts'
+import { parseFindings, serializeFindings } from '../src/memory/shared.ts'
 import { startHarness, type Harness, type Script } from './support/harness.ts'
 
 /**
@@ -88,7 +88,7 @@ describe('takım paylaşımı', () => {
     expect(explorer.some((c) => JSON.stringify(c.system).includes('AYŞENİN SAYFA BİLGİSİ'))).toBe(true)
 
     // Bu makine yalnız kendi bulgu dosyasını yazdı; Ayşe'ninkine dokunmadı.
-    const mine = join(appDir(), 'findings', `${authorSlug(h.ctx.author())}.md`)
+    const mine = join(appDir(), 'findings', `${h.ctx.author().id}.md`)
     expect(existsSync(mine)).toBe(true)
     expect(parseFindings(readFileSync(mine, 'utf8')).findings.map((f) => f.key)).toContain(
       'yz:toplam-tutmuyor',

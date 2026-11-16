@@ -5,7 +5,6 @@ import { listEvents } from '../src/db/runs.ts'
 import { saveSettings } from '../src/db/settings.ts'
 import { refOf, startHarness, type Harness, type Script } from './support/harness.ts'
 import { overrides } from './support/site.ts'
-import { authorSlug } from '../src/memory/shared.ts'
 
 /**
  * Öğrenen motor uçtan uca: koşu sonunda sayfa bilgisi yazılır ve sonraki koşunun istemine girer; değişmemiş sayfada
@@ -68,8 +67,7 @@ const infoOf = (runId: string) =>
 
 describe('öğrenen motor', () => {
   // Her kişi kendi dosyasını yazar: pages/<sayfa>/<yazar>.md.
-  const file = () =>
-    join(h.ctx.config.memoryDir, 'apps/qm/web/pages/egt-liste', `${authorSlug(h.ctx.author())}.md`)
+  const file = () => join(h.ctx.config.memoryDir, 'apps/qm/web/pages/egt-liste', `${h.ctx.author().id}.md`)
 
   it('ilk koşu sayfa bilgisini yazar; değişmemiş sayfada ikinci koşu bilinen alanı yeniden gezmez, ekranı yeniden inceler', async () => {
     const first = h.calls.length

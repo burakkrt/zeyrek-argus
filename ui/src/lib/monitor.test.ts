@@ -115,6 +115,7 @@ describe('monitör modeli', () => {
       known: [],
       infeasible: [],
       items: [],
+      guides: ['akis'],
     }
     const coverage = {
       status: 'kismen' as const,
@@ -143,6 +144,11 @@ describe('monitör modeli', () => {
       ev(null, { type: 'kapsam', coverage }),
     ])
     expect(model.strategy).toEqual(strategy)
+    // Yöntemlerden önceki koşunun stratejisi (yöntem listesi yok) kartı düşürmez.
+    const { guides: _guides, ...old } = strategy
+    expect(
+      buildMonitor([ev(null, { type: 'strateji', strategy: old as typeof strategy })]).strategy?.guides,
+    ).toEqual([])
     expect(model.coverage).toEqual(coverage)
     expect(
       model.flow.some((r) => r.kind === 'not' && r.text === 'Test planı · Kalibrasyon atlanabilir mi'),

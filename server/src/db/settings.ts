@@ -28,7 +28,6 @@ export const DEFAULT_SETTINGS: Settings = {
   ruleBudget: 1500,
   autoApproveFindingRules: true,
   learnAfterDecisions: 3,
-  author: '',
   storageLimitGb: 10,
 }
 
@@ -36,12 +35,14 @@ export function getSettings(db: Database): Settings {
   const row = db.prepare(`select value from settings where key = 'settings'`).get() as
     { value: string } | undefined
   // Eski kayıtta tek 'model' alanı olabilir (rol modelleri varsayılandan gelir); motor deneylerinin, gün/koşu sayılı
-  // saklamanın ve koşu derinliğinin (görev/adım varsayılanı) anahtarları (2026-11) artık yok, okunurken atılır.
+  // saklamanın, koşu derinliğinin (görev/adım varsayılanı) ve elle girilen yazar adının anahtarları (2026-11) artık
+  // yok, okunurken atılır (yazar kimliği makineden gelir: `author.ts`).
   const {
     model: _legacy,
     experiments: _experiments,
     retention: _retention,
     defaultOptions: _defaultOptions,
+    author: _author,
     ...saved
   } = json<
     Partial<Settings> & {
@@ -49,6 +50,7 @@ export function getSettings(db: Database): Settings {
       experiments?: unknown
       retention?: unknown
       defaultOptions?: unknown
+      author?: unknown
     }
   >(row?.value, {})
   return {

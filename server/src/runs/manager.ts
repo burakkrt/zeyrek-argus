@@ -13,6 +13,7 @@ import {
   type Settings,
 } from '@argus/shared'
 import { PageController } from '../agent/page-controller.ts'
+import type { Author } from '../author.ts'
 import { investigate, type DefinitionFinding } from '../agent/investigator.ts'
 import { inspectsScreens, normalizeItems, pageWork, planRun, scanStrategy } from '../agent/strategist.ts'
 import { supervise, SUPERVISE_ROUNDS } from '../agent/supervisor.ts'
@@ -41,7 +42,9 @@ import { renderKnowledge } from '../agent/knowledge.ts'
 import { RunTrace } from './trace.ts'
 import { PlatformReader, readStep } from '../platform/reader.ts'
 import type { IssueService } from '../issues/issues.ts'
+import { chooseGuides, guideIndex, guidesText } from '../memory/guides.ts'
 import type { Learner } from '../memory/learn.ts'
+import type { TextBlockParam } from '../agent/model.ts'
 import { selectRules } from '../memory/select.ts'
 import { bumpEligible, bumpUses, ruleStats } from '../memory/stats.ts'
 import { slugify, type MemoryStore } from '../memory/store.ts'
@@ -62,7 +65,7 @@ export interface RunManagerDeps {
   /** Ayarlardaki modelle istek yapan işlev; anahtar yoksa hata fırlatır. */
   model: () => CreateMessage
   /** Paylaşılan dosyalarda (`findings/`, `pages/`) bu makinenin yazar adı. */
-  author: () => string
+  author: () => Author
   headless?: boolean
 }
 
@@ -206,6 +209,8 @@ export class RunManager {
         })
       // Talimatın ekleri bir kez okunur, her sayfanın planlayıcısına gider.
       const attachments = loadAttachments(this.deps.dataDir, run.options.attachments ?? [])
+      // Test yöntemleri (`memory/test/`, uygulamanın `test/`): planlayıcı dizinden seçer, seçilenler koşunun talimatına girer.
+      const guides = memory.testGuides(app)
       // Anla adımı: girdi varsa güçlü model isteği çözümler (gerekirse tanımları okur) ve stratejiyi yazar; girdisiz
       // koşuda seçilen sayfalar baştan sona taranır. Koşunun sayfaları stratejinin ekran kalemlerinden gelir.
       const system: MessageParams['system'] = [
@@ -235,6 +240,7 @@ export class RunManager {
             attachments,
             catalog,
             selected: run.pages,
+            guides: { index: guideIndex(guides), ids: guides.map((g) => g.id) },
             onRead,
           })
         : scanStrategy(run.pages)
@@ -244,6 +250,19 @@ export class RunManager {
           'Koşunun stratejisi yazılamadı (anla adımı ilerleyemedi); girdiyi açıp yeniden deneyin.',
         )
       bus.publish(run.id, null, { type: 'strateji', strategy })
+      const chosen = chooseGuides(guides, strategy.guides)
+      const methods = guidesText(chosen)
+      bus.publish(run.id, null, {
+        type: 'bilgi',
+        message:
+          `Test yöntemleri: ${chosen.map((g) => g.id).join(', ') || 'yazılmamış'}.` +
+          (methods.trimmed.length ? ` Bütçeyi aştığı için kısaltılan: ${methods.trimmed.join(', ')}.` : ''),
+      })
+      // Yöntemler koşu boyunca sabittir: talimatın sonunda, önbellekli ön ekin içinde durur.
+      const workSystem: TextBlockParam[] = [
+        ...(system as TextBlockParam[]),
+        ...(methods.text ? [{ type: 'text' as const, text: methods.text }] : []),
+      ]
       // Koşunun bilgisi: tanımdan bilinenler ve tanım kalemlerinin sonuçları (ekran kalemleri görür); gözetmen ayrıca
       // sayfa sonuçlarını görür.
       const notes = [...strategy.known]
@@ -370,7 +389,7 @@ export class RunManager {
             createMessage: model,
             meter,
             model: settings.models.investigator,
-            system,
+            system: workSystem,
             reader,
             item,
             brief: run.options.brief ?? null,
@@ -401,12 +420,12 @@ export class RunManager {
       ) => {
         const url = urlOf(page)
         bus.publish(run.id, page, { type: 'sayfa-basladi', url })
-        const eye = settings.inspector && inspectsScreens(strategy.kind, work.scan)
+        const eye = settings.inspector && inspectsScreens(strategy)
         if (settings.inspector && !eye)
           bus.publish(run.id, page, {
             type: 'bilgi',
             message:
-              'Göz bu sayfada kapalı: istek bir kural/akış sorusu ve sayfa baştan sona taranmıyor; ekran soruyu teyit için açıldı.',
+              'Göz bu sayfada kapalı: arayüz yöntemi seçilmedi; ekran yalnız akışı ve sonucu teyit için açıldı.',
           })
         const rules = memory.rules(app)
         const stats = ruleStats(db)
@@ -440,6 +459,7 @@ export class RunManager {
           system: [
             { type: 'text', text: BASE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
             { type: 'text', text: appBlock({ app, rules: selection, notes: memory.appNotes(app) }) },
+            ...(methods.text ? [{ type: 'text' as const, text: methods.text }] : []),
           ],
           createMessage: model,
           meter,
@@ -491,7 +511,7 @@ export class RunManager {
               const at = new Date().toISOString()
               const content = renderKnowledge(distilled, {
                 page,
-                author: writer,
+                author: writer.name,
                 run: run.code,
                 at,
                 print: current,
@@ -640,7 +660,7 @@ export class RunManager {
     const pending = this.deps.learner.pendingDecisions(app)
     if (pending < settings.learnAfterDecisions) return
     try {
-      const proposals = await this.deps.learner.learnFromDecisions(app, settings.author || 'Argus')
+      const proposals = await this.deps.learner.learnFromDecisions(app, this.deps.author().name)
       const auto = proposals.filter((p) => p.status === 'otomatik').length
       this.deps.bus.publish(runId, null, {
         type: 'bilgi',

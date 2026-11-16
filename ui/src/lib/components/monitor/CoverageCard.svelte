@@ -27,7 +27,12 @@
       >
     {/if}
   </div>
-  {#if strategy}<p class="text-muted-foreground mt-1 text-xs">{strategy.understood}</p>{/if}
+  {#if strategy}
+    <p class="text-muted-foreground mt-1 text-xs">{strategy.understood}</p>
+    {#if strategy.guides.length}
+      <p class="text-muted-foreground mt-1 text-xs">Test yöntemleri: {strategy.guides.join(', ')}</p>
+    {/if}
+  {/if}
   {#if coverage}
     <p class="mt-2 text-[13px] leading-5">{coverage.summary}</p>
     {#if coverage.tested.length}

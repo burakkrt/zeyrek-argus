@@ -189,6 +189,8 @@ export interface RunStrategy {
   known: string[]
   infeasible: string[]
   items: StrategyItem[]
+  /** Bu koşu için seçilen test yöntemleri (`memory/test/` kimlikleri); `arayuz` seçildiyse ekranları göz de inceler. */
+  guides: string[]
 }
 
 /**
@@ -458,7 +460,6 @@ export interface Settings {
   autoApproveFindingRules: boolean
   /** Bu kadar yeni karar birikince koşu sonunda ders çıkarıcı kendiliğinden çalışır (0: kapalı). */
   learnAfterDecisions: number
-  author: string
   /** Yerel verinin üst sınırı (GB). Aşılınca üç günde bir kez bildirim çıkar; silme yalnız kullanıcı isteyince yapılır. */
   storageLimitGb: number
 }

@@ -18,17 +18,21 @@ import {
 } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 import { asList, asString, parseDocument, serializeDocument } from './frontmatter.ts'
-import { authorSlug, parseFindings, serializeFindings, type SharedFinding } from './shared.ts'
+import type { Author } from '../author.ts'
+import { parseGuide, type TestGuide } from './guides.ts'
+import { parseFindings, serializeFindings, type SharedFinding } from './shared.ts'
 
 /**
  * Git'te paylaşılan hafıza. Dosya düzeni:
  *   platform/rules/<id>.md                      bütün Zeyrek uygulamalarına ortak kurallar
+ *   test/<kimlik>.md                            test yöntemleri (bütün uygulamalar; insan yazar, `guides.ts`)
  *   formats/<ad>.md                             çıktı biçimleri
  *   apps/<proje>/<uygulama>/app.md              uygulama notları
  *   apps/<proje>/<uygulama>/rules/<id>.md       uygulamaya özel kurallar
+ *   apps/<proje>/<uygulama>/test/<kimlik>.md    uygulamanın ve modüllerinin test yöntemleri (insan yazar)
  *   apps/<proje>/<uygulama>/decisions/<..>.md   sorun başına insan kararı, tarihçe, yorumlar
- *   apps/<proje>/<uygulama>/findings/<yazar>.md kişinin açık bulguları ve son görünümleri (tek yazarlı)
- *   apps/<proje>/<uygulama>/pages/<sayfa>/<yazar>.md  sayfa bilgisi (tek yazarlı, en yenisi kullanılır)
+ *   apps/<proje>/<uygulama>/findings/<kimlik>.md kişinin açık bulguları ve son görünümleri (tek yazarlı)
+ *   apps/<proje>/<uygulama>/pages/<sayfa>/<kimlik>.md  sayfa bilgisi (tek yazarlı, en yenisi kullanılır)
  *   apps/<proje>/<uygulama>/customer/<..>.md    içe aktarılan müşteri bulguları (isteme girmez)
  */
 
@@ -238,7 +242,7 @@ export class MemoryStore {
 
   /**
    * Sayfa bilgisi: ajanın sayfa için damıttığı amaç, beklentiler, kapsam ve tuhaflıklar
-   * (`apps/<p>/<u>/pages/<sayfa>/<yazar>.md`; kimin yazdığından bağımsız en yenisi). Sabit bütçelidir; koşu sonunda
+   * (`apps/<p>/<u>/pages/<sayfa>/<kimlik>.md`; kimin yazdığından bağımsız en yenisi). Sabit bütçelidir; koşu sonunda
    * yazarın kendi dosyasına baştan yazılır. Yoksa null.
    */
   pageKnowledge(app: AppRef, page: string): PageKnowledgeFile | null {
@@ -261,8 +265,8 @@ export class MemoryStore {
     return files.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
   }
 
-  writePageKnowledge(app: AppRef, page: string, author: string, content: string): string {
-    const rel = join(this.pageDir(app, page), `${authorSlug(author)}.md`)
+  writePageKnowledge(app: AppRef, page: string, author: Author, content: string): string {
+    const rel = join(this.pageDir(app, page), `${author.id}.md`)
     this.write(rel, content)
     return rel.split(sep).join('/')
   }
@@ -278,7 +282,7 @@ export class MemoryStore {
 
   // --- paylaşılan bulgular (kişi başına dosya) ---
 
-  /** Herkesin açık bulgu dosyası (`findings/<yazar>.md`); bozuk dosya atlanır. */
+  /** Herkesin açık bulgu dosyası (`findings/<kimlik>.md`); bozuk dosya atlanır. */
   sharedFindings(app: AppRef): Array<{ file: string; author: string; findings: SharedFinding[] }> {
     return this.list(join(this.appDir(app), 'findings')).flatMap((rel) => {
       const text = this.read(rel)
@@ -289,9 +293,9 @@ export class MemoryStore {
     })
   }
 
-  writeSharedFindings(app: AppRef, author: string, findings: SharedFinding[], at = new Date().toISOString()): string {
-    const rel = join(this.appDir(app), 'findings', `${authorSlug(author)}.md`)
-    this.write(rel, serializeFindings(author, at, findings))
+  writeSharedFindings(app: AppRef, author: Author, findings: SharedFinding[], at = new Date().toISOString()): string {
+    const rel = join(this.appDir(app), 'findings', `${author.id}.md`)
+    this.write(rel, serializeFindings(author.name, at, findings))
     return rel.split(sep).join('/')
   }
 
@@ -299,6 +303,19 @@ export class MemoryStore {
   identity(app: AppRef): Record<string, string | string[]> {
     const text = this.read(join(this.appDir(app), 'kimlik.md'))
     return text === null ? {} : parseDocument(text).data
+  }
+
+  /**
+   * Test yöntemleri: platform geneli (`test/`) ve uygulamanınki (`apps/<p>/<u>/test/`); aynı kimlikte uygulamanınki
+   * geçerlidir. Bozuk ya da kimliksiz dosya atlanır.
+   */
+  testGuides(app: AppRef): TestGuide[] {
+    const byId = new Map<string, TestGuide>()
+    for (const rel of [...this.list('test'), ...this.list(join(this.appDir(app), 'test'))]) {
+      const guide = parseGuide(rel.split(sep).join('/'), this.read(rel) ?? '')
+      if (guide) byId.set(guide.id, guide)
+    }
+    return [...byId.values()]
   }
 
   formats(): Array<{ name: string; content: string }> {

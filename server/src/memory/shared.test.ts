@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { authorSlug, parseFindings, serializeFindings, type SharedFinding } from './shared.ts'
+import { parseFindings, serializeFindings, type SharedFinding } from './shared.ts'
 
 const finding = (key: string, over: Partial<SharedFinding> = {}): SharedFinding => ({
   key,
@@ -18,12 +18,6 @@ const finding = (key: string, over: Partial<SharedFinding> = {}): SharedFinding 
 })
 
 describe('paylaşılan bulgular', () => {
-  it('yazar kısaltması dosya adına uygun: Türkçe harf sadeleşir, boşsa argus', () => {
-    expect(authorSlug('Burak Kurt')).toBe('burak-kurt')
-    expect(authorSlug('Çağrı Öztürk')).toBe('cagri-ozturk')
-    expect(authorSlug('  ')).toBe('argus')
-  })
-
   it('dosya anahtar sırasıyla yazılır ve aynen geri okunur; çok satırlı metin tek satıra iner', () => {
     const text = serializeFindings('Burak', '2026-11-15T11:00:00.000Z', [
       finding('yz:z-son'),

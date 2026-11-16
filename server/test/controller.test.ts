@@ -460,7 +460,9 @@ describe('kontrolcü (uçtan uca, senaryolu model)', () => {
           options: { maxTasks: 1, maxSteps: 3, user: user ?? null },
         }).id,
       )
-      const message = listEvents(h.ctx.db, run.id).find((e) => e.type === 'bilgi')
+      const message = listEvents(h.ctx.db, run.id).find(
+        (e) => e.type === 'bilgi' && /oturum|giriş|jeton/i.test(e.message),
+      )
       return { run, message: message?.type === 'bilgi' ? message.message : '' }
     }
     try {

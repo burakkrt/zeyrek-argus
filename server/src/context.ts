@@ -1,7 +1,7 @@
-import { userInfo } from 'node:os'
 import { join } from 'node:path'
 import { anthropicModel, type CreateMessage } from './agent/model.ts'
 import { subscriptionModel } from './agent/subscription.ts'
+import { detectAuthor, type Author } from './author.ts'
 import type { Config } from './config.ts'
 import { openDatabase, type Database } from './db/database.ts'
 import { getSettings } from './db/settings.ts'
@@ -25,12 +25,19 @@ export interface AppContext {
   learner: Learner
   runs: RunManager
   model: () => CreateMessage
-  author: () => string
+  /** Bu makinenin yazar kimliği (otomatik; kullanıcı belirlemez). */
+  author: () => Author
 }
 
 export function createContext(
   config: Config,
-  overrides: { access?: PlatformAccess; model?: CreateMessage; headless?: boolean; dbFile?: string } = {},
+  overrides: {
+    access?: PlatformAccess
+    model?: CreateMessage
+    headless?: boolean
+    dbFile?: string
+    author?: Author
+  } = {},
 ): AppContext {
   const db = openDatabase(overrides.dbFile ?? join(config.dataDir, 'argus.db'))
   const bus = new EventBus(db)
@@ -50,7 +57,8 @@ export function createContext(
       )
     return (api ??= anthropicModel(config.anthropicApiKey))
   }
-  const author = () => getSettings(db).author || userInfo().username || 'Argus kullanıcısı'
+  const identity = overrides.author ?? detectAuthor(config.rootDir)
+  const author = () => identity
   const learner = new Learner({ db, memory, issues, model, settings: () => getSettings(db) })
   const runs = new RunManager({
     db,

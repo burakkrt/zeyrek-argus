@@ -19,8 +19,10 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
    kendiliğinden uygulanmaz (`server/src/memory/learn.ts`). Kural emekliye ayrılınca bastırdıkları serbest kalır.
 4. **Ham bilgi isteme girmez.** Kararlar ve müşteri satırları ders çıkarıcıdan geçer; istem yalnız onaylı kuralları
    bütçe içinde taşır (`server/src/memory/select.ts`). Sayfa bilgisi de damıtılmış ve sabit bütçelidir
-   (`server/src/agent/knowledge.ts`, `KNOWLEDGE_LIMITS`); her koşuda baştan yazılır, birikmez. Yeni bir bilgi kaynağı
-   isteme eklenecekse bütçesi ve kesme kuralıyla eklenir.
+   (`server/src/agent/knowledge.ts`, `KNOWLEDGE_LIMITS`); her koşuda baştan yazılır, birikmez. Test yöntemleri
+   (`memory/test/`, insan yazar) planlayıcının seçtiği kadarıyla ve `GUIDE_LIMITS` bütçesiyle girer
+   (`server/src/memory/guides.ts`). Yeni bir bilgi kaynağı isteme eklenecekse bütçesi ve kesme kuralıyla eklenir.
+   Testin nasıl yapılacağı (öncelik, neye bakılır, ne bulgu sayılmaz) istem metnine yazılmaz, `memory/test/`'e yazılır.
 5. **Konuşma geçmişi düzenlenmez.** Görev konuşmaları yalnız eklenerek büyür; bağlamı sınırlamanın yolu görevleri
    kısa tutmaktır (önbellek ve düşünme blokları korunur).
 
@@ -28,7 +30,7 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 
 - `shared/` türleri sunucu ve arayüz ortak kullanır; olay biçimi değişirse ikisi birlikte değişir.
 - Paylaşılan bilgi `memory/` dosyalarındadır (Git); yerel veri `data/argus.db` (SQLite), `data/runs/`, talimat görselleri `data/ekler/` (planlayıcıya yalnız koşunun kendi ekleri gider; gezgin görmez). Yerel veri toplam boyutla sınırlanır (`server/src/runs/storage.ts`): aşılınca üç günde bir bildirim, silme yalnız kullanıcı isteyince; `memory/` hiç silinmez.
-- `memory/` altında Git çakışması çıkmaz: Argus'un yazdığı paylaşılan dosyalar kişi başınadır (`findings/<yazar>.md`, `pages/<sayfa>/<yazar>.md`), karar dosyalarını yalnız insan yazar ve `memory/.gitattributes` onları union ile birleştirir. Yeni bir paylaşılan dosya türü eklerken ya tek yazarlı yap ya da birleşmesini tanımla ve test et.
+- `memory/` altında Git çakışması çıkmaz: Argus'un yazdığı paylaşılan dosyalar kişi başınadır (`findings/<kimlik>.md`, `pages/<sayfa>/<kimlik>.md`), karar dosyalarını yalnız insan yazar ve `memory/.gitattributes` onları union ile birleştirir. Yeni bir paylaşılan dosya türü eklerken ya tek yazarlı yap ya da birleşmesini tanımla ve test et.
 - **Motor değişikliği ölçülmeden varsayılan olmaz:** aynı sayfalarda ardışık koşu serisi, bulgular kanıt görüntüsüyle kör
   doğrulanır; kabul ölçütü yakalanan gerçek sorunun düşmemesi, yanlış bulgunun artmaması. Görev/adım/bütçe sınırıyla
   tasarruf yapılmaz. Ölçümü kaybeden kod aynı işte silinir.

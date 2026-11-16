@@ -5,21 +5,45 @@ ve kuralların ona da geçer. Arayüzde **Hafıza → Dosyalar** buradaki her do
 
 ```
 platform/rules/*.md              bütün Zeyrek uygulamalarına ortak kurallar
+test/*.md                        test yöntemleri: testin nasıl yapılacağı (bütün uygulamalar)
 formats/*.md                     bulgu çıktı biçimleri (Markdown şablonu)
 apps/<proje>/<uygulama>/
   app.md                         uygulama notları (isteme girer)
   rules/*.md                     uygulamaya özel kurallar
+  test/*.md                      uygulamanın ve modüllerinin test yöntemleri (kritik akışlar, kurallar)
   decisions/*.md                 sorun başına insan kararı, tarihçe ve yorumlar (Git'te union ile birleşir)
-  findings/<yazar>.md            o kişinin makinesinde açık duran bulgular (koşu sonunda yazılır)
-  pages/<sayfa>/<yazar>.md       sayfa bilgisi: kontrolcünün damıttığı (isteme en yenisi girer)
+  findings/<kimlik>.md            o kişinin makinesinde açık duran bulgular (koşu sonunda yazılır)
+  pages/<sayfa>/<kimlik>.md       sayfa bilgisi: kontrolcünün damıttığı (isteme en yenisi girer)
   customer/*.md                  içe aktarılan müşteri bulguları (isteme girmez)
 ```
+
+## Test yöntemleri
+
+Testin nasıl yapılacağı kodda değil burada yazılır ve zamanla geliştirilir. Her dosyanın ön bilgisi:
+
+```
+---
+kimlik: akis                 # küçük harf, rakam, tire; planlayıcı bu adla seçer
+aciklama: Tek satır; planlayıcı yalnız bunu görür ve isteğe uyanı seçer
+her_kosu: evet               # isteğe bağlı: her koşuda yüklenir (genel ilkeler)
+---
+Gövde: neye, nasıl, hangi sırayla bakılacağı; neyin bulgu sayılmadığı.
+```
+
+- Koşunun başında planlayıcı dizini görür ve isteğe uyan yöntemleri seçer (ek model çağrısı yoktur). Girdisiz sayfa
+  taraması `genel` ve `arayuz` ile koşar.
+- Seçilenler koşunun önbellekli talimatına girer: dosya başına 3.000, toplam 10.000 karakter. Aşan dosya kesilir ve
+  akışta söylenir; kısa ve öz yaz.
+- `arayuz` seçilmezse ekranları göz incelemez: akış ve kural testinde arayüz bulgusu gürültüdür, göz de en pahalı roldür.
+- Uygulamanın `test/` klasöründeki aynı kimlikli dosya platformunkinin yerine geçer.
+- Araç kullanımı, güvenlik kuralları ve çıktı biçimi koddadır; yöntem dosyası onları değiştiremez.
+- Yöntem değişikliği davranışı değiştirir: önemli bir değişiklikten sonra aynı isteği bir kez koşup sonucu karşılaştır.
 
 ## Çakışmasız paylaşım
 
 Git çakışması çıkmaması için her dosyanın tek bir yazarı vardır ya da birleşmesi tanımlıdır:
 
-- `findings/`, `pages/` altında herkes yalnız kendi dosyasını yazar (`<yazar>`: Ayarlar'daki ad). Okurken
+- `findings/`, `pages/` altında herkes yalnız kendi dosyasını yazar (`<kimlik>`: makinenin otomatik yazar kimliği, elle girilmez). Okurken
   hepsi birleştirilir: sayfa bilgisinden en yenisi, bulgulardan herkesinki
   ("başka makinelerde görüldü").
 - `decisions/` dosyasını yalnız insanlar yazar (Argus'un "düzeldi" gözlemi yereldir). Aynı soruna iki kişi aynı anda
