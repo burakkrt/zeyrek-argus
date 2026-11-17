@@ -14,6 +14,7 @@ const finding = (key: string, over: Partial<SharedFinding> = {}): SharedFinding 
   expected: 'Toplam satırla tutmalı',
   observed: 'Toplam 5,\ntabloda 3 satır',
   quote: 'Toplam: 5 kayıt',
+  steps: [{ tool: 'row_create', input: '{"baslik": "Argus test, 1"}', write: true }],
   ...over,
 })
 

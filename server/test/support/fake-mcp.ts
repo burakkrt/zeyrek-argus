@@ -116,6 +116,17 @@ server.registerTool(
       steps: [{ name: 'Kalibrasyon', condition: 'donem.kalibrasyonAcik == true', onFalse: 'Sonuç yayını' }],
     }),
 )
+// Yayın kapısı: iki ortamın tanım farkı (salt okunur).
+server.registerTool(
+  'environment_diff',
+  {
+    description: 'İki ortamın tanımlarını karşılaştırır.',
+    annotations: readOnly,
+    inputSchema: { projectId: z.string(), source: z.string().optional(), target: z.string().optional() },
+  },
+  async ({ source, target }) =>
+    json({ source, target, modules: [{ module: 'flow', items: [{ name: 'donem', diff: 'changed' }] }] }),
+)
 server.registerTool('user_list', { description: 'Kullanıcılar.', annotations: readOnly }, async () =>
   json([{ email: 'kisi@ornek.com' }]),
 )

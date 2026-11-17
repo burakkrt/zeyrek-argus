@@ -12,7 +12,7 @@ apps/<proje>/<uygulama>/
   rules/*.md                     uygulamaya özel kurallar
   test/*.md                      uygulamanın ve modüllerinin test yöntemleri (kritik akışlar, kurallar)
   decisions/*.md                 sorun başına insan kararı, tarihçe ve yorumlar (Git'te union ile birleşir)
-  findings/<kimlik>.md            o kişinin makinesinde açık duran bulgular (koşu sonunda yazılır)
+  findings/<kimlik>.md            o kişinin makinesinde açık duran bulgular ve kayıtlı vakaları (koşu sonunda yazılır)
   pages/<sayfa>/<kimlik>.md       sayfa bilgisi: kontrolcünün damıttığı (isteme en yenisi girer)
   customer/*.md                  içe aktarılan müşteri bulguları (isteme girmez)
 ```
@@ -73,7 +73,23 @@ Arayüzde şapkalı harf (â, î, û) kullanılmaz.
 - Yalnız `onayli` kurallar isteme girer; `aday` olanlar Hafıza ekranında onay bekler, `emekli` olanlar dosyada kalır
   ama kullanılmaz (geçmiş Git'te).
 - Deseni olan kural isteme hiç girmez: sayfada belirlenimci göz olarak koşar.
-- Kullanım sayaçları dosyada değil, yerel veritabanında tutulur (her koşu Git'te fark üretmesin).
+- Kullanım sayaçları dosyada değil, yerel veritabanında tutulur (her koşu Git'te fark üretmesin). "Yanılttı" sayacı
+  kurala dayanan bulguya "bulgu değil" denince ya da "sorun sayma" kuralının bastırdığı sorun gerçek çıkınca artar;
+  iki kez yanıltan (ve kullanımının yarısından fazla yanıltan) kural bakımda emekliye önerilir, insan onaylar.
+
+## Kayıtlı vaka
+
+Çalıştırılarak kanıtlanan bulgunun bulgu dosyasındaki bölümünde `adimlar:` satırı durur: bulguyu kanıtlayan platform
+çağrıları (araç, girdi, yazma mı), JSON, en çok 25 adım, girdi başına 800 karakter. "Kayıtlı vakaları doğrula" ve
+"Yayın kapısı" bunları yeniden kurar; takım arkadaşının vakası da (kendi makinende görülmemiş olsa bile) doğrulanır.
+Bozuk satır yok sayılır, bulgu kaybolmaz.
+
+## Platform notu
+
+Hafıza → Kurallar → **Platform notu** onaylı kuralları Zeyrek projesinin `ai-notlari/` klasörüne konacak tek dosya
+(`argus-dersleri.md`) olarak önizler: uygulamayı geliştiren yapay zekâ Argus'un öğrendiği hatayı yapmasın. Yalnız
+`onayli` kurallar girer, sıra belirlenimcidir. Aktarma (ne zaman, kimin onayıyla, nasıl yüklenir) henüz
+kararlaştırılmadı; Argus bu dosyayı hiçbir yere yazmaz.
 
 ## Sayfa bilgisi
 
@@ -88,6 +104,13 @@ tuhaflıklara gerekçesiyle girer, ona aykırı beklenti silinir.
 
 Arayüzde bir bulguya karar verince ya da yorum yazınca oluşur. Elle de düzenlenebilir; kaydedince veritabanına
 işlenir. `durum`: `acik` | `duzeltilecek` | `bulgu-degil` | `duzeldi`.
+
+- `karar_izi: <sayfa>:<Studio izi>`: "bulgu değil" kararı verildiği andaki sayfa tanımına bağlanır. Sonraki bir koşu
+  aynı sayfada tanımın değiştiğini görürse sorun yeniden açılır ("karar gözden geçirilmeli"): modülün mantığı
+  değişince eski bir "bulgu değil" sonsuza kadar sorun gizlemez. İz yoksa (tanım okunamadıysa) karar geçerli kalır.
+- Tartışmalı: iki kişinin son hükümleri zıtsa (biri düzeltilecek, öteki bulgu değil) sorun bastırılmaz, öğrenmeye
+  girmez ve arayüzde "Tartışmalı" rozeti taşır. Ayrışan kişi kararını değiştirince ya da karşı kararı seçerek
+  onaylayınca çözülür; kişinin kendi kararını yinelemesi çözmez.
 
 ## Biçim dosyası
 

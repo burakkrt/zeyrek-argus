@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFINITION_PAGE, type RunStrategy } from '@argus/shared'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { normalizeItems } from '../src/agent/strategist.ts'
 import { getRun, listEvents, listRuns } from '../src/db/runs.ts'
 import { startHarness, type Harness, type Move, type Script } from './support/harness.ts'
 import { overrides } from './support/site.ts'
@@ -107,6 +108,28 @@ const plani = (kalemler: ReturnType<typeof item>[]) => ({
   },
 })
 
+describe('vaka hedefi', () => {
+  it('beklenen sonuç ve dayanağı ayrı satırlarda hedefe girer (panel beklenen sonucu dayanaksız gösterir)', () => {
+    const [item] = normalizeItems(
+      [
+        {
+          baslik: 'Yetki',
+          amac: 'Başkasının cevabını yazmayı dene',
+          beklenen: '403 dönmeli',
+          dayanak: 'workflow_get anket, checkOwner adımı',
+          kaynak: 'tanim',
+          sayfa: '',
+          tam_tarama: false,
+        },
+      ],
+      [],
+    )
+    expect(item!.goal).toBe(
+      'Başkasının cevabını yazmayı dene\nBeklenen: 403 dönmeli\nDayanak: workflow_get anket, checkOwner adımı',
+    )
+  })
+})
+
 describe('anla adımı', () => {
   it('tanımı okuyup test planı yazar; tanım kalemi tarayıcısız test edilir, bulgusu kaydedilir, sonucu ekran kalemine geçer', async () => {
     plan = (turn) =>
@@ -174,7 +197,10 @@ describe('anla adımı', () => {
     )
     const detail = h.ctx.issues.detail(found.find((i) => i.title.startsWith('Kalibrasyon kullanıcı'))!.id)
     expect(detail.occurrences[0]).toMatchObject({ page: DEFINITION_PAGE, shot: null, kind: 'not' })
-    expect(detail.occurrences[0]!.observed).toContain('Kaynak: workflow_get donem, steps[0].onFalse')
+    // Çalıştırılarak kanıtlanmayan tanım iddiası şüphedir (not), kanıt türü yazılır.
+    expect(detail.occurrences[0]!.observed).toContain(
+      'Tanımdan çıkarım, çalıştırılarak doğrulanmadı; kaynak: workflow_get donem, steps[0].onFalse',
+    )
     expect(
       events.filter((e) => e.type === 'bulgu' && e.page === DEFINITION_PAGE).length,
     ).toBeGreaterThanOrEqual(2)
@@ -189,6 +215,7 @@ describe('anla adımı', () => {
       summary: 'Kural tanımdan test edildi; aşama ilerletme veri yazdığı için ekranda denenmedi.',
       tested: ['Kalibrasyonsuz ilerleme (tanım)'],
       untested: ['Aşamayı ilerletmek — veri yazar'],
+      outOfScope: [],
     })
     expect(events.some((e) => e.type === 'kapsam')).toBe(true)
   })
@@ -277,7 +304,7 @@ describe('anla adımı', () => {
       verified: true,
       suppressedByRule: null,
     })
-    plan = () => plani([item('Liste bakışı', '', 'egt-liste')])
+    plan = () => plani([{ ...item('Liste bakışı', '', 'egt-liste'), tam_tarama: true }])
     verdict = (prompt) =>
       prompt.includes('Bu son tur')
         ? { ...covered(), kacmis_bulgular: [] }
@@ -334,6 +361,7 @@ describe('anla adımı', () => {
               'workflow_get donem',
             ),
             anahtar: first ? '' : 'yz:ikinci-acik-oturum-engellenmiyor',
+            ...(first ? { tur: 'tutarsizlik', dogrulama: 'calistirildi', onem: 'S1' } : {}),
           },
         }
       return { name: 'kalemi_bitir', input: { ozet: 'Bakıldı.', kanitlar: [], eksik: '' } }
@@ -349,6 +377,15 @@ describe('anla adımı', () => {
     const keys = h.ctx.issues.list({ app, runId: done.id }).map((i) => i.key)
     expect(keys.filter((k) => k.includes('oturum'))).toEqual(['yz:ikinci-acik-oturum-engellenmiyor'])
     const issue = h.ctx.issues.list({ app }).find((i) => i.key === 'yz:ikinci-acik-oturum-engellenmiyor')!
+    // Çalıştırılarak kanıtlanan bulgu türünü korur.
+    expect(h.ctx.issues.detail(issue.id).occurrences[0]).toMatchObject({
+      kind: 'tutarsizlik',
+      severity: 'S1',
+    })
+    // Sorunun önemi en ağır görünümündendir; liste önce kritikleri gösterir.
+    expect(issue.severity).toBe('S1')
+    expect(h.ctx.issues.list({ app })[0]!.severity).toBe('S1')
+    expect(h.ctx.issues.detail(issue.id).occurrences[0]!.observed).toContain('Çalıştırılarak doğrulandı')
     // İkinci kalemin bulgusu aynı soruna eklendi; aynı koşuda aynı sayfada ikinci görünüm yazılmaz.
     expect(h.ctx.issues.detail(issue.id).occurrences.filter((o) => o.runId === done.id)).toHaveLength(1)
   })

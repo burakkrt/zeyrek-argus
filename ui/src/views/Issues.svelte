@@ -3,7 +3,7 @@
   import { onMount } from 'svelte'
   import Shot from '../components/Shot.svelte'
   import { api, fileUrl, post, qs } from '../lib/api'
-  import { formatDate, KIND, OUTCOME, STATUS } from '../lib/format'
+  import { formatDate, KIND, OUTCOME, SEVERITY, STATUS } from '../lib/format'
   import { pageLabel } from '../lib/monitor'
   import { go } from '../lib/router.svelte'
   import { appQuery } from '$lib/workspace.svelte'
@@ -164,6 +164,14 @@
         onclick={() => go(`/bulgular/${issue.id}`)}
       >
         <div class="row">
+          {#if issue.contested}<span
+              class="badge warn"
+              title="İki kişinin kararı zıt: sorun bastırılmaz ve öğrenmeye girmez. Ayrışan kişi kararını değiştirince ya da onaylayınca çözülür."
+              >Tartışmalı</span
+            >{/if}
+          <span class={`badge ${SEVERITY[issue.severity].tone}`} title={SEVERITY[issue.severity].hint}
+            >{SEVERITY[issue.severity].label}</span
+          >
           <span class={`badge ${KIND[issue.kind].tone}`}>{KIND[issue.kind].label}</span>
           <span class={`badge ${STATUS[issue.status].tone}`}>{STATUS[issue.status].label}</span>
           {#if issue.source === 'goz'}<span class="badge" title="Belirlenimci göz buldu (token harcamadan)"
@@ -182,6 +190,14 @@
     {#if detail}
       <div class="card stack">
         <div class="row">
+          {#if detail.contested}<span
+              class="badge warn"
+              title="İki kişinin kararı zıt: sorun bastırılmaz ve öğrenmeye girmez. Ayrışan kişi kararını değiştirince ya da onaylayınca çözülür."
+              >Tartışmalı</span
+            >{/if}
+          <span class={`badge ${SEVERITY[detail.severity].tone}`} title={SEVERITY[detail.severity].hint}
+            >{SEVERITY[detail.severity].label}</span
+          >
           <span class={`badge ${KIND[detail.kind].tone}`}>{KIND[detail.kind].label}</span>
           <span class={`badge ${STATUS[detail.status].tone}`}>{STATUS[detail.status].label}</span>
           <code class="muted">{detail.key}</code>

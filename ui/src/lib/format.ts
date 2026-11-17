@@ -1,4 +1,4 @@
-import type { FindingKind, IssueStatus, OccurrenceOutcome, RunStatus, Usage } from '@argus/shared'
+import type { FindingKind, IssueStatus, OccurrenceOutcome, RunStatus, Severity, Usage } from '@argus/shared'
 
 export const formatDate = (iso: string | null | undefined) =>
   iso
@@ -9,9 +9,6 @@ export const formatDate = (iso: string | null | undefined) =>
         minute: '2-digit',
       })
     : '—'
-
-export const formatTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 /** Saniye → "45 sn" / "3 dk 19 sn"; bilinmiyorsa "—". */
 export function formatSeconds(seconds: number | null | undefined): string {
@@ -46,12 +43,6 @@ export function formatBytes(bytes: number): string {
 export const formatCost = (usage: Usage | null | undefined) =>
   usage?.provider === 'abonelik' ? 'Abonelik' : formatMoney(usage?.costUsd)
 
-export const formatTokens = (usage: Usage) => {
-  const input = usage.input + usage.cacheWrite + usage.cacheRead
-  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k` : String(n))
-  return `${k(input)} girdi (${input ? Math.round((usage.cacheRead / input) * 100) : 0}% önbellek) · ${k(usage.output)} çıktı`
-}
-
 export const RUN_STATUS: Record<RunStatus, { label: string; tone: string }> = {
   sirada: { label: 'Sırada', tone: 'info' },
   calisiyor: { label: 'Çalışıyor', tone: 'accent' },
@@ -64,6 +55,18 @@ export const KIND: Record<FindingKind, { label: string; tone: string }> = {
   kesin: { label: 'Kesin', tone: 'fail' },
   tutarsizlik: { label: 'Tutarsızlık', tone: 'warn' },
   not: { label: 'Not', tone: 'info' },
+}
+
+/** Bulgunun önemi (teknik etki): liste önce S1'i gösterir. */
+export const SEVERITY: Record<Severity, { label: string; tone: string; hint: string }> = {
+  S1: {
+    label: 'Kritik',
+    tone: 'fail',
+    hint: 'Veri kaybı, yetki sızıntısı, yanlış hesap ya da kilitlenen akış.',
+  },
+  S2: { label: 'Yüksek', tone: 'warn', hint: 'Kural ya da zorunlu alan atlatılıyor, geçersiz durum geçişi.' },
+  S3: { label: 'Orta', tone: 'info', hint: 'Kötü hata yönetimi ya da yanıltıcı ileti; geçici çözüm var.' },
+  S4: { label: 'Düşük', tone: '', hint: 'Görünüm, metin ya da biçim.' },
 }
 
 export const STATUS: Record<IssueStatus, { label: string; tone: string }> = {
@@ -79,16 +82,6 @@ export const OUTCOME: Record<OccurrenceOutcome, { label: string; tone: string }>
   bastirildi: { label: 'Bastırıldı', tone: '' },
   dogrulanamadi: { label: 'Doğrulanamadı', tone: 'info' },
   'yeniden-acildi': { label: 'Yeniden açıldı', tone: 'fail' },
-}
-
-export const TOOL_LABELS: Record<string, string> = {
-  tikla: 'Tıkla',
-  uzerine_gel: 'Üzerine gel',
-  yaz: 'Yaz',
-  tus: 'Tuş',
-  kaydir: 'Kaydır',
-  ekrana_bak: 'Ekrana bak',
-  bastan_ac: 'Baştan aç',
 }
 
 export const SCOPE_LABEL = (scope: string) =>

@@ -5,7 +5,7 @@
   import { formatDate, SCOPE_LABEL, TYPE_LABEL } from '../lib/format'
   import { workspace } from '$lib/workspace.svelte'
 
-  type RuleRow = Rule & { stats: { uses: number; eligible: number; lastUsed: string | null } }
+  type RuleRow = Rule & { stats: { uses: number; eligible: number; misled: number; lastUsed: string | null } }
 
   let tab = $state<'kurallar' | 'oneriler' | 'dosyalar' | 'musteri'>('kurallar')
   let rules = $state<RuleRow[]>([])
@@ -19,6 +19,7 @@
   let busy = $state('')
   let error = $state('')
   let info = $state('')
+  let platformNote = $state<{ file: string; content: string; count: number } | null>(null)
   let newRule = $state({ kapsam: 'uygulama', tur: 'sorun', metin: '', desen: '' })
   let customer = $state<{
     rows: number
@@ -44,6 +45,18 @@
     } finally {
       busy = ''
     }
+  }
+
+  async function togglePlatformNote() {
+    if (platformNote) {
+      platformNote = null
+      return
+    }
+    if (!appRef) return
+    const result = await run('', () =>
+      api<{ file: string; content: string; count: number }>(`/hafiza/platform-notu${qs(appRef)}`),
+    )
+    if (result) platformNote = result
   }
 
   async function loadRules() {
@@ -222,6 +235,26 @@
     </section>
   {/if}
 
+  {#if appRef}
+    <section class="card stack">
+      <div class="row">
+        <h3>Platform notu</h3>
+        <span class="spacer"></span>
+        <button class="small" onclick={togglePlatformNote}>{platformNote ? 'Kapat' : 'Önizle'}</button>
+      </div>
+      <p class="muted small">
+        Onaylı kurallar, Zeyrek projesinin <code>ai-notlari/</code> klasörüne konacak dosya olarak: uygulamayı geliştiren
+        yapay zekâ aynı hatayı yapmasın. Aktarma henüz yok; içerik yalnız önizlenir.
+      </p>
+      {#if platformNote}
+        <div class="row">
+          <code>{platformNote.file}</code><span class="muted small">{platformNote.count} kural</span>
+        </div>
+        <textarea class="editor mono" rows="14" readonly value={platformNote.content}></textarea>
+      {/if}
+    </section>
+  {/if}
+
   {#each [{ state: 'aday' as const, title: 'Onay bekleyen kurallar' }, { state: 'onayli' as const, title: 'Devredeki kurallar' }] as group (group.state)}
     <section class="card stack">
       <h2>{group.title} ({byState(group.state).length})</h2>
@@ -239,6 +272,11 @@
             <span class="muted small" title="Bulgulardaki atıf / isteme girdiği sayfa"
               >kullanım {rule.stats.uses} / {rule.stats.eligible}</span
             >
+            {#if rule.stats.misled}<span
+                class="badge warn"
+                title="Bu kurala dayanan bulguya bulgu değil denildi ya da bastırdığı sorun gerçek çıktı"
+                >yanılttı {rule.stats.misled}</span
+              >{/if}
             {#if rule.state === 'aday'}<button class="small primary" onclick={() => setState(rule, 'onayli')}
                 >Onayla</button
               >{/if}

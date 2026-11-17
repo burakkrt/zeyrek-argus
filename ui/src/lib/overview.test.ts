@@ -32,6 +32,8 @@ const issue = (over: Partial<Issue>): Issue => ({
   key: 'yz:x',
   title: 'x',
   kind: 'tutarsizlik',
+  severity: 'S3',
+  contested: false,
   status: 'acik',
   source: 'yz',
   firstSeen: ago(1),

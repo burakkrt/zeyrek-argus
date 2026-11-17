@@ -1,4 +1,4 @@
-import { FINDING_KINDS, type FindingKind } from '@argus/shared'
+import { FINDING_KINDS, type FindingKind, type PlatformCall } from '@argus/shared'
 import { parseDocument, serializeDocument } from './frontmatter.ts'
 
 /**
@@ -24,6 +24,8 @@ export interface SharedFinding {
   expected: string
   observed: string
   quote: string | null
+  /** Kayıtlı vaka: bulguyu kanıtlayan platform çağrıları (takım arkadaşının makinesi de yeniden doğrulayabilsin). */
+  steps: PlatformCall[]
 }
 
 const FIELDS: Array<[keyof SharedFinding, string]> = [
@@ -38,6 +40,7 @@ const FIELDS: Array<[keyof SharedFinding, string]> = [
   ['expected', 'beklenen'],
   ['observed', 'gozlenen'],
   ['quote', 'alinti'],
+  ['steps', 'adimlar'],
 ]
 
 const oneLine = (value: string) => value.replace(/\s*\r?\n\s*/g, ' ').trim()
@@ -51,13 +54,38 @@ export function serializeFindings(author: string, updatedAt: string, findings: S
         `## ${oneLine(f.key)}`,
         ...FIELDS.map(([field, label]) => {
           const value = f[field]
-          const text = Array.isArray(value) ? value.join(', ') : value === null ? '' : String(value)
+          const text =
+            field === 'steps'
+              ? (value as PlatformCall[]).length
+                ? JSON.stringify(value)
+                : ''
+              : Array.isArray(value)
+                ? value.join(', ')
+                : value === null
+                  ? ''
+                  : String(value)
           return `- ${label}: ${oneLine(text)}`
         }),
       ].join('\n'),
     )
     .join('\n\n')
   return serializeDocument({ data: { yazar: author, guncelleme: updatedAt }, body })
+}
+
+/** Bozuk adım listesi boş sayılır: vaka yeniden doğrulanamaz ama bulgu kaybolmaz. */
+function parseSteps(text: string): PlatformCall[] {
+  if (!text) return []
+  try {
+    const parsed = JSON.parse(text) as unknown
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (s): s is PlatformCall =>
+            typeof s?.tool === 'string' && typeof s?.input === 'string' && typeof s?.write === 'boolean',
+        )
+      : []
+  } catch {
+    return []
+  }
 }
 
 /** Bozuk ya da eksik bölüm atlanır (tek bölüm bütün dosyayı düşürmez). */
@@ -91,6 +119,7 @@ export function parseFindings(text: string): { author: string; updatedAt: string
       expected: values.get('beklenen') ?? '',
       observed: values.get('gozlenen') ?? '',
       quote: values.get('alinti') || null,
+      steps: parseSteps(values.get('adimlar') ?? ''),
     })
   }
   return {

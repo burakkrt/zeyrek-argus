@@ -8,8 +8,10 @@ import type {
   PlatformRead,
   RunEventBody,
   Settings,
+  Severity,
   StepTarget,
 } from '@argus/shared'
+import { severityOf } from '../issues/severity.ts'
 import type { Locator } from 'playwright'
 import {
   annotateShot,
@@ -63,6 +65,7 @@ export interface FindingDraft {
   key: string
   title: string
   kind: FindingKind
+  severity?: Severity
   source: 'goz' | 'yz'
   phase: 'acilis' | 'gorev'
   scenario: string
@@ -108,6 +111,8 @@ export interface PageInput {
    * yeniden kaydedilmez, göz onları "zaten bildirilenler" arasında görür.
    */
   recordedInRun: Map<string, string>
+  /** Bilinen sorunlar açılışta modelsiz yeniden doğrulansın mı (sayfa taraması ve arayüz testi; akış testinde değil). */
+  verifyKnown: boolean
   patterns: PatternRule[]
   system: MessageParams['system']
   createMessage: CreateMessage
@@ -411,6 +416,7 @@ export class PageController {
       key,
       title,
       kind,
+      severity: severityOf(item.onem),
       source: 'yz',
       phase,
       scenario: item.senaryo ?? '',
@@ -592,6 +598,7 @@ export class PageController {
         key: hit.key,
         title: described.titleText,
         kind: described.kind,
+        severity: 'S4',
         source: 'goz',
         phase,
         scenario: `${this.input.page} sayfasını aç${phase === 'gorev' ? ' ve akıştaki adımları izle' : ''}.`,
@@ -616,6 +623,7 @@ export class PageController {
         key,
         title,
         kind: 'kesin',
+        severity: 'S3',
         source: 'goz',
         phase,
         scenario: `${this.input.page} sayfasını aç${phase === 'gorev' ? ' ve akıştaki adımları izle' : ''}.`,
@@ -644,6 +652,7 @@ export class PageController {
       key: result.issue.key,
       title: result.issue.title,
       kind: result.occurrence.kind,
+      severity: result.occurrence.severity,
       outcome: result.outcome,
       reason: result.reason,
       shot,
@@ -750,7 +759,9 @@ export class PageController {
         note: 'Açılışta artık görünmüyor; düzeldi olarak işaretlendi.',
       })
     this.change = await hooks.print(uiPrint(compressSnapshot(await ariaTree(this.page))), apiPrint(network))
-    const toVerify = await this.verifyOpenIssues(new Set(closed))
+    // Bilinen sorunların modelsiz yeniden doğrulaması yalnız arayüz incelemesinde: akış ve kural testinde istekle
+    // ilgisiz eski arayüz sorunları sonuç listesini dolduruyordu (altın senaryolarda 18 bulgunun 9'u).
+    const toVerify = this.input.verifyKnown ? await this.verifyOpenIssues(new Set(closed)) : []
     hooks.emit({
       type: 'arastirma',
       tooltips: tooltips.length,
@@ -1258,7 +1269,7 @@ export class PageController {
         return this.input.platform.describe(arac)
       }
       case 'platform_oku': {
-        const read = { tool: field(input, 'arac'), input: field(input, 'girdi') }
+        const read = { tool: field(input, 'arac'), input: field(input, 'girdi'), label: field(input, 'adim') }
         const result = await this.input.platform.read(
           read.tool,
           read.input,
@@ -1269,7 +1280,12 @@ export class PageController {
         return result
       }
       case 'platform_yaz': {
-        const write = { tool: field(input, 'arac'), input: field(input, 'girdi'), write: true }
+        const write = {
+          tool: field(input, 'arac'),
+          input: field(input, 'girdi'),
+          write: true,
+          label: field(input, 'adim'),
+        }
         const result = await this.input.platform.write(write.tool, write.input)
         const view = readStep({ ...write, result })
         await this.step(name, reason, view.outcome, undefined, view.platform)
@@ -1327,7 +1343,7 @@ export class PageController {
             role: 'user',
             content: [
               text(
-                `${eyeFindingsText(this.eyeFindings)}\n\n${JUDGE_TASK}\n\nBu ekrana gelen son adımlar:\n${this.trail.length ? this.trail.map((t) => `- ${t}`).join('\n') : '- Sayfa açıldı.'}\n\nAday bulgu:\n${JSON.stringify(candidate, null, 1)}\n\nEkranın ağacı:\n${tree}`,
+                `${eyeFindingsText(this.eyeFindings)}\n\nBu sayfada zaten bildirilenler:\n${this.reportedText()}\n\n${JUDGE_TASK}\n\nBu ekrana gelen son adımlar:\n${this.trail.length ? this.trail.map((t) => `- ${t}`).join('\n') : '- Sayfa açıldı.'}\n\nAday bulgu:\n${JSON.stringify(candidate, null, 1)}\n\nEkranın ağacı:\n${tree}`,
               ),
               ...(image
                 ? [
@@ -1355,6 +1371,7 @@ export class PageController {
     return {
       karar: verdict.karar!,
       tur: verdict.tur ?? '',
+      onem: verdict.onem ?? '',
       anahtar: verdict.anahtar ?? '',
       baslik: verdict.baslik ?? '',
       gerekce: verdict.gerekce ?? '',
@@ -1378,6 +1395,7 @@ export class PageController {
     const ref = field(input, 'ref').trim()
     let title = field(input, 'baslik').trim() || key
     let kind = (FINDING_KIND_SET.has(field(input, 'tur')) ? field(input, 'tur') : 'not') as FindingKind
+    let severity = severityOf(field(input, 'onem'))
     let finalKey = key
     const rules = Array.isArray((input as { kurallar?: unknown }).kurallar)
       ? ((input as { kurallar: unknown[] }).kurallar.filter((r) => typeof r === 'string') as string[])
@@ -1403,6 +1421,7 @@ export class PageController {
       if (verdict) {
         finalKey = this.normalizeKey(verdict.anahtar || key)
         title = verdict.baslik.trim() || title
+        if (verdict.onem) severity = severityOf(verdict.onem)
         kind =
           verdict.karar === 'not'
             ? 'not'
@@ -1423,6 +1442,7 @@ export class PageController {
       key: finalKey,
       title,
       kind,
+      severity,
       source: 'yz',
       phase: 'gorev',
       scenario: field(input, 'senaryo'),
@@ -1452,6 +1472,7 @@ const FINDING_KIND_SET = new Set<string>(['kesin', 'tutarsizlik', 'not'])
 interface Verdict {
   karar: 'kabul' | 'not' | 'ret'
   tur: string
+  onem: string
   anahtar: string
   baslik: string
   gerekce: string

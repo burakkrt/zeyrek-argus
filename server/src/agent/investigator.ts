@@ -1,8 +1,9 @@
-import type { FindingKind, PlatformRead, StrategyItem } from '@argus/shared'
+import type { FindingKind, PlatformCall, PlatformRead, StrategyItem } from '@argus/shared'
 import type { PlatformReader } from '../platform/reader.ts'
 import type { CreateMessage, MessageParams, Tool, UsageMeter } from './model.ts'
 import { toolLoop } from './tool-loop.ts'
 import { platformTools } from './tools.ts'
+import { SEVERITY_GUIDE } from '../issues/severity.ts'
 
 /**
  * Tanım kalemi: tarayıcı açılmaz; araştırmacı (varsayılan Sonnet; kapsamı gözetmen denetler) uygulamanın tanımlarını
@@ -12,6 +13,10 @@ import { platformTools } from './tools.ts'
  */
 export const DEFINITION_MARKER = 'TANIM KALEMİ'
 const DEFINITION_CEILING = 40
+/** Koşu sonu temizliğinin adım tavanı: platform yavaşken temizlik koşuyu dakikalarca uzatıyordu (KOS-2026-0046). */
+export const CLEANUP_CEILING = 12
+/** Aynı anda yürüyen bağımsız tanım kalemi sayısı (abonelik hız sınırını zorlamadan). */
+export const DEFINITION_PARALLEL = 3
 const KINDS: FindingKind[] = ['kesin', 'tutarsizlik', 'not']
 const text = (value: string) => ({ type: 'text' as const, text: value })
 
@@ -25,6 +30,13 @@ export interface DefinitionFinding {
   kaynak: string
   /** Aynı kök nedenli bilinen sorunun anahtarı; yeni sorunsa boş (aynı bulgu farklı başlıkla yeniden kayıtlanmasın). */
   anahtar: string
+  /**
+   * calistirildi: çalıştırıldı, yanıt ya da geri okunan kayıt kanıtlıyor; tanimdan: yalnız tanımdan çıkarım. Tanımdan
+   * çıkarım bulgu sayılmaz, şüphe olarak (not) kaydedilir: kanıtsız yapay zekâ bulgusunun çoğu yanlış çıkıyordu.
+   */
+  dogrulama?: string
+  /** Önem S1-S4 (`SEVERITIES`). */
+  onem?: string
 }
 
 const FINDING_TOOL: Tool = {
@@ -44,14 +56,29 @@ const FINDING_TOOL: Tool = {
       senaryo: { type: 'string', description: 'Hangi durumda ortaya çıkıyor.' },
       beklenen: { type: 'string' },
       gozlenen: { type: 'string', description: 'Tanıma göre gerçekte ne oluyor.' },
-      kaynak: { type: 'string', description: 'Kanıt: araç, kayıt kimliği/adı, alan.' },
+      kaynak: {
+        type: 'string',
+        description:
+          'Kanıt: çalıştırdığın çağrı ve girdisi, dönen yanıt ya da geri okunan kayıt; yoksa tanımdaki yer.',
+      },
+      onem: {
+        type: 'string',
+        enum: ['S1', 'S2', 'S3', 'S4'],
+        description: SEVERITY_GUIDE,
+      },
+      dogrulama: {
+        type: 'string',
+        enum: ['calistirildi', 'tanimdan'],
+        description:
+          'calistirildi: çalıştırdın ve yanıt ya da geri okunan kayıt kanıtlıyor; tanimdan: yalnız tanımı okuyarak çıkardın (şüphe olarak kaydedilir).',
+      },
       anahtar: {
         type: 'string',
         description:
           'Bilinen ya da bu koşuda kaydedilmiş bir sorunla aynı kök nedense onun anahtarı (listeden, ör. yz:...); yeni sorunsa boş.',
       },
     },
-    required: ['tur', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'kaynak', 'anahtar'],
+    required: ['tur', 'onem', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'kaynak', 'dogrulama', 'anahtar'],
     additionalProperties: false,
   },
 }
@@ -89,14 +116,17 @@ export async function investigate(input: {
   known: () => string[]
   /** Her platform okuması (akışa adım olarak yazılır). */
   onRead: (reason: string, read: PlatformRead) => void
-  /** Tanım bulgusunu kaydeder; modele dönecek sonucu verir. */
-  record: (finding: DefinitionFinding) => string
+  /** Tanım bulgusunu kaydeder (kalemde o ana dek yapılan platform çağrılarıyla: kayıtlı vaka); modele dönecek sonucu verir. */
+  record: (finding: DefinitionFinding, calls: PlatformCall[]) => string
+  /** Adım tavanı; yoksa DEFINITION_CEILING. */
+  ceiling?: number
 }): Promise<string> {
   const tools = [...platformTools(input.reader), FINDING_TOOL, FINISH_TOOL]
+  const calls: PlatformCall[] = []
   const known = input.known()
   const result = await toolLoop<{ ozet: string; kanitlar: string[]; eksik: string }>({
     finishTool: FINISH_TOOL.name,
-    ceiling: DEFINITION_CEILING,
+    ceiling: input.ceiling ?? DEFINITION_CEILING,
     call: (messages) =>
       input
         .createMessage(
@@ -124,10 +154,13 @@ export async function investigate(input: {
           (known.length
             ? `Kayıtlı sorunlar (aynı kök nedense yeniden açma, tanim_bulgusu'nda anahtarını ver):\n${known.map((k) => `- ${k}`).join('\n')}\n\n`
             : '') +
-          'Bu kalemi uygulamanın tanımlarını okuyarak (platform_oku) test et; amaç bulgu bulmak. İlgili bütün tanımlara ' +
-          'bak (akış, süreç, mikroservis, sayfa şeması, varlık); bir tanım başka birine bağlıysa onu da oku. Beklenen ' +
-          'davranıştan sapan her hata, tutarsızlık ya da riski (ör. bir kural kullanıcıyı uyarmadan atlanabiliyor) ' +
-          'tanim_bulgusu ile kaynağıyla kaydet. Tanımdan test edilemeyen kısmı uydurma, "eksik"e yaz. Bitince kalemi_bitir çağır.',
+          'Bu kalem bir test vakasıdır; amaç bulgu bulmak. 1) İlgili tanımı oku (platform_oku): akış, mikroservis, varlık; ' +
+          'yalnız vakanın gerektirdiği kadar. 2) Vakayı çalıştır (platform_yaz): test verisini kur ("Argus test"), işlemi ' +
+          'yap, sonucu geri oku. Beklenen sonuçla karşılaştır. 3) Sapmayı tanim_bulgusu ile kaydet: çalıştırıp kanıtladıysan ' +
+          'dogrulama=calistirildi ve kaynakta çağrı + yanıt; yalnız tanımdan çıkardıysan dogrulama=tanimdan (şüphe olarak ' +
+          'kaydedilir). Kural beklendiği gibi çalışıyorsa bulgu yazma, özette "doğru çalışıyor" de. Çalıştıramadığın kısmı ' +
+          'uydurma, "eksik"e yaz. 4) Sonraki kalemlerin kullanacağı kayıtları bırak, gerisini sil ve kalemi_bitir çağır; özete ' +
+          'bıraktığın kayıtların kimliğini yaz (koşu sonunda silinir).',
       ),
     ],
     handle: async (name, args) => {
@@ -138,7 +171,7 @@ export async function investigate(input: {
         const finding = args as DefinitionFinding
         if (!KINDS.includes(finding.tur) || !finding.kaynak?.trim())
           return 'Kaydedilmedi: tur kesin/tutarsizlik/not olmalı ve kaynak (araç, kayıt, alan) yazılmalı.'
-        return input.record(finding)
+        return input.record(finding, [...calls])
       }
       if (name === 'platform_arac') return input.reader.describe(field('arac'))
       if (name === 'platform_oku') {
@@ -147,7 +180,13 @@ export async function investigate(input: {
           field('girdi'),
           Number((args as Record<string, unknown>).devam) || 0,
         )
-        input.onRead(field('neden'), { tool: field('arac'), input: field('girdi'), result: read })
+        input.onRead(field('neden'), {
+          tool: field('arac'),
+          input: field('girdi'),
+          result: read,
+          label: field('adim'),
+        })
+        calls.push({ tool: field('arac'), input: field('girdi'), write: false })
         return read
       }
       if (name === 'platform_yaz') {
@@ -157,7 +196,9 @@ export async function investigate(input: {
           input: field('girdi'),
           result: written,
           write: true,
+          label: field('adim'),
         })
+        calls.push({ tool: field('arac'), input: field('girdi'), write: true })
         return written
       }
       return `Bilinmeyen araç: ${name}`

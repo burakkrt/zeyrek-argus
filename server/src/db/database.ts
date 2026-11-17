@@ -196,6 +196,21 @@ const MIGRATIONS: string[] = [
   alter table runs rename column answer to coverage;
   update runs set coverage = null;
   `,
+  // Bulgunun önemi (S1 en ağır): liste önemle sıralanır; eski kayıtlar orta (S3) sayılır.
+  `
+  alter table issues add column severity text not null default 'S3';
+  alter table occurrences add column severity text not null default 'S3';
+  `,
+  // Hafıza 2.0: "bulgu değil" kararı tanım izine bağlanır; kuralın yanılttığı sayılır.
+  `
+  alter table issues add column decision_print text;
+  alter table rule_stats add column misled integer not null default 0;
+  `,
+  // Kayıtlı vaka: kanıtlı bulgunun platform çağrıları (yeniden doğrulama, yayın kapısı).
+  `
+  alter table occurrences add column steps text;
+  alter table shared_sightings add column steps text;
+  `,
 ]
 
 export function openDatabase(file: string): Database {

@@ -100,6 +100,8 @@
           <span class="text-muted-foreground block truncate text-xs">{row.project} · {row.application}</span>
         {:else if column.key === 'pages'}
           <span class="block truncate" title={row.pages.join(', ')}>
+            {#if row.options.mode === 'tekrar'}<span class="badge info">Kayıtlı vakalar</span>{/if}
+            {#if row.options.mode === 'kapi'}<span class="badge warn">Yayın kapısı</span>{/if}
             {row.pages.length > 2
               ? `${row.pages.slice(0, 2).join(', ')} +${row.pages.length - 2}`
               : row.pages.join(', ')}

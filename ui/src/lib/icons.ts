@@ -60,6 +60,19 @@ import skipNext from '@material-symbols/svg-400/outlined/skip_next.svg?raw'
 import psychology from '@material-symbols/svg-400/outlined/psychology.svg?raw'
 import database from '@material-symbols/svg-400/outlined/database.svg?raw'
 import factCheck from '@material-symbols/svg-400/outlined/fact_check.svg?raw'
+// Platform işlemleri (izleme tuvalindeki duraklar): simge işlemin türünü söyler.
+import opFlow from '@material-symbols/svg-400/outlined/account_tree.svg?raw'
+import opTable from '@material-symbols/svg-400/outlined/table_view.svg?raw'
+import opPage from '@material-symbols/svg-400/outlined/description.svg?raw'
+import opLock from '@material-symbols/svg-400/outlined/lock.svg?raw'
+import opSend from '@material-symbols/svg-400/outlined/send.svg?raw'
+import opCreate from '@material-symbols/svg-400/outlined/add_circle.svg?raw'
+import opEdit from '@material-symbols/svg-400/outlined/edit.svg?raw'
+import opDelete from '@material-symbols/svg-400/outlined/delete.svg?raw'
+import opService from '@material-symbols/svg-400/outlined/bolt.svg?raw'
+import opDiff from '@material-symbols/svg-400/outlined/difference.svg?raw'
+import opRule from '@material-symbols/svg-400/outlined/rule.svg?raw'
+import opList from '@material-symbols/svg-400/outlined/checklist.svg?raw'
 // Oynatıcı denetimleri tek aileden (Rounded): simetrik, aynı çizgi kalınlığı.
 import mediaPlay from '@material-symbols/svg-400/rounded/play_arrow-fill.svg?raw'
 import mediaPause from '@material-symbols/svg-400/rounded/pause-fill.svg?raw'
@@ -130,6 +143,18 @@ export const icons = {
   psychology,
   database,
   factCheck,
+  opFlow,
+  opTable,
+  opPage,
+  opLock,
+  opSend,
+  opCreate,
+  opEdit,
+  opDelete,
+  opService,
+  opDiff,
+  opRule,
+  opList,
   mediaPlay,
   mediaPause,
   mediaBack,

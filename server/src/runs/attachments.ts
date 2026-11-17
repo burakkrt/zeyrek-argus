@@ -35,7 +35,6 @@ const MIME_EXT: Record<string, string> = {
   'image/webp': 'webp',
   'image/gif': 'gif',
 }
-export const ACCEPTED_EXTENSIONS = Object.keys(EXTENSIONS)
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 export const MAX_ATTACHMENTS = 6
 /** Metne çevrilen ekin isteme giren üst sınırı (karakter): büyük Excel istemi şişirmesin. */

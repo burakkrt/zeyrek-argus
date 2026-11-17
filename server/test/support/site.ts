@@ -6,7 +6,6 @@ import { createServer, type IncomingMessage } from 'node:http'
  */
 
 export const TEST_USER = { username: 'test-kullanici', password: 'test-parola', token: 'test-jeton' }
-export const BRANCH = { name: 'feature/yeni-ekran', slug: 'feature-yeni-ekran' }
 
 const page = (title: string, body: string) =>
   `<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${title}</title>

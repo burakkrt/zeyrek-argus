@@ -1,8 +1,7 @@
 <script lang="ts">
-  import type { FindingKind, PlatformRead, StepTarget } from '@argus/shared'
+  import type { FindingKind, StepTarget } from '@argus/shared'
   import { fade } from 'svelte/transition'
   import Icon from '$lib/components/Icon.svelte'
-  import PlatformPanel from '$lib/components/monitor/PlatformPanel.svelte'
   import { Button } from '$lib/components/ui/button/index.js'
   import { FINDING_TONE, type PointerState, type ZoomState } from '$lib/monitor'
   import { cn } from '$lib/utils'
@@ -22,8 +21,8 @@
     pointer,
     zoom,
     dialog,
-    platform = null,
     status,
+    caption = null,
     chip,
     finding,
     paused,
@@ -40,10 +39,10 @@
     zoom: ZoomState
     /** Bu anda açılan tarayıcı penceresinin metni ve kontrolcünün yanıtı. */
     dialog: string | null
-    /** O anki adım platform okumasıysa: kare yerine okunan tanım gösterilir. */
-    platform?: { read: PlatformRead; failed: boolean } | null
     /** Ekran durgunken ne olduğu ("Yapay zekâ sonraki adımı seçiyor · 6 sn"). */
     status: string | null
+    /** Tarayıcı adımında ne yapıldı ve neden (alt yazı); bekleme durumu yoksa gösterilir. */
+    caption?: { title: string; reason: string | null } | null
     /** Sol üstte bilgi rozeti (ör. eski koşunun adım görüntüleri). */
     chip: string | null
     /** Seçili bulgunun ekrandaki yeri (görünüm alanına oranla). */
@@ -198,9 +197,7 @@
     {/if}
   </div>
 
-  {#if platform}
-    <PlatformPanel read={platform.read} failed={platform.failed} />
-  {:else if !drawn}
+  {#if !drawn}
     <div class="absolute inset-0 grid place-items-center text-sm text-white/70">{placeholder}</div>
   {/if}
 
@@ -216,6 +213,14 @@
     </div>
   {/if}
 
+  {#if caption && !status}
+    <div
+      class="pointer-events-none absolute bottom-4 left-1/2 grid max-w-[78%] -translate-x-1/2 gap-0.5 rounded-xl bg-black/72 px-4 py-2 text-center text-white"
+    >
+      <span class="truncate text-[13.5px] font-semibold">{caption.title}</span>
+      {#if caption.reason}<span class="line-clamp-2 text-[12px] text-white/75">{caption.reason}</span>{/if}
+    </div>
+  {/if}
   {#if status}
     <span
       class="absolute bottom-4 left-1/2 inline-flex h-8 -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3.5 text-[12.5px] whitespace-nowrap text-white backdrop-blur"

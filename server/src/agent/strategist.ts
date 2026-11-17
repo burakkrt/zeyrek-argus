@@ -1,10 +1,12 @@
-import type {
-  CatalogPage,
-  ItemSource,
-  RunStrategy,
-  StrategyItem,
-  StrategyKind,
-  PlatformRead,
+import {
+  RUN_SCOPES,
+  type CatalogPage,
+  type ItemSource,
+  type RunScope,
+  type RunStrategy,
+  type StrategyItem,
+  type StrategyKind,
+  type PlatformRead,
 } from '@argus/shared'
 import type { PlatformReader } from '../platform/reader.ts'
 import type { Attachment } from '../runs/attachments.ts'
@@ -36,6 +38,13 @@ const PLAN_TOOL: Tool = {
     type: 'object',
     properties: {
       tur: { type: 'string', enum: KINDS },
+      kapsam: {
+        type: 'string',
+        enum: [...RUN_SCOPES],
+        description:
+          'soru: tek bir davranış ya da kural soruluyor; degisiklik: yeni yapılan bir değişiklik test ettiriliyor; ' +
+          'musteri: bildirilen bulgu maddeleri yeniden üretilecek; tam: modül ya da akışın tamamı.',
+      },
       anlasilan: {
         type: 'string',
         description: 'Test edilecek kapsam (modül, sayfa, konu, işleyiş), kendi cümlenle.',
@@ -63,15 +72,29 @@ const PLAN_TOOL: Tool = {
           type: 'object',
           properties: {
             baslik: { type: 'string' },
-            amac: { type: 'string', description: 'Ne yapılacak, adım adım ve somut.' },
+            amac: { type: 'string', description: 'Vaka: ön koşul ve test verisi, adımlar; somut.' },
+            beklenen: {
+              type: 'string',
+              description: 'Beklenen sonuç: gözlenebilir, kısa (bir-iki cümle); dayanağı ayrı alanda.',
+            },
+            dayanak: {
+              type: 'string',
+              description: 'Beklentinin dayanağı: tanımdaki kural, akış adımı ya da yetki; kaynağıyla.',
+            },
             kaynak: { type: 'string', enum: SOURCES },
             sayfa: {
               type: 'string',
               description: 'Ekran/ikisi kaleminde sayfa slug’ı; tanım kaleminde boş.',
             },
             tam_tarama: { type: 'boolean', description: 'Sayfanın tamamı taransın mı (arayüz taraması).' },
+            bagimsiz: {
+              type: 'boolean',
+              description:
+                'Tanım kalemi kendi test verisini kurup siliyor ve başka kalemin sonucunu kullanmıyorsa true (paralel ' +
+                'yürür); önceki bir kalemin kurduğu kayda ya da sonucuna dayanıyorsa false (sırayla, ondan sonra).',
+            },
           },
-          required: ['baslik', 'amac', 'kaynak', 'sayfa', 'tam_tarama'],
+          required: ['baslik', 'amac', 'beklenen', 'dayanak', 'kaynak', 'sayfa', 'tam_tarama', 'bagimsiz'],
           additionalProperties: false,
         },
       },
@@ -92,19 +115,30 @@ const PLAN_TOOL: Tool = {
 
 interface RawPlan {
   tur: string
+  kapsam?: string
   anlasilan: string
   senaryolar: string[]
   bitti_olcutu: string
   bilinenler: string[]
   yapilamayan: string[]
   yontemler?: string[]
-  kalemler: Array<{ baslik: string; amac: string; kaynak: string; sayfa: string; tam_tarama: boolean }>
+  kalemler: Array<{
+    baslik: string
+    amac: string
+    beklenen?: string
+    dayanak?: string
+    kaynak: string
+    sayfa: string
+    tam_tarama: boolean
+    bagimsiz?: boolean
+  }>
 }
 
 /** Girdisiz koşu: seçilen her sayfa baştan sona taranır. */
 export function scanStrategy(pages: string[]): RunStrategy {
   return {
     kind: 'arayuz',
+    scope: 'tam',
     understood: 'Seçilen sayfaların arayüz taraması.',
     scenarios: [],
     doneWhen: 'Sayfaların bütün bölgeleri ve akışları denenir, sorunlar kanıtıyla bulunur.',
@@ -117,6 +151,7 @@ export function scanStrategy(pages: string[]): RunStrategy {
       source: 'ekran',
       page,
       fullScan: true,
+      independent: false,
     })),
   }
 }
@@ -132,10 +167,18 @@ export function normalizeItems(kalemler: RawPlan['kalemler'], catalog: CatalogPa
     const page = source !== 'tanim' && known.has(k.sayfa) ? k.sayfa : null
     return {
       title: k.baslik,
-      goal: k.amac,
+      goal: [
+        k.amac,
+        k.beklenen?.trim() && `Beklenen: ${k.beklenen.trim()}`,
+        k.dayanak?.trim() && `Dayanak: ${k.dayanak.trim()}`,
+      ]
+        .filter(Boolean)
+        .join('\n'),
       source: page ? source : 'tanim',
       page,
       fullScan: page !== null && k.tam_tarama,
+      // Bağımlılık belirtilmediyse (gözetmenin ek kalemi) sırayla: paralel yürütme yalnız açık bağımsızlıkla.
+      independent: page === null && k.bagimsiz === true,
     }
   })
 }
@@ -153,11 +196,19 @@ export function normalizeStrategy(
   const items = normalizeItems(raw.kalemler, catalog)
   for (const page of selected)
     if (!items.some((i) => i.page === page))
-      items.push({ title: 'Sayfanın tamamı', goal: '', source: 'ekran', page, fullScan: true })
+      items.push({
+        title: 'Sayfanın tamamı',
+        goal: '',
+        source: 'ekran',
+        page,
+        fullScan: true,
+        independent: false,
+      })
   const guides = (raw.yontemler ?? []).filter((id) => guideIds.includes(id))
   if (items.some((i) => i.fullScan) && !guides.includes('arayuz')) guides.push('arayuz')
   return {
     kind: KINDS.includes(raw.tur as StrategyKind) ? (raw.tur as StrategyKind) : 'karisik',
+    scope: RUN_SCOPES.includes(raw.kapsam as RunScope) ? (raw.kapsam as RunScope) : 'tam',
     understood: raw.anlasilan,
     scenarios: raw.senaryolar,
     doneWhen: raw.bitti_olcutu,
@@ -219,11 +270,25 @@ export async function planRun(input: {
           've akışın nasıl çalıştığı uygulamanın tanımındadır: platform_oku ile ilgili tanımları (akış, süreç, mikroservis, ' +
           'sayfa şeması, varlık) oku ve öğrendiklerini kaynağıyla ' +
           '"bilinenler"e yaz. Burada yalnız hangi tanımlara bakılacağını belirlemeye yetecek kadar oku; ayrıntılı okumayı tanım kalemine bırak (aynı tanım iki kez okunmasın). Sonra iş kalemlerini çıkar; her kalemin kaynağı: tanim (yalnız platform okuması), ekran ' +
-          '(tarayıcı, bir sayfada), ikisi (tanımı oku, sonucu ekranda teyit et). Veri değiştirmeyi gerektiren adım ' +
-          '(kayıt oluşturmak, aşama ilerletmek, onaya göndermek, doğrulamayı denemek) yapılabilir: kalemi yürüten ' +
-          'koşunun ortamında (development ya da dal) platform_yaz ile test verisi yazar ve uygulamanın akışını çalıştırır (tarayıcıda yazma ' +
-          'düğmeleri engellidir). Böyle adımı kalem yap, amacında hangi test verisiyle neyin çalıştırılacağını yaz; ' +
-          '"yapilamayan"a koyma (tanımdaki hata ve tutarsızlık da bulgudur). İstek bir sayfanın ' +
+          '(tarayıcı, bir sayfada), ikisi (tanımı oku, sonucu ekranda teyit et).\n' +
+          'Kalemler TEST VAKASIDIR: her biri tek bir davranışı sınar (ana akış, geçersiz durum geçişi, zorunlu alan, ' +
+          'sınır değer, tekrar işlem, yetki); beklenen sonucu kısa ve gözlenebilir yazar, dayanağını (tanımdaki kural, akış adımı, yetki) ayrı alana. ' +
+          'Dayanağı olmayan beklenti yazma. Önce platform: test verisi kurmak, akışı çalıştırmak ve kuralı denemek ' +
+          'tanim kalemidir (tarayıcısız; yürüten koşunun ortamında platform_yaz ile test verisi yazar, akışı çalıştırır, ' +
+          'sonucu okur); tanim kalemlerini ekran kalemlerinden önce yaz. Vakaları bağımsız kur: her vaka kendi küçük ' +
+          'verisini kurar ve siler, bagimsiz=true (üçer üçer aynı anda yürür); yalnız ana akış zinciri (oluştur → ilerlet ' +
+          '→ sonuç) ve onun kaydına dayanan vaka false. Temizlik kalemi yazma: bırakılan test kayıtlarını koşunun sonunda ' +
+          'Argus siler. Ekran kalemi yalnız iddia yalnız ekranda görülebiliyorsa açılır (gösterilen metin, ileti, uyarı, ' +
+          'düğme durumu, liste gösterimi); platformda çalıştırılarak kanıtlanacak davranışı ekranda yineleme. Ekran ' +
+          'kalemi önceki kalemlerin kurduğu kaydı kullanır, test verisi kurmaz.\n' +
+          'Önce isteğin kapsamını seç; kapsam neyin test edileceğini belirler, nasıl test edileceğini değil: soru (tek ' +
+          'davranış ya da kural soruluyor: onu eksiksiz cevaplayan vakalar), degisiklik (yeni yapılan bir iş: önce ' +
+          'revision_list/revision_diff ile son değişikliği oku, değişen tanımı ve onu kullananları test et), musteri ' +
+          '(bildirilen maddeler: her madde bir vaka, hatayı yeniden üret; beklenen = maddenin söylediği doğru davranış), ' +
+          'tam (modülün ya da akışın tamamı, risk sırasıyla: para/puan hesabı, onay ve durum geçişi, yetki, başka modüle ' +
+          'yazan işlem önce). Vaka sayısı kapsamın gerektirdiği kadardır; sorulan şeyin bir yanını atlama, kapsam dışına ' +
+          'de taşma ("soru"da modülün geri kalanını test etme). İstek bulanık ya da yanlış adlandırılmışsa ' +
+          'tanımdan en yakın anlamı bul, "anlasilan"da nasıl yorumladığını açıkça yaz. İstek bir sayfanın ' +
           'ya da modülün genel arayüz kalitesini test ettiriyorsa o sayfalar için tam_tarama=true kalem aç. Kalemler ' +
           'kapsamı eksiksiz örtsün ama kapsam dışı genel tarama ekleme.\n\n' +
           'Testin nasıl yapılacağı aşağıdaki test yöntemlerindedir: isteğe uyanları "yontemler"e yaz (kalemleri yürütenler ' +
@@ -248,7 +313,12 @@ export async function planRun(input: {
           field('girdi'),
           Number((args as Record<string, unknown>).devam) || 0,
         )
-        input.onRead(field('neden'), { tool: field('arac'), input: field('girdi'), result: result })
+        input.onRead(field('neden'), {
+          tool: field('arac'),
+          input: field('girdi'),
+          result: result,
+          label: field('adim'),
+        })
         return result
       }
       return `Bilinmeyen araç: ${name}`

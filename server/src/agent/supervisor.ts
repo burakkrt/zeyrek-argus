@@ -1,6 +1,7 @@
 import type { CoverageStatus, FindingKind, RunCoverage, RunStrategy } from '@argus/shared'
 import type { DefinitionFinding } from './investigator.ts'
 import { jsonOf, type CreateMessage, type MessageParams, type UsageMeter } from './model.ts'
+import { SEVERITY_GUIDE } from '../issues/severity.ts'
 
 /**
  * Gözetmen (kapsam denetçisi): girdili koşuda kalemler bitince güçlü model test planını yapılanla karşılaştırır.
@@ -24,6 +25,11 @@ const SUPERVISE_SCHEMA = {
     ozet: { type: 'string', description: 'Kapsamın ne kadarı test edildi, 1-3 cümle.' },
     test_edilen: { ...strings, description: 'Test edilen senaryolar.' },
     test_edilemeyen: { ...strings, description: 'Test edilemeyen senaryolar, her biri nedeniyle.' },
+    bakilmayan: {
+      ...strings,
+      description:
+        'İsteğin kapsamı dışında kaldığı için bakılmayan alanlar (ör. modülün geri kalanı, komşu akış); tam testte boş olabilir.',
+    },
     kacmis_bulgular: {
       type: 'array',
       description:
@@ -37,13 +43,18 @@ const SUPERVISE_SCHEMA = {
           beklenen: { type: 'string' },
           gozlenen: { type: 'string' },
           kaynak: { type: 'string', description: 'Kanıt: araç, kayıt, alan (ya da ekran gözlemi).' },
+          onem: {
+            type: 'string',
+            enum: ['S1', 'S2', 'S3', 'S4'],
+            description: SEVERITY_GUIDE,
+          },
           anahtar: {
             type: 'string',
             description:
               'Bilinen ya da bu koşuda kaydedilmiş bir sorunla aynı kök nedense onun anahtarı (listeden, ör. yz:...); yeni sorunsa boş.',
           },
         },
-        required: ['tur', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'kaynak', 'anahtar'],
+        required: ['tur', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'kaynak', 'onem', 'anahtar'],
         additionalProperties: false,
       },
     },
@@ -64,7 +75,15 @@ const SUPERVISE_SCHEMA = {
       },
     },
   },
-  required: ['durum', 'ozet', 'test_edilen', 'test_edilemeyen', 'kacmis_bulgular', 'ek_kalemler'],
+  required: [
+    'durum',
+    'ozet',
+    'test_edilen',
+    'test_edilemeyen',
+    'bakilmayan',
+    'kacmis_bulgular',
+    'ek_kalemler',
+  ],
   additionalProperties: false,
 } as const
 
@@ -103,7 +122,11 @@ export async function supervise(input: {
             (input.lastRound
               ? 'Bu son tur: ek kalem önerme.'
               : 'Kapsam boşluğu kaldıysa ve test edilebilir bir yol varsa ek kalem öner; bu koşuda test edilemeyen iş ' +
-                'için önerme (veri yazan senaryo platform_yaz ile test edilebilir).') +
+                'için önerme (veri yazan senaryo platform_yaz ile test edilebilir). ' +
+                (s.scope === 'tam'
+                  ? ''
+                  : 'İstek dar kapsamlı: ek kalem yalnız istenen kapsamın içindeki boşluk için; kapsam dışını önerme, ' +
+                    '"bakilmayan"a yaz.')) +
             `\n\nTEST İSTEĞİ: ${input.brief ?? '(yalnız dosya eklendi)'}\nKAPSAM: ${s.understood}\nSENARYOLAR:\n${list(s.scenarios)}\n` +
             `KAPSAM TAMAM SAYILIR: ${s.doneWhen}\nBU KOŞUDA TEST EDİLEMEYEN:\n${list(s.infeasible)}\n\n` +
             `KALEM SONUÇLARI (tanım ve ekran):\n${list(input.results)}\n\nBU KOŞUNUN BULGULARI:\n${list(input.findings)}\n\n` +
@@ -122,6 +145,7 @@ export async function supervise(input: {
     ozet: string
     test_edilen: string[]
     test_edilemeyen: string[]
+    bakilmayan?: string[]
     kacmis_bulgular: DefinitionFinding[]
     ek_kalemler: Verdict['extra']
   }>(message)
@@ -137,6 +161,7 @@ export async function supervise(input: {
       summary: raw.ozet,
       tested: raw.test_edilen,
       untested: raw.test_edilemeyen,
+      outOfScope: raw.bakilmayan ?? [],
     },
     missed: raw.kacmis_bulgular.filter((f) => KINDS.includes(f.tur) && f.kaynak.trim()),
     extra: input.lastRound ? [] : raw.ek_kalemler,

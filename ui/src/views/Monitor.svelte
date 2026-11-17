@@ -3,10 +3,14 @@
   import { onDestroy, onMount } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import Page from '$lib/components/layout/Page.svelte'
-  import CoverageCard from '$lib/components/monitor/CoverageCard.svelte'
   import FindingDetail from '$lib/components/monitor/FindingDetail.svelte'
-  import FlowList from '$lib/components/monitor/FlowList.svelte'
+  import PlanDetail from '$lib/components/monitor/PlanDetail.svelte'
+  import FindingToast from '$lib/components/monitor/FindingToast.svelte'
+  import StoryPanel from '$lib/components/monitor/StoryPanel.svelte'
+  import { planRows } from '$lib/run-plan'
   import PlayerBar from '$lib/components/monitor/PlayerBar.svelte'
+  import FlowCanvas from '$lib/components/monitor/FlowCanvas.svelte'
+  import { cn } from '$lib/utils'
   import Stage from '$lib/components/monitor/Stage.svelte'
   import Tracks from '$lib/components/monitor/Tracks.svelte'
   import RunStatusBadge from '$lib/components/status/RunStatusBadge.svelte'
@@ -19,7 +23,6 @@
     ACTION_ICON,
     actionOf,
     buildClock,
-    buildFlowSections,
     buildLanes,
     buildMonitor,
     findingIndexAt,
@@ -66,6 +69,7 @@
   let autoZoom = $state(false)
   let pauseAt: number | null = null
   let selected = $state<number | null>(null)
+  let planOpen = $state(false)
   let detail = $state<IssueDetail | null>(null)
   let detailFailed = $state(false)
   let now = $state(Date.now())
@@ -117,6 +121,42 @@
     ),
   )
   const step = $derived(model.steps[stepIndex] ?? null)
+  // O anki adım bir platform işiyse tuvalde tarayıcı yerine sayfanın platform iş akışı çizilir: vaka başına bir kulvar,
+  // şu ana dek olan adımlar (oynatma anına göre).
+  const platformFlow = $derived.by(() => {
+    if (!step?.platform) return null
+    const at = step
+    const tasks = model.pages.find((p) => p.page === at.page)?.tasks ?? []
+    const lanes = new Map<
+      number,
+      { key: string; no: number | null; title: string; steps: typeof model.steps; done: boolean }
+    >()
+    const lastSeq = new Map<number, number>()
+    for (const s of model.steps) {
+      if (!s.platform || s.page !== at.page) continue
+      const index = s.task ?? -1
+      lastSeq.set(index, s.seq)
+      if (s.seq > at.seq) continue
+      const lane = lanes.get(index) ?? {
+        key: String(index),
+        no: index < 0 ? null : (caseNumbers.get(`${at.page}#${index}`) ?? index + 1),
+        title: index < 0 ? 'Hazırlık: tanımları tanıma' : (tasks[index]?.title ?? 'Platform işleri'),
+        steps: [],
+        done: false,
+      }
+      lane.steps.push(s)
+      lanes.set(index, lane)
+    }
+    // Vaka, son platform adımı oynatma anında geçmişse ve görev bittiyse bitmiştir (ana hatta bağlanır, yuvası boşalır).
+    // Plandan önceki hazırlık okumasının görevi yoktur: son adımı geçince biter.
+    for (const [index, lane] of lanes)
+      lane.done = (index < 0 || tasks[index]?.status === 'bitti') && (lastSeq.get(index) ?? 0) <= at.seq
+    const findings = model.findings
+      .filter((f) => f.event.page === at.page && f.at <= at.at)
+      .map((f) => ({ key: f.event.occurrenceId, at: f.at, title: f.event.title, severity: f.event.severity }))
+    return { lanes: [...lanes.values()], findings, current: at.seq }
+  })
+
   const pendingNow = $derived(
     pending.find((m) => motionAt >= toMotion(m.at) - TRAVEL_MS && (!step || m.at > step.at)) ?? null,
   )
@@ -134,7 +174,6 @@
           .filter((url): url is string => url !== null)
       : [],
   )
-  const sections = $derived(buildFlowSections(model))
   const dialog = $derived.by(() => {
     if (!step?.dialog) return null
     const since = motionAt - toMotion(step.at)
@@ -263,7 +302,49 @@
     return `${action.verb}${action.object ? ` · ${action.object}` : ''}`
   }
 
+  // Sağ panel: koşunun anlatısı (plan özeti + hep açık vakalar). Vaka numarası koşu genelindedir; tuvaldeki etiketle aynı.
+  const plan = $derived(planRows(model))
+  const caseNumbers = $derived(new Map(plan.map((row, i) => [row.key, i + 1])))
+  /**
+   * Bulgunun anı: oynatma bir bulgunun anına gelince (canlıda ya da kayıtta) TOAST_MS boyunca duyuru kartı çıkar, sağ
+   * panelde satırı parlar. Yaş, izleyicinin gördüğü oynatma süresiyle ölçülür (oynatma uzun beklemeleri sıkıştırır; duvar
+   * saatiyle ölçülünce kart hiç görünmeyebiliyordu). Bulgular zaman sırasındadır; sondan geriye bakılır.
+   */
+  const TOAST_MS = 7000
+  const recentFinding = $derived.by(() => {
+    for (let i = model.findings.length - 1; i >= 0; i -= 1) {
+      const age = position - clock.toPlay(model.findings[i]!.at)
+      if (age < 0) continue
+      return age < TOAST_MS ? i : null
+    }
+    return null
+  })
+  const caseOfFinding = (index: number) => {
+    const row = plan.find((r) => r.findings.includes(index))
+    return row ? `Vaka ${caseNumbers.get(row.key)}` : null
+  }
+  const selectedCase = $derived.by(() => {
+    const row = selected === null ? undefined : plan.find((r) => r.findings.includes(selected!))
+    return row ? `Vaka ${caseNumbers.get(row.key)}` : null
+  })
+  const activeCase = $derived(step && step.task !== null ? `${step.page}#${step.task}` : null)
+  // Koşan vakalar: platform akışında bitmemiş bütün hatlar (paralel vakalar birlikte), yoksa o anki adımın vakası.
+  const activeCases = $derived.by(() => {
+    const open = platformFlow?.lanes.filter((l) => !l.done).map((l) => `${step!.page}#${l.key}`) ?? []
+    return open.length ? open : activeCase ? [activeCase] : []
+  })
+  // Tarayıcı adımında videonun altındaki alt yazı: ne yapıldı ve neden (platform adımları tuvalde görünür).
+  const caption = $derived.by(() => {
+    if (!step || step.platform) return null
+    const action = actionOf(step)
+    return { title: `${action.verb}${action.object ? ` · ${action.object}` : ''}`, reason: step.reason }
+  })
+
+  // Kullanıcının açık atlaması (akıştan, şeritten, oynatıcıdan): akış tuvali kendi odağını bırakıp o ana gider.
+  let focusRequest = $state(0)
+
   function seekPlay(value: number, play = playing) {
+    focusRequest += 1
     following = false
     pauseAt = null
     wall = clock.toWall(value)
@@ -271,6 +352,7 @@
   }
 
   function goLive() {
+    focusRequest += 1
     selected = null
     pauseAt = null
     following = true
@@ -288,9 +370,12 @@
     seekPlay(clock.toPlay(at))
   }
 
-  function openFinding(index: number) {
+  // Bulgu çekmecede açılır; akış sürer. `seek` yalnız şeritten ve klavyeyle gezinirken: bulgudan önceki adımdan oynatılır
+  // ve bulgunun anında durulur.
+  function openFinding(index: number, seek = false) {
     const finding = model.findings[index]
     if (!finding) return
+    planOpen = false
     if (selected !== index) {
       detail = null
       detailFailed = false
@@ -300,7 +385,7 @@
         .catch(() => (detailFailed = true))
     }
     selected = index
-    // Bulgudan önceki adımdan oynatılır ve bulgunun anında durur.
+    if (!seek) return
     const before = model.steps.filter((s) => s.at <= finding.at).at(-1)
     seekPlay(clock.toPlay(before?.at ?? finding.at) - TRAVEL_MS - 400, true)
     pauseAt = finding.at
@@ -310,7 +395,7 @@
     const total = model.findings.length
     if (!total) return
     const base = findingNav.index
-    openFinding(Math.min(Math.max(base < 0 && delta > 0 ? 0 : base + delta, 0), total - 1))
+    openFinding(Math.min(Math.max(base < 0 && delta > 0 ? 0 : base + delta, 0), total - 1), true)
   }
 
   function togglePlay() {
@@ -499,33 +584,62 @@
 
       <!-- Gri tuval: kayıt bir pencere gibi ortada, iki yönde de sığar. -->
       <div
-        class="grid min-h-0 flex-1 place-items-center bg-[#e8e9ec] bg-[radial-gradient(#d6d8de_1px,transparent_1px)] [background-size:14px_14px] p-3 [container-type:size]"
+        class={cn(
+          'relative grid min-h-0 flex-1 place-items-center [container-type:size]',
+          // Akış tuvali ve tarayıcı kaydı aynı koyu zeminde: ikisi arasında geçerken ekran parlamaz.
+          platformFlow
+            ? 'bg-[#141922]'
+            : 'bg-[#141922] bg-[radial-gradient(#212836_1px,transparent_1px)] [background-size:16px_16px] p-3',
+        )}
       >
-        <Stage
-          {src}
-          {prefetch}
-          {pointer}
-          {zoom}
-          {dialog}
-          platform={step?.platform
-            ? { read: step.platform, failed: /^Platform(dan okunamadı|a yazılamadı)/.test(step.outcome) }
-            : null}
-          status={waiting}
-          chip={fallback && ready ? 'Adım görüntüleri · sürekli kayıt yok' : null}
-          ontoggle={togglePlay}
-          onseekby={seekBy}
-          finding={findingOverlay}
-          paused={ready && !playing && !following && model.steps.length > 0}
-          {ending}
-          placeholder={!ready
-            ? 'Yükleniyor'
-            : running
-              ? 'Görüntü bekleniyor'
-              : dropped
-                ? 'Kayıt yerel temizlikte silindi; akış ve bulgular duruyor'
-                : 'Bu koşunun kaydı yok'}
-          onrestart={() => seekPlay(0, true)}
-        />
+        {#if recentFinding !== null && recentFinding !== selected}
+          {#key recentFinding}
+            <FindingToast
+              finding={model.findings[recentFinding]!}
+              caseLabel={caseOfFinding(recentFinding)}
+              age={position - clock.toPlay(model.findings[recentFinding]!.at)}
+              duration={TOAST_MS}
+              onopen={() => openFinding(recentFinding!)}
+            />
+          {/key}
+        {/if}
+        {#if platformFlow}
+          <div class="h-full w-full self-stretch justify-self-stretch">
+            <FlowCanvas
+              lanes={platformFlow.lanes}
+              findings={platformFlow.findings}
+              current={platformFlow.current}
+              {playing}
+              {focusRequest}
+              alarm={recentFinding !== null ? model.findings[recentFinding]!.event.occurrenceId : null}
+              live={running && following}
+            />
+          </div>
+        {:else}
+          <Stage
+            {src}
+            {prefetch}
+            {pointer}
+            {zoom}
+            {dialog}
+            status={waiting}
+            {caption}
+            chip={fallback && ready ? 'Adım görüntüleri · sürekli kayıt yok' : null}
+            ontoggle={togglePlay}
+            onseekby={seekBy}
+            finding={findingOverlay}
+            paused={ready && !playing && !following && model.steps.length > 0}
+            {ending}
+            placeholder={!ready
+              ? 'Yükleniyor'
+              : running
+                ? 'Görüntü bekleniyor'
+                : dropped
+                  ? 'Kayıt yerel temizlikte silindi; akış ve bulgular duruyor'
+                  : 'Bu koşunun kaydı yok'}
+            onrestart={() => seekPlay(0, true)}
+          />
+        {/if}
       </div>
 
       <div class="shrink-0">
@@ -562,42 +676,32 @@
           loading={running && !planned}
           {describe}
           onseek={(value) => seekPlay(value)}
-          onfinding={openFinding}
+          onfinding={(index) => openFinding(index, true)}
         />
       </div>
     </div>
 
     <Card.Root class="flex min-h-0 flex-col gap-0 overflow-hidden py-0">
-      {#if selected !== null && model.findings[selected]}
-        <FindingDetail
-          {runId}
-          finding={model.findings[selected]!}
-          {occurrence}
-          failed={detailFailed}
-          onback={() => (selected = null)}
-        />
-      {:else}
-        {#if model.strategy || model.coverage}
-          <CoverageCard strategy={model.strategy} coverage={model.coverage} {running} />
-        {/if}
-        <div class="flex h-11 shrink-0 items-center gap-2 border-b px-4">
-          <h2 class="text-sm font-semibold">Akış</h2>
-          <span class="text-muted-foreground text-xs"
-            >{model.steps.length} adım · {model.findings.length} bulgu</span
-          >
-        </div>
-        <FlowList
-          {model}
-          {sections}
-          {wall}
-          activeStep={stepIndex}
-          selectedFinding={selected}
-          offset={(at) => clock.toPlay(at)}
-          onstep={onFlowStep}
-          ontask={onFlowTask}
-          onfinding={openFinding}
-        />
-      {/if}
+      <StoryPanel
+        rows={plan}
+        numbers={caseNumbers}
+        findings={model.findings}
+        steps={model.steps}
+        strategy={model.strategy}
+        coverage={model.coverage}
+        {running}
+        active={activeCases}
+        currentStep={step?.seq ?? null}
+        offset={(at) => clock.toPlay(at)}
+        onjump={onFlowTask}
+        onstep={onFlowStep}
+        onfinding={openFinding}
+        onplan={() => {
+          selected = null
+          planOpen = true
+        }}
+        recent={recentFinding}
+      />
       {#if running}
         <form
           class="flex shrink-0 gap-2 border-t p-3"
@@ -613,3 +717,20 @@
     </Card.Root>
   </div>
 </Page>
+
+<FindingDetail
+  {runId}
+  finding={selected === null ? null : (model.findings[selected] ?? null)}
+  {occurrence}
+  failed={detailFailed}
+  caseLabel={selectedCase}
+  onclose={() => (selected = null)}
+/>
+<PlanDetail
+  open={planOpen}
+  rows={plan}
+  numbers={caseNumbers}
+  strategy={model.strategy}
+  coverage={model.coverage}
+  onclose={() => (planOpen = false)}
+/>

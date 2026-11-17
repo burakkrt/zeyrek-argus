@@ -4,9 +4,12 @@ import type {
   FindingKind,
   Issue,
   IssueDetail,
+  IssueHistoryEntry,
   IssueStatus,
   Occurrence,
   OccurrenceOutcome,
+  PlatformCall,
+  Severity,
   SharedSighting,
 } from '@argus/shared'
 import { DEFINITION_PAGE } from '@argus/shared'
@@ -14,7 +17,10 @@ import { ArgusError } from '../errors.ts'
 import { json, newId, now, transaction, type Database } from '../db/database.ts'
 import type { Author } from '../author.ts'
 import type { SharedFinding } from '../memory/shared.ts'
+import { bumpMisled } from '../memory/stats.ts'
 import type { DecisionRecord, MemoryStore } from '../memory/store.ts'
+import type { RecordedCase } from '../runs/regression.ts'
+import { isContested } from './contested.ts'
 
 export interface OccurrenceInput {
   app: AppRef
@@ -25,6 +31,8 @@ export interface OccurrenceInput {
   key: string
   title: string
   kind: FindingKind
+  /** Verilmezse var olan sorunun önemi, yoksa S3. */
+  severity?: Severity
   source: 'goz' | 'yz'
   scenario: string
   expected: string
@@ -36,6 +44,10 @@ export interface OccurrenceInput {
   verified: boolean
   /** "Sorun sayma" kuralı gereği kayda alınıp bastırılan görünüm. */
   suppressedByRule: string | null
+  /** Sayfanın şu anki Studio tanım izi: "bulgu değil" kararından sonra tanım değiştiyse karar gözden geçirilir. */
+  studioPrint?: string | null
+  /** Kayıtlı vaka: bulguyu çalıştırarak kanıtlayan platform çağrıları. */
+  steps?: PlatformCall[]
 }
 
 export interface RecordResult {
@@ -54,9 +66,12 @@ interface IssueRow {
   key: string
   title: string
   kind: FindingKind
+  severity: Severity
   status: IssueStatus
   source: 'goz' | 'yz'
   suppressed_by: string | null
+  /** "Bulgu değil" kararı verildiği andaki `<sayfa>:<Studio izi>`. */
+  decision_print: string | null
   first_seen: string
   last_seen: string
   seen_count: number
@@ -109,7 +124,9 @@ export class IssueService {
       key: row.key,
       title: row.title,
       kind: row.kind,
+      severity: row.severity ?? 'S3',
       status: row.status,
+      contested: isContested(this.history(row.id)),
       source: row.source,
       firstSeen: row.first_seen,
       lastSeen: row.last_seen,
@@ -160,8 +177,24 @@ export class IssueService {
         row = this.row(id)
         outcome = 'yeni'
       } else if (row.status === 'bulgu-degil') {
-        outcome = 'bastirildi'
-        reason = 'İnsan kararı: bulgu değil'
+        // Karar ancak verildiği tanım için geçerlidir: modülün mantığı değiştiyse yanlış bir "bulgu değil" kalıcı olmasın.
+        const changed = Boolean(
+          input.studioPrint &&
+          row.decision_print?.startsWith(`${input.page}:`) &&
+          row.decision_print !== `${input.page}:${input.studioPrint}`,
+        )
+        if (isContested(this.history(row.id))) {
+          outcome = 'tekrar'
+          reason = 'Tartışmalı karar: iki kişi ayrışıyor, bastırılmadı'
+        } else if (changed) {
+          const note = 'Sayfa tanımı "bulgu değil" kararından sonra değişti; karar gözden geçirilmeli.'
+          this.setStatus(row, 'acik', 'Argus', note, input.app)
+          outcome = 'yeniden-acildi'
+          reason = note
+        } else {
+          outcome = 'bastirildi'
+          reason = 'İnsan kararı: bulgu değil'
+        }
       } else if (row.status === 'duzeldi') {
         this.setStatus(row, 'acik', 'Argus', 'Düzeldi denmişti, yeniden görüldü.', input.app)
         outcome = 'yeniden-acildi'
@@ -196,12 +229,14 @@ export class IssueService {
             duplicate: true,
           }
       }
+      const severity: Severity = input.severity ?? row.severity ?? 'S3'
       const occurrence: Occurrence = {
         id: newId(),
         issueId: row.id,
         runId: input.runId,
         page: input.page,
         kind,
+        severity,
         outcome,
         scenario: input.scenario,
         expected: input.expected,
@@ -215,8 +250,8 @@ export class IssueService {
       }
       this.db
         .prepare(
-          `insert into occurrences (id, issue_id, run_id, page, phase, kind, outcome, scenario, expected, observed, quote, shot, box, reason, rules, at)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `insert into occurrences (id, issue_id, run_id, page, phase, kind, severity, outcome, scenario, expected, observed, quote, shot, box, reason, rules, steps, at)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           occurrence.id,
@@ -225,6 +260,7 @@ export class IssueService {
           input.page,
           input.phase,
           kind,
+          severity,
           outcome,
           input.scenario,
           input.expected,
@@ -234,15 +270,16 @@ export class IssueService {
           input.box ? JSON.stringify(input.box) : null,
           reason,
           JSON.stringify(input.rules),
+          input.steps?.length ? JSON.stringify(input.steps) : null,
           at,
         )
       const upgrade = KIND_RANK[kind] > KIND_RANK[row.kind] ? kind : row.kind
       this.db
         .prepare(
-          `update issues set last_seen = ?, seen_count = seen_count + 1, kind = ?,
+          `update issues set last_seen = ?, seen_count = seen_count + 1, kind = ?, severity = min(severity, ?),
              last_shot = case when ? is not null and ? <> 'bastirildi' then ? else last_shot end where id = ?`,
         )
-        .run(at, upgrade, input.shot, outcome, input.shot, row.id)
+        .run(at, upgrade, severity, input.shot, outcome, input.shot, row.id)
       return { issue: this.toIssue(this.row(row.id)), occurrence, outcome, reason }
     })
   }
@@ -271,8 +308,24 @@ export class IssueService {
       where.push('id in (select issue_id from occurrences where run_id = ?)')
       args.push(filter.runId)
     }
-    const sql = `select * from issues ${where.length ? `where ${where.join(' and ')}` : ''} order by last_seen desc limit 500`
+    const sql = `select * from issues ${where.length ? `where ${where.join(' and ')}` : ''} order by severity asc, last_seen desc limit 500`
     return (this.db.prepare(sql).all(...args) as unknown as IssueRow[]).map((r) => this.toIssue(r))
+  }
+
+  private history(id: string): IssueHistoryEntry[] {
+    return (
+      this.db
+        .prepare(
+          'select from_status, to_status, author, note, at from history where issue_id = ? order by at',
+        )
+        .all(id) as Array<{
+        from_status: IssueStatus | null
+        to_status: IssueStatus
+        author: string
+        note: string | null
+        at: string
+      }>
+    ).map((h) => ({ from: h.from_status, to: h.to_status, author: h.author, note: h.note, at: h.at }))
   }
 
   detail(id: string): IssueDetail {
@@ -287,6 +340,7 @@ export class IssueService {
       runId: o.run_id as string,
       page: o.page as string,
       kind: o.kind as FindingKind,
+      severity: (o.severity as Severity | null) ?? 'S3',
       outcome: o.outcome as OccurrenceOutcome,
       scenario: o.scenario as string,
       expected: o.expected as string,
@@ -305,19 +359,7 @@ export class IssueService {
       text: string
       at: string
     }>
-    const history = (
-      this.db
-        .prepare(
-          'select from_status, to_status, author, note, at from history where issue_id = ? order by at',
-        )
-        .all(id) as Array<{
-        from_status: IssueStatus | null
-        to_status: IssueStatus
-        author: string
-        note: string | null
-        at: string
-      }>
-    ).map((h) => ({ from: h.from_status, to: h.to_status, author: h.author, note: h.note, at: h.at }))
+    const history = this.history(id)
     const elsewhere = (
       this.db
         .prepare(
@@ -346,6 +388,7 @@ export class IssueService {
       kind: row.kind,
       status: row.status,
       updatedAt: now(),
+      decisionPrint: row.decision_print,
       example: sample
         ? {
             page: sample.page,
@@ -379,6 +422,31 @@ export class IssueService {
         'insert into history (issue_id, from_status, to_status, author, note, at) values (?, ?, ?, ?, ?, ?)',
       )
       .run(row.id, row.status, status, author, note, now())
+    if (author !== 'Argus' && status !== row.status) {
+      if (status === 'bulgu-degil') {
+        // Bulgunun dayandığı kurallar yanılttı; karar, bulgunun son görüldüğü sayfanın o anki tanım izine bağlanır.
+        const cited = (
+          this.db.prepare('select rules from occurrences where issue_id = ?').all(row.id) as Array<{
+            rules: string
+          }>
+        ).flatMap((r) => json<string[]>(r.rules, []))
+        bumpMisled(this.db, [...new Set(cited)])
+        const seen = this.db
+          .prepare(
+            `select o.page, (select p.studio from page_prints p where p.project = ? and p.application = ? and p.page = o.page
+               and p.studio is not null order by p.at desc limit 1) as studio
+             from occurrences o where o.issue_id = ? order by o.at desc limit 1`,
+          )
+          .get(row.project, row.application, row.id) as { page: string; studio: string | null } | undefined
+        this.db
+          .prepare('update issues set decision_print = ? where id = ?')
+          .run(seen?.studio ? `${seen.page}:${seen.studio}` : null, row.id)
+      } else if (status === 'duzeltilecek' && row.suppressed_by) {
+        // Gerçek olduğu söylenen sorunu bastıran "sorun sayma" kuralı yanılttı.
+        bumpMisled(this.db, [row.suppressed_by])
+        this.db.prepare('update issues set suppressed_by = null where id = ?').run(row.id)
+      }
+    }
     // Argus'un kendi gözlemi (düzeldi, yeniden açıldı) bu makinede kalır; paylaşılan dosyaya yalnız insan yazar.
     if (author !== 'Argus') this.writeFile(this.row(row.id))
   }
@@ -390,8 +458,11 @@ export class IssueService {
         this.db
           .prepare('insert into comments (issue_id, author, text, at) values (?, ?, ?, ?)')
           .run(id, author, note, now())
-      if (row.status !== status)
-        this.setStatus(row, status, author, note, { project: row.project, application: row.application })
+      const app = { project: row.project, application: row.application }
+      if (row.status !== status) this.setStatus(row, status, author, note, app)
+      // Tartışmalı sorunda var olan hükmü seçmek onaydır: kişinin hükmü tarihçeye girer, tartışma çözülebilsin.
+      else if (isContested(this.history(id)))
+        this.setStatus(row, status, author, note ?? 'Karar onaylandı.', app)
       else this.writeFile(row)
     })
     return this.detail(id)
@@ -614,8 +685,10 @@ export class IssueService {
         const status =
           !local.at || record.updatedAt > local.at ? record.status : (last?.to_status ?? record.status)
         this.db
-          .prepare('update issues set status = ?, title = ? where id = ?')
-          .run(status, record.title, row.id)
+          .prepare(
+            'update issues set status = ?, title = ?, decision_print = coalesce(?, decision_print) where id = ?',
+          )
+          .run(status, record.title, record.decisionPrint ?? null, row.id)
       }
       this.db
         .prepare(
@@ -629,8 +702,8 @@ export class IssueService {
             this.insertRemote(app, f.key, f.title, f.kind, f.lastSeen || now(), 'acik')
           this.db
             .prepare(
-              `insert or replace into shared_sightings (issue_id, author, pages, page, scenario, expected, observed, quote, first_seen, last_seen, seen_count)
-               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `insert or replace into shared_sightings (issue_id, author, pages, page, scenario, expected, observed, quote, steps, first_seen, last_seen, seen_count)
+               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               row.id,
@@ -641,6 +714,7 @@ export class IssueService {
               f.expected,
               f.observed,
               f.quote,
+              f.steps.length ? JSON.stringify(f.steps) : null,
               f.firstSeen || f.lastSeen,
               f.lastSeen,
               f.seenCount,
@@ -716,6 +790,11 @@ export class IssueService {
         observed: string
         quote: string | null
       }
+      const steps = this.db
+        .prepare(
+          'select steps from occurrences where issue_id = ? and steps is not null order by at desc limit 1',
+        )
+        .get(row.id) as { steps: string } | undefined
       const pages = (
         this.db
           .prepare('select distinct page from occurrences where issue_id = ? order by page')
@@ -736,7 +815,48 @@ export class IssueService {
         expected: sample.expected,
         observed: sample.observed,
         quote: sample.quote,
+        steps: json<PlatformCall[]>(steps?.steps ?? null, []),
       }
+    })
+  }
+
+  /**
+   * Kayıtlı vakalar: açık, kanıtlı ve adımları saklanmış sorunlar (bu makinenin son görünümü, yoksa takım
+   * arkadaşınınki). Yeniden doğrulama ve yayın kapısı bunları tekrar kurar.
+   */
+  recordedCases(app: AppRef): RecordedCase[] {
+    const rows = this.db
+      .prepare(
+        `select id, key, title from issues where project = ? and application = ? and status in ('acik', 'duzeltilecek')
+           and suppressed_by is null and kind in ('kesin', 'tutarsizlik') order by severity, last_seen desc`,
+      )
+      .all(app.project, app.application) as Array<{ id: string; key: string; title: string }>
+    return rows.flatMap((row) => {
+      const found = (this.db
+        .prepare(
+          `select scenario, expected, observed, steps from occurrences where issue_id = ? and steps is not null
+           order by at desc limit 1`,
+        )
+        .get(row.id) ??
+        this.db
+          .prepare(
+            `select scenario, expected, observed, steps from shared_sightings where issue_id = ? and steps is not null
+             order by last_seen desc limit 1`,
+          )
+          .get(row.id)) as { scenario: string; expected: string; observed: string; steps: string } | undefined
+      const steps = json<PlatformCall[]>(found?.steps ?? null, [])
+      return found && steps.length
+        ? [
+            {
+              key: row.key,
+              title: row.title,
+              scenario: found.scenario,
+              expected: found.expected,
+              observed: found.observed,
+              steps,
+            },
+          ]
+        : []
     })
   }
 
@@ -757,24 +877,27 @@ export class IssueService {
       title: string
       status: IssueStatus
     }>
-    return rows.map((r) => {
-      const notes = (
-        this.db.prepare('select text from comments where issue_id = ? order by at').all(r.id) as Array<{
-          text: string
-        }>
-      ).map((c) => c.text)
-      const sample = this.db
-        .prepare(
-          `select page, observed from occurrences where issue_id = ? and outcome <> 'dogrulanamadi' order by at desc limit 1`,
-        )
-        .get(r.id) as { page: string; observed: string } | undefined
-      return {
-        key: r.key,
-        title: r.title,
-        status: r.status,
-        note: notes.join(' | '),
-        example: sample ? `${sample.page}: ${sample.observed}` : '',
-      }
-    })
+    // Tartışmalı karar öğrenmeye girmez: iki insanın ayrıştığı yerden kural çıkarmak yanlışı kalıcılaştırabilir.
+    return rows
+      .filter((r) => !isContested(this.history(r.id)))
+      .map((r) => {
+        const notes = (
+          this.db.prepare('select text from comments where issue_id = ? order by at').all(r.id) as Array<{
+            text: string
+          }>
+        ).map((c) => c.text)
+        const sample = this.db
+          .prepare(
+            `select page, observed from occurrences where issue_id = ? and outcome <> 'dogrulanamadi' order by at desc limit 1`,
+          )
+          .get(r.id) as { page: string; observed: string } | undefined
+        return {
+          key: r.key,
+          title: r.title,
+          status: r.status,
+          note: notes.join(' | '),
+          example: sample ? `${sample.page}: ${sample.observed}` : '',
+        }
+      })
   }
 }

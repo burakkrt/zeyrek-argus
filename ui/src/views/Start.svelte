@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppUserSetting, Issue, PageGroup, RunInfo } from '@argus/shared'
+  import type { AppUserSetting, Issue, PageGroup, RunInfo, RunMode } from '@argus/shared'
   import { onMount } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import Attachments, { type AttachedFile } from '$lib/components/form/Attachments.svelte'
@@ -102,8 +102,11 @@
     void attachments?.add(pasted)
   }
 
-  async function start() {
-    const problem = startProblem({ pages: selected.length, brief, files: files.length, uploading })
+  async function start(mode: RunMode = 'normal') {
+    const problem =
+      mode === 'normal'
+        ? startProblem({ pages: selected.length, brief, files: files.length, uploading })
+        : null
     if (problem) return notify.warning(problem.title, problem.message)
     starting = true
     try {
@@ -111,8 +114,8 @@
         proje: target.project,
         uygulama: target.application,
         ortam: target.environment,
-        sayfalar: selected,
-        secenekler: { brief: brief.trim() || null, attachments: files.map((f) => f.id) },
+        sayfalar: mode === 'normal' ? selected : [],
+        secenekler: { brief: brief.trim() || null, attachments: files.map((f) => f.id), mode },
       })
       go(`/monitor/${run.id}`)
     } catch (e) {
@@ -151,7 +154,7 @@
 
 <Page title="Yeni koşu" description="Sayfa seç ya da ne test edileceğini yaz; koşuyu monitörden izle">
   {#snippet actions()}
-    <Button disabled={starting} onclick={start}>
+    <Button disabled={starting} onclick={() => start()}>
       <Icon name="mediaPlay" />
       {starting ? 'Başlatılıyor…' : 'Koşuyu başlat'}
     </Button>
@@ -287,6 +290,20 @@
               {estimate.basis === 'gecmis' ? 'Bu dalın son koşularına göre' : 'Geçmiş koşu yok, kaba tahmin'}
             </p>
           {/if}
+          <div class="flex flex-col gap-2 border-t pt-4">
+            <p class="text-muted-foreground text-[12px]">Sayfa ya da girdi gerekmeyen koşular</p>
+            <Button variant="outline" disabled={starting} onclick={() => start('tekrar')}>
+              Kayıtlı vakaları doğrula
+            </Button>
+            <p class="text-muted-foreground text-[11px]">
+              Kanıtlı açık bulguları kayıtlı adımlarıyla yeniden kurar; düzelenler kapanır.
+            </p>
+            <Button variant="outline" disabled={starting} onclick={() => start('kapi')}>Yayın kapısı</Button>
+            <p class="text-muted-foreground text-[11px]">
+              Dalın production'dan farkını ve kayıtlı vakaları test eder; kanıtlı kritik ya da yüksek bulgu
+              varsa kapı kapalıdır. Girdi yazılırsa ek odak olur.
+            </p>
+          </div>
         </div>
       </div>
     </aside>

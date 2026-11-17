@@ -132,6 +132,10 @@ describe('model rolleri, yargıç ve modelsiz doğrulama', () => {
     expect(judge.map((c) => c.model)).toEqual(['claude-opus-5-5', 'claude-opus-5-5'])
     expect(judge.every((c) => c.cache_control === undefined)).toBe(true)
     expect(JSON.stringify(judge[0]!.system)).toContain('dediği sorunlar (aynısıysa reddet)')
+    // Aynı kök nedenin yeni örneği ayrı bulgu olmasın: yargıç bu sayfada az önce kaydedileni de görür.
+    expect(JSON.stringify(judge[1]!.messages)).toContain(
+      'Bu sayfada zaten bildirilenler:\\n- yz:toplam-kayit-sayisi — Toplam kayıt sayısı tabloyla uyuşmuyor',
+    )
     expect(explorer.some((c) => JSON.stringify([c.system, c.messages]).includes('dediği sorunlar'))).toBe(
       false,
     )

@@ -1,7 +1,24 @@
 import { FINDING_KINDS } from '@argus/shared'
 import type { Tool } from './model.ts'
+import { SEVERITY_GUIDE } from '../issues/severity.ts'
 
 const reason = { type: 'string', description: 'Bunu neden yaptığın, tek kısa cümle.' } as const
+/**
+ * Platform adımının sade dili: izleme tuvalinde kartın başlığı (iş) ve altı (neden). İzleyen kişi teknik bilmeyebilir;
+ * araç, varlık ya da kimlik adı burada yazılmaz, teknik ayrıntı girdidedir.
+ */
+const plain = {
+  adim: {
+    type: 'string',
+    description:
+      "Bu adımın işi, sade Türkçe 2-5 kelime, iş adı biçiminde (ör. 'Test sorusu oluşturma', 'Cevap yazma kuralını okuma', 'Anketi katılımcıya gönderme'); araç, varlık ya da kimlik adı yazma.",
+  },
+  neden: {
+    type: 'string',
+    description:
+      "Neden yapıldığı, teknik bilgisi olmayan birinin anlayacağı tek cümle (ör. 'Cevaplamayı denemek için seçenekli bir soru gerekiyor'); araç, varlık ya da kimlik adı yazma.",
+  },
+} as const
 
 const tool = (name: string, description: string, properties: Record<string, unknown>): Tool => ({
   name,
@@ -42,7 +59,7 @@ ${writes}`,
                 type: 'string',
                 description: 'Aracın girdisi, JSON nesnesi (ayrıntı için platform_arac)',
               },
-              neden: reason,
+              ...plain,
             },
           ),
         ]
@@ -65,7 +82,7 @@ ${platform.index()}`,
           type: 'integer',
           description: 'Uzun sonucun devamı: sonucun söylediği konum; ilk okumada 0',
         },
-        neden: reason,
+        ...plain,
       },
     ),
     tool('platform_arac', 'Bir platform aracının (okuma ya da yazma) açıklamasını ve girdi şemasını döner.', {
@@ -113,6 +130,11 @@ export const TASK_TOOLS: Tool[] = [
   tool('bastan_ac', 'Sayfayı baştan açar (pencereler, filtreler sıfırlanır).', { neden: reason }),
   tool('bulgu_bildir', 'Ekranda şu an görünen bir sorunu bildirir; ekran görüntüsü kanıt olarak alınır.', {
     tur: { type: 'string', enum: [...FINDING_KINDS] },
+    onem: {
+      type: 'string',
+      enum: ['S1', 'S2', 'S3', 'S4'],
+      description: SEVERITY_GUIDE,
+    },
     anahtar: { type: 'string', description: 'Kök neden kimliği, küçük harf ve tire.' },
     baslik: { type: 'string', description: 'Kısa başlık.' },
     senaryo: { type: 'string', description: 'Tekrar etmek için adımlar.' },
@@ -168,11 +190,16 @@ export const JUDGE_SCHEMA = {
   properties: {
     karar: { type: 'string', enum: ['kabul', 'not', 'ret'] },
     tur: { type: 'string', enum: ['kesin', 'tutarsizlik', 'not'] },
+    onem: {
+      type: 'string',
+      enum: ['S1', 'S2', 'S3', 'S4'],
+      description: SEVERITY_GUIDE,
+    },
     anahtar: { type: 'string' },
     baslik: { type: 'string' },
     gerekce: { type: 'string' },
   },
-  required: ['karar', 'tur', 'anahtar', 'baslik', 'gerekce'],
+  required: ['karar', 'tur', 'onem', 'anahtar', 'baslik', 'gerekce'],
   additionalProperties: false,
 } as const
 
@@ -182,6 +209,11 @@ const FINDINGS = {
     type: 'object',
     properties: {
       tur: { type: 'string', enum: ['kesin', 'tutarsizlik', 'not'] },
+      onem: {
+        type: 'string',
+        enum: ['S1', 'S2', 'S3', 'S4'],
+        description: SEVERITY_GUIDE,
+      },
       anahtar: { type: 'string' },
       baslik: { type: 'string' },
       senaryo: { type: 'string' },
@@ -189,7 +221,7 @@ const FINDINGS = {
       gozlenen: { type: 'string' },
       alinti: { type: 'string' },
     },
-    required: ['tur', 'anahtar', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'alinti'],
+    required: ['tur', 'onem', 'anahtar', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'alinti'],
     additionalProperties: false,
   },
 } as const

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   actionOf,
   COVERAGE_STATUS,
-  buildFlowSections,
   rulerTicks,
   buildClock,
   buildLanes,
@@ -45,6 +44,7 @@ const finding = (page: string, key: string, outcome: 'yeni' | 'bastirildi' = 'ye
     key,
     title: key,
     kind: 'kesin',
+    severity: 'S2',
     outcome,
     reason: null,
     shot: null,
@@ -109,6 +109,7 @@ describe('monitör modeli', () => {
   it('strateji ve cevap modele girer; tanım kalemlerinin satırı adlandırılır, platform okuması eylem olur', () => {
     const strategy = {
       kind: 'akis' as const,
+      scope: 'tam' as const,
       understood: 'Kalibrasyon atlanabilir mi',
       scenarios: [],
       doneWhen: 'Senaryo test edilir',
@@ -156,17 +157,9 @@ describe('monitör modeli', () => {
     expect(COVERAGE_STATUS[coverage.status]).toEqual({ label: 'Kısmen', tone: 'warning' })
     expect(pageLabel(DEFINITION_PAGE)).toBe('Platform tanımları')
     expect(pageLabel('egt-liste')).toBe('egt-liste')
-    expect(actionOf(model.steps[0]!)).toEqual({
-      kind: 'platform',
-      verb: 'Tanımı okudu',
-      object: 'workflow_get',
-    })
+    expect(actionOf(model.steps[0]!)).toEqual({ kind: 'platform', verb: 'İş akışını okudu', object: '' })
     // Platforma yazma da eylemdir; sahnede yazma olarak görünür.
-    expect(actionOf(model.steps[1]!)).toEqual({
-      kind: 'platform',
-      verb: 'Platforma yazdı',
-      object: 'row_create',
-    })
+    expect(actionOf(model.steps[1]!)).toEqual({ kind: 'platform', verb: 'Test kaydı oluşturdu', object: '' })
     expect(model.steps[1]!.platform?.write).toBe(true)
     // Platform okuması sahnede gösterilmek üzere adıma girer; sonuç okunur biçimde (kesikse olduğu gibi).
     expect(model.steps[0]!.platform).toEqual({
@@ -185,6 +178,27 @@ describe('monitör modeli', () => {
       ev('liste', { type: 'sayfa-bitti', summary: 'bitti' }),
     ])
     expect(model.pages[0]).toMatchObject({ status: 'bitti', tasks: [{ status: 'bitti' }] })
+  })
+
+  it('plan yeniden gönderilince (sonradan eklenen kalem) önceki görevlerin durumu ve başlangıcı korunur', () => {
+    const model = buildMonitor([
+      ev('liste', { type: 'plan', summary: 's', tasks: [{ title: 'A', goal: 'g' }] }),
+      ev('liste', { type: 'gorev-basladi', index: 0, title: 'A' }),
+      ev('liste', { type: 'gorev-bitti', index: 0, summary: 'bitti' }),
+      ev('liste', {
+        type: 'plan',
+        summary: 's',
+        tasks: [
+          { title: 'A', goal: 'g' },
+          { title: 'Temizlik', goal: 'g' },
+        ],
+      }),
+    ])
+    expect(model.pages[0]!.tasks).toMatchObject([
+      { title: 'A', status: 'bitti' },
+      { title: 'Temizlik', status: 'bekliyor', at: null },
+    ])
+    expect(model.pages[0]!.tasks[0]!.at).not.toBeNull()
   })
 })
 
@@ -384,44 +398,6 @@ describe('cetvel', () => {
     // Dar alanda aralık büyür; kısa kayıtta küçülür.
     expect(rulerTicks(106_000, 400).major[1]).toBe(30_000)
     expect(rulerTicks(8_000, 1_000).major[1]).toBe(1_000)
-  })
-})
-
-describe('akış bölümleri', () => {
-  it('sayfa › görev › adım; ağ isteği adımın sayacına, plan ve özet başlıklara girer; sayfa öncesi notlar akışa girmez', () => {
-    const model = buildMonitor([
-      ev(null, { type: 'bilgi', message: 'Saklanan oturum sürdürüldü.' }),
-      ev('liste', { type: 'sayfa-basladi', url: 'u' }),
-      finding('liste', 'acilis'),
-      ev('liste', { type: 'plan', summary: 'Liste ekranı.', tasks: [{ title: 'Filtre', goal: 'g' }] }),
-      ev('liste', { type: 'gorev-basladi', index: 0, title: 'Filtre' }),
-      step('liste', 'Yazıldı: "PLN"'),
-      ev('liste', {
-        type: 'ag',
-        requests: [
-          { method: 'POST', url: 'http://x/a', status: 200, ms: 5 },
-          { method: 'POST', url: 'http://x/b', status: 0, ms: 0, blocked: true },
-        ],
-      }),
-      finding('liste', 'filtre'),
-      ev(null, { type: 'hata', message: 'Model yanıt vermedi.' }),
-      ev('liste', { type: 'gorev-bitti', index: 0, summary: 'Filtre denendi.' }),
-    ])
-    const flow = buildFlowSections(model)
-    expect(flow.pages).toHaveLength(1)
-    const [page] = flow.pages
-    expect(page).toMatchObject({ page: 'liste', plan: 'Liste ekranı.' })
-    expect(page!.opening.map((e) => e.kind)).toEqual(['bulgu'])
-    const [task] = page!.tasks
-    expect(task).toMatchObject({
-      title: 'Filtre',
-      summary: 'Filtre denendi.',
-      steps: 1,
-      findings: 1,
-      status: 'bitti',
-    })
-    expect(task!.entries.map((e) => e.kind)).toEqual(['adim', 'bulgu', 'hata'])
-    expect(task!.entries[0]).toMatchObject({ requests: 2, blocked: 1 })
   })
 })
 

@@ -42,6 +42,8 @@ export interface DecisionRecord {
   kind: FindingKind
   status: IssueStatus
   updatedAt: string
+  /** "Bulgu değil" kararının verildiği tanım izi (`<sayfa>:<Studio izi>`); tanım değişince karar gözden geçirilir. */
+  decisionPrint?: string | null
   example: { page: string; scenario: string; expected: string; observed: string } | null
   history: IssueHistoryEntry[]
   comments: IssueComment[]
@@ -452,6 +454,7 @@ export function parseDecision(text: string, source: string): DecisionRecord {
     kind: FINDING_KINDS.includes(kind) ? kind : 'kesin',
     status,
     updatedAt: values('guncelleme').sort().at(-1) ?? '',
+    ...(values('karar_izi').at(-1) ? { decisionPrint: values('karar_izi').at(-1)! } : {}),
     example,
     history,
     comments,
@@ -478,7 +481,14 @@ export function serializeDecision(record: DecisionRecord): string {
     ['## Yorumlar', ...record.comments.map((c) => `- ${c.at} · ${oneLine(c.author).replace(/:/g, '')}: ${c.text.split(/\r?\n/).join('\n  ')}`)].join('\n'),
   )
   return serializeDocument({
-    data: { anahtar: record.key, baslik: record.title, tur: record.kind, durum: record.status, guncelleme: record.updatedAt },
+    data: {
+      anahtar: record.key,
+      baslik: record.title,
+      tur: record.kind,
+      durum: record.status,
+      guncelleme: record.updatedAt,
+      ...(record.decisionPrint ? { karar_izi: record.decisionPrint } : {}),
+    },
     body: sections.join('\n\n'),
   })
 }

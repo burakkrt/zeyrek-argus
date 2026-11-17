@@ -11,6 +11,7 @@ import {
   type IssueStatus,
   type MemoryBudget,
   type RuleScope,
+  type RunMode,
   type Settings,
   type StreamMessage,
 } from '@argus/shared'
@@ -31,6 +32,7 @@ import {
 } from '../db/settings.ts'
 import { ArgusError } from '../errors.ts'
 import { DEFAULT_FORMAT, issuesCsv, markdownZip } from '../memory/format.ts'
+import { platformNotes } from '../memory/platform-notes.ts'
 import { listProposals } from '../memory/proposals.ts'
 import { estimateTokens, ruleApplies } from '../memory/select.ts'
 import { ruleStats } from '../memory/stats.ts'
@@ -273,6 +275,7 @@ export function createApi(ctx: AppContext): Hono {
       user?: string | null
       brief?: string | null
       attachments?: string[]
+      mode?: RunMode
     }
     const run = ctx.runs.create({ ...appOf(body), environment: str(body.ortam, 'ortam'), pages, options })
     return c.json(run)
@@ -457,6 +460,7 @@ export function createApi(ctx: AppContext): Hono {
           : 'kesin',
         status,
         updatedAt: new Date().toISOString(),
+        decisionPrint: existing?.decisionPrint ?? null,
         example: existing?.example ?? null,
         history: [
           ...(existing?.history ?? []),
@@ -479,6 +483,12 @@ export function createApi(ctx: AppContext): Hono {
   })
 
   // --- hafıza ---
+
+  // Platform köprüsü: ai-notlari'ye konacak içeriğin önizlemesi. Aktarma kararlaştırılana kadar hiçbir yere yazılmaz.
+  api.get('/hafiza/platform-notu', (c) => {
+    const app = queryApp(c) ?? bad('proje ve uygulama gerekli.')
+    return c.json(platformNotes(app, ctx.memory.rules(app)))
+  })
 
   api.get('/hafiza/kurallar', (c) => {
     const app = queryApp(c) ?? null
@@ -504,7 +514,10 @@ export function createApi(ctx: AppContext): Hono {
       }
     }
     return c.json({
-      rules: rules.map((r) => ({ ...r, stats: stats.get(r.id) ?? { uses: 0, eligible: 0, lastUsed: null } })),
+      rules: rules.map((r) => ({
+        ...r,
+        stats: stats.get(r.id) ?? { uses: 0, eligible: 0, misled: 0, lastUsed: null },
+      })),
       budgets,
       pendingDecisions: app ? ctx.learner.pendingDecisions(app) : 0,
     })

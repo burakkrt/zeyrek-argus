@@ -13,7 +13,9 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
    2026-11-15: test verisi oluşturabilmek sağlıklı testin koşulu). Tarayıcıda yazma korumaları (`server/src/browser/guard.ts`) testle kanıtlıdır; gevşetilmez. production'a
    koşulmaz.
 2. **Karar kanıta bağlıdır.** Bulgu türü: kesin (görüldü), tutarsızlık (neyle çeliştiği yazılı), not (bulgu
-   sayılmaz). Alıntısı ekranda bulunmayan bulgu kesin olamaz. Giriş ekranında kalan ya da başka sayfaya yönlenen
+   sayılmaz). Alıntısı ekranda bulunmayan bulgu kesin olamaz. Tanımı okuyarak çıkarılan ama çalıştırılmayan iddia
+   şüphedir (not), bulgu sayılmaz (`DefinitionFinding.dogrulama`). Her bulgu önem taşır (S1–S4, `SEVERITIES`); liste
+   önce kritikleri gösterir. Giriş ekranında kalan ya da başka sayfaya yönlenen
    (kimliksiz açılan kayıt sayfası) sayfaya "bakılamadı" denir; model çağrılmaz, bulgu yazılmaz.
 3. **Görmezden gelmeyi öğrenmek insan onayı ister.** `sorun-degil` kuralı ve devredeki kuralı değiştiren öneri
    kendiliğinden uygulanmaz (`server/src/memory/learn.ts`). Kural emekliye ayrılınca bastırdıkları serbest kalır.

@@ -200,6 +200,20 @@ export class Learner {
     const stats = ruleStats(this.deps.db)
     for (const rule of rules) {
       const s = stats.get(rule.id)
+      if (s && s.misled >= 2 && s.misled * 2 >= s.uses) {
+        out.push({
+          islem: 'emekli',
+          id: rule.id,
+          kapsam: rule.scope,
+          tur: rule.type,
+          metin: rule.text,
+          desen: rule.pattern ?? '',
+          ilgili: [],
+          gerekce: `${s.misled} kez yanılttı (${s.uses} kullanımda): ${rule.type === 'sorun-degil' ? 'bastırdığı sorun gerçek çıktı' : 'dayanan bulguya "bulgu değil" denildi'}.`,
+          kaynak: rule.sources,
+        })
+        continue
+      }
       if (rule.type !== 'bilgi' && !rule.pattern && s && s.eligible >= 30 && s.uses === 0) {
         out.push({
           islem: 'emekli',

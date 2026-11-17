@@ -74,6 +74,8 @@ export class PlatformReader {
   private readonly results = new Map<string, string>()
   /** Bu koşuda `row_create` ile oluşturulup henüz silinmemiş kayıtlar (varlık → kimlikler): koşu sonunda silinir. */
   private readonly created = new Map<string, Set<string>>()
+  /** Bu koşuda başarılı yazma sayısı (koşu sonu temizliğine gerek var mı). */
+  wrote = 0
 
   constructor(
     private readonly client: McpClient,
@@ -149,6 +151,7 @@ export class PlatformReader {
       const raw = JSON.stringify(result)
       this.trace?.mcp(name, args, Date.now() - started, raw, null)
       this.track(name, args, result)
+      this.wrote += 1
       return this.sliceOf(raw, 0)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

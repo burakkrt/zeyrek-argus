@@ -6,6 +6,7 @@ import { Hono } from 'hono'
 import { createApi, staticRoot } from './api/routes.ts'
 import { loadConfig } from './config.ts'
 import { createContext } from './context.ts'
+import { acquireInstanceLock } from './instance-lock.ts'
 
 /**
  * Argus sunucusu. `--dev`: arayüz Vite'tan gelir (ARGUS_PORT), sunucu bir üst portta yalnız `/api` sunar.
@@ -13,6 +14,14 @@ import { createContext } from './context.ts'
  */
 const dev = process.argv.includes('--dev')
 const config = loadConfig()
+// Kilit bağlamdan önce alınır: bağlam açılışta yarım kalan koşuları kapatır, başka sunucunun koşusuna dokunmasın.
+let releaseLock: () => void
+try {
+  releaseLock = acquireInstanceLock(config.dataDir)
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+}
 const ctx = createContext(config)
 const app = new Hono()
 app.route('/api', createApi(ctx))
@@ -36,6 +45,7 @@ serve({ fetch: app.fetch, port }, () => {
 const shutdown = async () => {
   await ctx.platform.close()
   ctx.db.close()
+  releaseLock()
   process.exit(0)
 }
 process.on('SIGINT', () => void shutdown())

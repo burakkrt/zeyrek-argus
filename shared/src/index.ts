@@ -5,6 +5,12 @@
 /** Kanıt türü: kesin (görüldü, tekrar üretildi), tutarsızlık (neyle çeliştiği yazılı), not (bulgu sayılmaz). */
 export const FINDING_KINDS = ['kesin', 'tutarsizlik', 'not'] as const
 export type FindingKind = (typeof FINDING_KINDS)[number]
+/**
+ * Önem (teknik etki; tür değil): S1 veri kaybı, yetki sızıntısı, yanlış hesap, kilitlenen akış; S2 atlatılan kural,
+ * geçersiz geçiş; S3 kötü hata yönetimi (geçici çözüm var); S4 görünüm ve metin. Liste önce S1'i gösterir.
+ */
+export const SEVERITIES = ['S1', 'S2', 'S3', 'S4'] as const
+export type Severity = (typeof SEVERITIES)[number]
 
 /** Sorunun durumu: insan kararıyla değişir; "düzeldi" kontrolcü doğrulamasıyla da gelebilir. */
 export const ISSUE_STATUSES = ['acik', 'duzeltilecek', 'bulgu-degil', 'duzeldi'] as const
@@ -116,6 +122,20 @@ export type RunStatus = (typeof RUN_STATUSES)[number]
  */
 export const RUN_CEILINGS = { maxTasks: 20, maxSteps: 150 } as const
 
+/**
+ * Koşunun kipi: normal (sayfa ya da istek), tekrar (kayıtlı vakaları yeniden doğrula; planlama ve keşif yok), kapi
+ * (yayın kapısı: development → production farkına odaklı koşu + kayıtlı vakalar; kanıtlı S1/S2 varsa kapı kapalı).
+ */
+export const RUN_MODES = ['normal', 'tekrar', 'kapi'] as const
+export type RunMode = (typeof RUN_MODES)[number]
+
+/** Kayıtlı vakanın bir adımı: kanıtlayan platform çağrısı. */
+export interface PlatformCall {
+  tool: string
+  input: string
+  write: boolean
+}
+
 export interface RunOptions {
   /** Sayfa başına görev tavanı (`RUN_CEILINGS`; testler küçültür). */
   maxTasks: number
@@ -127,6 +147,8 @@ export interface RunOptions {
   brief?: string | null
   /** Talimata eklenen görsellerin kimlikleri (`data/ekler/`); planlayıcı görür. */
   attachments?: string[]
+  /** Yoksa normal. */
+  mode?: RunMode
 }
 
 export interface RunInfo {
@@ -176,10 +198,30 @@ export interface StrategyItem {
   page: string | null
   /** Sayfanın tamamı taransın mı (planlayıcı sayfanın görevlerini kendisi çıkarır); değilse kalem tek görevdir. */
   fullScan: boolean
+  /** Tanım kalemi kendi verisini kurup siliyor, başka kalemin sonucunu kullanmıyor: paralel yürüyebilir. */
+  independent: boolean
+  /** Yeniden doğrulanan kayıtlı vakanın sorun anahtarı. */
+  caseKey?: string
+}
+
+/**
+ * İsteğin kapsamı (planlayıcı seçer): neyin test edileceğini daraltır, nasıl test edileceğini değil. Süre ya da vaka
+ * sayısı sınırı yoktur (zaman baskısı modeli yüzeyselleştirir); dar kapsamda sorulan şey eksiksiz cevaplanır, modülün
+ * geri kalanına bakılmaz ve kapsam raporunda "bakılmayan" olarak yazılır.
+ */
+export const RUN_SCOPES = ['soru', 'degisiklik', 'musteri', 'tam'] as const
+export type RunScope = (typeof RUN_SCOPES)[number]
+export const SCOPE_LABELS: Record<RunScope, string> = {
+  soru: 'Soru',
+  degisiklik: 'Değişiklik testi',
+  musteri: 'Müşteri bulgusu',
+  tam: 'Tam test',
 }
 
 export interface RunStrategy {
   kind: StrategyKind
+  /** İsteğin kapsamı: vaka sayısı, ekran ve gözetmen turu buna göre. */
+  scope: RunScope
   /** Test edilecek kapsam (modül, sayfa, konu, işleyiş), kendi cümlesiyle. */
   understood: string
   /** Test senaryoları: her biri durum + beklenen davranış + bakılacak tutarsızlık. */
@@ -206,6 +248,8 @@ export interface RunCoverage {
   tested: string[]
   /** Test edilemeyenler, her biri nedeniyle (ör. "aşama ilerletmek veri yazar"). */
   untested: string[]
+  /** İsteğin kapsamı dışında kaldığı için bakılmayan alanlar (dar kapsam); eski koşularda yoktur. */
+  outOfScope?: string[]
 }
 
 export interface PlatformRead {
@@ -214,6 +258,8 @@ export interface PlatformRead {
   result: string
   /** Platforma yazma (development'ta veri ya da çalıştırma); yoksa okuma. */
   write?: boolean
+  /** Adımın sade dille işi ("Test sorusu oluşturma"); izleme tuvalinde kart başlığı. Eski koşularda yoktur. */
+  label?: string
 }
 
 /** Tanım kalemlerinin akıştaki sayfası (katalog slug'ı olamaz: '@' içerir). */
@@ -239,6 +285,8 @@ export type RunEventBody =
   | { type: 'gorev-bitti'; index: number; summary: string }
   | {
       type: 'adim'
+      /** Adımın görevi (paralel tanım kalemlerinde); yoksa sayfanın son başlayan görevi. */
+      task?: number
       tool: string
       reason: string | null
       outcome: string
@@ -260,6 +308,7 @@ export type RunEventBody =
       key: string
       title: string
       kind: FindingKind
+      severity: Severity
       outcome: OccurrenceOutcome
       reason: string | null
       shot: string | null
@@ -332,6 +381,7 @@ export interface Occurrence {
   runId: string
   page: string
   kind: FindingKind
+  severity: Severity
   outcome: OccurrenceOutcome
   scenario: string
   expected: string
@@ -365,7 +415,11 @@ export interface Issue {
   key: string
   title: string
   kind: FindingKind
+  /** Görünümlerin en ağırı. */
+  severity: Severity
   status: IssueStatus
+  /** İki insanın son hükümleri zıt: bastırılmaz, öğrenmeye girmez. */
+  contested: boolean
   source: 'goz' | 'yz'
   firstSeen: string
   lastSeen: string

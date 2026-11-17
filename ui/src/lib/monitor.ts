@@ -8,6 +8,7 @@ import {
   type StepTarget,
 } from '@argus/shared'
 import type { IconName } from './icons'
+import { plainCall } from './platform-steps'
 
 /**
  * Monitörün modeli ve oynatma hesabı. Koşu olaylarından plan (sayfa › görev), adımlar, bulgular ve okunur akış
@@ -140,7 +141,12 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
     if (event.type === 'kosu-basladi') event.pages.forEach(pageOf)
     if (event.type === 'strateji') {
       // Test yöntemlerinden önceki koşuların stratejisinde yöntem listesi yoktur (2026-11-16).
-      strategy = { ...event.strategy, guides: event.strategy.guides ?? [] }
+      // Kapsamdan önceki koşuların stratejisinde kapsam yoktur; tam test sayılır (2026-11-16).
+      strategy = {
+        ...event.strategy,
+        guides: event.strategy.guides ?? [],
+        scope: event.strategy.scope ?? 'tam',
+      }
       note('plan', `Test planı · ${event.strategy.understood}`)
       continue
     }
@@ -174,7 +180,10 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
         for (const task of page.tasks) if (task.status === 'suruyor') task.status = 'bitti'
         break
       case 'plan':
-        page.tasks = event.tasks.map((t, index) => ({ index, title: t.title, status: 'bekliyor', at: null }))
+        // Plan yeniden gönderilebilir (sonradan eklenen kalem, ör. koşu sonu temizliği): önceki görevlerin durumu korunur.
+        page.tasks = event.tasks.map(
+          (t, index) => page.tasks[index] ?? { index, title: t.title, status: 'bekliyor', at: null },
+        )
         note('plan', event.summary)
         break
       case 'gorev-basladi': {
@@ -202,7 +211,7 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
         break
       }
       case 'adim': {
-        const index = currentTask.get(event.page) ?? null
+        const index = event.task ?? currentTask.get(event.page) ?? null
         const actAt = event.actAt ?? at
         flow.push({ kind: 'adim', key, at: actAt, step: steps.length })
         steps.push({
@@ -514,35 +523,16 @@ export function actionOf(step: { tool: string; outcome: string }): Action {
         : { kind: 'okudu', verb: 'Sayfayı okudu', object: '' }
     case 'bastan_ac':
       return { kind: 'bastan_ac', verb: 'Sayfayı baştan açtı', object: '' }
+    // Platform adımı sade dille: teknik araç adı ön planda değil, ayrıntıdadır (`platform-steps.ts`).
     case 'platform_yaz':
-      return {
-        kind: 'platform',
-        verb: outcome.includes('yazılamadı') ? 'Platforma yazamadı' : 'Platforma yazdı',
-        object: outcome.replace(/^Platforma (yazıldı|yazılamadı): /, ''),
-      }
     case 'platform_oku':
+      return { kind: 'platform', verb: plainCall({ tool: step.tool, outcome }).title, object: '' }
     case 'platform_arac':
-      return {
-        kind: 'platform',
-        verb: outcome.includes('okunamadı') ? 'Tanımı okuyamadı' : 'Tanımı okudu',
-        object: outcome.replace(/^Platform(dan okundu|dan okunamadı| aracı incelendi): /, ''),
-      }
+      return { kind: 'platform', verb: 'Platform aracını inceledi', object: '' }
     default:
       return { kind: 'diger', verb: TOOL_LABEL[step.tool] ?? step.tool, object: outcome }
   }
 }
-
-/** Eylem türlerinin sözlükteki adı ve açıklaması (şeridin altındaki açıklama). */
-export const ACTION_LEGEND: Array<{ kind: ActionKind; label: string; hint: string }> = [
-  { kind: 'tikla', label: 'Tıkladı', hint: 'Bir öğeye tıkladı.' },
-  { kind: 'yaz', label: 'Yazdı', hint: 'Bir alana metin yazdı.' },
-  { kind: 'uzerine_gel', label: 'Üzerine geldi', hint: 'İpucu için imleci bekletti.' },
-  { kind: 'tus', label: 'Tuşa bastı', hint: 'Klavyeden tuşa bastı.' },
-  { kind: 'kaydir', label: 'Kaydırdı', hint: 'Sayfayı kaydırdı.' },
-  { kind: 'okudu', label: 'Sayfayı okudu', hint: 'Sayfanın yapısını metin olarak okudu; görüntü almadı.' },
-  { kind: 'goruntu', label: 'Görüntüyle inceledi', hint: 'Ekran görüntüsü alıp görsel olarak inceledi.' },
-  { kind: 'platform', label: 'Tanımı okudu', hint: 'Uygulamanın tanımını platformdan okudu (yalnız okuma).' },
-]
 
 export interface Lanes {
   pages: Array<{ page: string; start: number; end: number; status: Status }>
@@ -664,111 +654,6 @@ export function rulerTicks(
     else minor.push(t)
   }
   return { major, minor }
-}
-
-export type FlowEntry =
-  | { kind: 'adim'; key: string; at: number; step: number; requests: number; blocked: number }
-  | { kind: 'bulgu'; key: string; at: number; finding: number }
-  | { kind: 'hata'; key: string; at: number; text: string }
-  | { kind: 'not'; key: string; at: number; text: string }
-
-export interface FlowTask {
-  key: string
-  page: string
-  index: number
-  title: string
-  status: Status
-  at: number
-  entries: FlowEntry[]
-  /** Görev bitince kontrolcünün özeti. */
-  summary: string | null
-  steps: number
-  findings: number
-}
-
-export interface FlowPage {
-  key: string
-  page: string
-  status: Status
-  at: number
-  /** Sayfanın planı (kontrolcünün sayfayı anlatışı). */
-  plan: string | null
-  /** İlk görevden önce olanlar (açılış bulguları, notlar). */
-  opening: FlowEntry[]
-  tasks: FlowTask[]
-}
-
-export interface FlowSections {
-  pages: FlowPage[]
-}
-
-/**
- * Akış panelinin yapısı (Playwright'ın adım grupları, Cypress'in komut listesi gibi): sayfa › görev › adım. Gürültü
- * satır olmaz: ağ istekleri ait oldukları adımın sayacına, plan ve görev özetleri kendi başlıklarına girer; sayfadan
- * önceki kurulum notları (oturum, hafıza) akışa girmez.
- */
-export function buildFlowSections(model: MonitorModel): FlowSections {
-  const pages: FlowPage[] = []
-  let page: FlowPage | null = null
-  let task: FlowTask | null = null
-  const target = () => task?.entries ?? page?.opening ?? null
-  for (const row of model.flow) {
-    switch (row.kind) {
-      case 'sayfa':
-        page = {
-          key: row.key,
-          page: row.page,
-          status: row.status,
-          at: row.at,
-          plan: null,
-          opening: [],
-          tasks: [],
-        }
-        pages.push(page)
-        task = null
-        break
-      case 'gorev':
-        if (!page) break
-        task = {
-          key: row.key,
-          page: row.page,
-          index: row.index,
-          title: row.title,
-          status: row.status,
-          at: row.at,
-          entries: [],
-          summary: null,
-          steps: 0,
-          findings: 0,
-        }
-        page.tasks.push(task)
-        break
-      case 'adim':
-        target()?.push({ kind: 'adim', key: row.key, at: row.at, step: row.step, requests: 0, blocked: 0 })
-        if (task) task.steps += 1
-        break
-      case 'bulgu':
-        target()?.push({ kind: 'bulgu', key: row.key, at: row.at, finding: row.finding })
-        if (task) task.findings += 1
-        break
-      case 'ag': {
-        const last = target()?.findLast((e) => e.kind === 'adim')
-        if (last?.kind === 'adim') {
-          last.requests += row.requests.length
-          last.blocked += row.requests.filter((r) => r.blocked || r.status >= 400).length
-        }
-        break
-      }
-      case 'not':
-        if (row.tone === 'plan' && page) page.plan = row.text
-        else if (row.tone === 'ozet' && task) task.summary = row.text
-        else if (row.tone === 'hata')
-          target()?.push({ kind: 'hata', key: row.key, at: row.at, text: row.text })
-        else target()?.push({ kind: 'not', key: row.key, at: row.at, text: row.text })
-        break
-    }
-  }
-  return { pages }
 }
 
 /**
