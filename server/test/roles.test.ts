@@ -40,6 +40,15 @@ const script: Script = {
               gozlenen: '"Toplam: 5 kayıt" yazıyor, tabloda 3 satır',
               alinti: 'Toplam: 5 kayıt',
             },
+            {
+              tur: 'tutarsizlik',
+              anahtar: 'egitim-adi-yili-farkli',
+              baslik: '2025 eğitimi 2026 yılında bitiyor',
+              senaryo: 'Eğitim listesini aç',
+              beklenen: 'Ad ve tarih aynı yılı göstermeli',
+              gozlenen: 'Adı 2025, bitişi 2026',
+              alinti: 'Yangın eğitimi',
+            },
           ],
           notlar: ['"Onaylı ölçüm" etiketi açılış ekranında'],
         }
@@ -81,15 +90,31 @@ const script: Script = {
     }
   },
   judge: (c) =>
-    c.anahtar === 'yz:renk-begenilmedi' || c.anahtar === 'renk-begenilmedi'
+    c.anahtar!.endsWith('renk-begenilmedi')
       ? { karar: 'ret', tur: 'not', anahtar: c.anahtar, baslik: c.baslik, gerekce: 'Beğeni bulgu değildir.' }
-      : {
-          karar: 'kabul',
-          tur: 'tutarsizlik',
-          anahtar: 'toplam-kayit-sayisi',
-          baslik: 'Toplam kayıt sayısı tabloyla uyuşmuyor',
-          gerekce: 'Ekranda görülüyor.',
-        },
+      : c.anahtar!.endsWith('egitim-adi-yili-farkli')
+        ? {
+            karar: 'ret',
+            tur: 'not',
+            anahtar: c.anahtar,
+            baslik: c.baslik,
+            gerekce: 'Kayıt içeriği test girdisidir.',
+          }
+        : c.anahtar!.endsWith('toplam-yanlis')
+          ? {
+              karar: 'kabul',
+              tur: 'tutarsizlik',
+              anahtar: 'toplam-kayit-sayisi',
+              baslik: 'Toplam kayıt sayısı tabloyla uyuşmuyor',
+              gerekce: 'Ekranda görülüyor.',
+            }
+          : {
+              karar: 'kabul',
+              tur: c.tur,
+              anahtar: c.anahtar,
+              baslik: c.baslik,
+              gerekce: 'Ekranda görülüyor.',
+            },
 }
 
 let h: Harness
@@ -238,6 +263,17 @@ describe('model rolleri, yargıç ve modelsiz doğrulama', () => {
     expect(occurrence.box).not.toBeNull()
     const shot = readFileSync(join(h.ctx.config.dataDir, 'runs', run.id, occurrence.shot!))
     expect(shot.subarray(1, 4).toString()).toBe('PNG')
+
+    // Gözün ve terim gözünün bulguları da yargıçtan geçer: yakalanan ekranla denetlenir, test girdisi reddedilir.
+    const judged = calls
+      .filter((c) => JSON.stringify(c.messages).includes('YARGIÇ GÖREVİ'))
+      .map((c) => JSON.stringify(c.messages))
+    expect(judged.some((m) => m.includes('yz:toplam-tablo-uyusmuyor'))).toBe(true)
+    expect(judged.some((m) => m.includes('yz:ayrinti-liste-adi-farkli'))).toBe(true)
+    expect(h.ctx.issues.list({ app, includeSuppressed: true }).map((i) => i.key)).not.toContain(
+      'yz:egitim-adi-yili-farkli',
+    )
+    expect(messages(run.id)).toContainEqual(expect.stringContaining('Yargıç reddetti: 2025 eğitimi'))
 
     const explorer = calls.filter((c) => JSON.stringify(c.messages).includes('GÖREV: Göz turu'))
     expect(JSON.stringify(explorer[0]!.messages)).toContain('ayrı bir göz inceliyor')

@@ -22,10 +22,15 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
 4. **Ham bilgi isteme girmez.** Kararlar ve müşteri satırları ders çıkarıcıdan geçer; istem yalnız onaylı kuralları
    bütçe içinde taşır (`server/src/memory/select.ts`). Sayfa bilgisi de damıtılmış ve sabit bütçelidir
    (`server/src/agent/knowledge.ts`, `KNOWLEDGE_LIMITS`); her koşuda baştan yazılır, birikmez. Test yöntemleri
-   (`memory/test/`, insan yazar) planlayıcının seçtiği kadarıyla ve `GUIDE_LIMITS` bütçesiyle girer
+   (`memory/brain/test/`, insan yazar) planlayıcının seçtiği kadarıyla ve `GUIDE_LIMITS` bütçesiyle girer
    (`server/src/memory/guides.ts`). Yeni bir bilgi kaynağı isteme eklenecekse bütçesi ve kesme kuralıyla eklenir.
-   Testin nasıl yapılacağı (öncelik, neye bakılır, ne bulgu sayılmaz) istem metnine yazılmaz, `memory/test/`'e yazılır.
-5. **Konuşma geçmişi düzenlenmez.** Görev konuşmaları yalnız eklenerek büyür; bağlamı sınırlamanın yolu görevleri
+5. **Argus'un zekası `memory/brain/`'dedir, kodda değil.** Rolün ne yaptığı ve neye dikkat ettiği
+   `memory/brain/roles/<rol>.md`'ye, testin nasıl yapılacağı (öncelik, neye bakılır, ne bulgu sayılmaz, önem)
+   `memory/brain/test/`'e yazılır; kod yalnız dosyayı okur, yer tutucuyu doldurur ve veriyi ekler
+   (`server/src/memory/roles.ts`). Kodda kalan metin yalnız mekanizmadır: araç ve şema açıklaması, güvenlik iletisi,
+   araç sonucu. Uygulamanın öğrendikleri `memory/apps/`'tedir. Kullanıcı kararı 2026-11-17: zekayı klasörden okuyup
+   geliştirebilmek.
+6. **Konuşma geçmişi düzenlenmez.** Görev konuşmaları yalnız eklenerek büyür; bağlamı sınırlamanın yolu görevleri
    kısa tutmaktır (önbellek ve düşünme blokları korunur).
 
 ## Yapı

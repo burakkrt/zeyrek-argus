@@ -391,7 +391,7 @@ describe('anla adımı', () => {
   })
 
   it('test yöntemleri: planlayıcı dizini görür, seçilenler ve her koşu yüklenen talimata girer; akış testinde göz kapalı', async () => {
-    const dir = join(h.ctx.config.memoryDir, 'test')
+    const dir = join(h.ctx.config.memoryDir, 'brain', 'test')
     mkdirSync(dir, { recursive: true })
     writeFileSync(
       join(dir, 'genel.md'),

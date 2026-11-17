@@ -1,4 +1,5 @@
 import type { CoverageStatus, FindingKind, RunCoverage, RunStrategy } from '@argus/shared'
+import type { RoleBook } from '../memory/roles.ts'
 import type { DefinitionFinding } from './investigator.ts'
 import { jsonOf, type CreateMessage, type MessageParams, type UsageMeter } from './model.ts'
 import { SEVERITY_GUIDE } from '../issues/severity.ts'
@@ -98,6 +99,8 @@ export async function supervise(input: {
   meter: UsageMeter
   model: string
   system: MessageParams['system']
+  /** Rol talimatları (`memory/brain/roles/gozetmen.md`). */
+  roles: RoleBook
   brief: string | null
   strategy: RunStrategy
   results: string[]
@@ -116,17 +119,14 @@ export async function supervise(input: {
         {
           role: 'user',
           content:
-            `${SUPERVISE_MARKER}: Koşu kalemleri bitti. Test planını yapılanla karşılaştır: hangi senaryolar test edildi, ` +
-            'hangileri edilemedi (nedeniyle). Kalem sonuçlarında geçen ama bulgu olarak kaydedilmemiş her hata, tutarsızlık ' +
-            've riski kaynağıyla "kacmis_bulgular"a yaz (kayıtlı bulguyu tekrarlama; kanıtsız iddia yazma). ' +
-            (input.lastRound
-              ? 'Bu son tur: ek kalem önerme.'
-              : 'Kapsam boşluğu kaldıysa ve test edilebilir bir yol varsa ek kalem öner; bu koşuda test edilemeyen iş ' +
-                'için önerme (veri yazan senaryo platform_yaz ile test edilebilir). ' +
-                (s.scope === 'tam'
-                  ? ''
-                  : 'İstek dar kapsamlı: ek kalem yalnız istenen kapsamın içindeki boşluk için; kapsam dışını önerme, ' +
-                    '"bakilmayan"a yaz.')) +
+            `${SUPERVISE_MARKER}: ${input.roles.text('gozetmen', {
+              tur: input.lastRound
+                ? input.roles.part('gozetmen', 'son-tur')
+                : [
+                    input.roles.part('gozetmen', 'ek-kalem'),
+                    ...(s.scope === 'tam' ? [] : [input.roles.part('gozetmen', 'dar-kapsam')]),
+                  ].join(' '),
+            })}` +
             `\n\nTEST İSTEĞİ: ${input.brief ?? '(yalnız dosya eklendi)'}\nKAPSAM: ${s.understood}\nSENARYOLAR:\n${list(s.scenarios)}\n` +
             `KAPSAM TAMAM SAYILIR: ${s.doneWhen}\nBU KOŞUDA TEST EDİLEMEYEN:\n${list(s.infeasible)}\n\n` +
             `KALEM SONUÇLARI (tanım ve ekran):\n${list(input.results)}\n\nBU KOŞUNUN BULGULARI:\n${list(input.findings)}\n\n` +

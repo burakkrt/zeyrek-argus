@@ -121,7 +121,7 @@
     </p>
   </div>
   <span class="spacer"></span>
-  <select bind:value={format} title="Markdown biçimi (memory/formats)">
+  <select bind:value={format} title="Markdown biçimi (memory/brain/formats)">
     {#each formats as f (f.name)}<option value={f.name}>{f.name}</option>{/each}
   </select>
   <button onclick={() => exportAs('md')}>Markdown + görüntüler</button>

@@ -1,14 +1,10 @@
 import { SEVERITIES, type Severity } from '@argus/shared'
 
 /**
- * Önem tablosu: bulgu bildiren her şemanın `onem` alanına aynı metin gider. İç hata ayrıntısının sızması S2'dir: ham
- * veritabanı iletisiyle 500 dönen kayıt S3 sayılıyordu, oysa işlem çöküyor ve iç yapı kullanıcıya görünüyor.
+ * Önem alanının açıklaması (bulgu bildiren şemalar). Tablonun kendisi (S1–S4 neyi kapsar) koddan değil, bütün rollerin
+ * ortak talimatından gelir: `memory/brain/roles/temel.md` → Önem.
  */
-export const SEVERITY_GUIDE =
-  'Önem: S1 veri kaybı/bozulması, yetki sızıntısı, yanlış puan/hesap, akış kilitleniyor; S2 kural ya da zorunlu alan ' +
-  'atlatılıyor, geçersiz durum geçişi, işlem sunucu hatasıyla (500) çöküyor ya da iç hata ayrıntısı (veritabanı ' +
-  'iletisi, yığın izi) kullanıcıya dönüyor, yanlış yönlendirme; S3 anlaşılmaz ya da yanıltıcı ileti, kötü hata ' +
-  'yönetimi (geçici çözüm var); S4 görünüm, metin, biçim.'
+export const SEVERITY_GUIDE = 'Önem: S1 en ağır, S4 en hafif; ölçüt talimattaki Önem tablosundadır.'
 
 /** Modelin verdiği önem (S1-S4); tanınmayan ya da boş değer orta önemdir (S3). */
 export const severityOf = (value: unknown): Severity =>

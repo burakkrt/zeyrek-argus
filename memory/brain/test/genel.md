@@ -13,12 +13,7 @@ Amaç müşterinin bulgu olarak bildireceği sorunu ondan önce bulmak ve kanıt
 4. Yetki: kişi görmemesi gerekeni görüyor ya da yapmaması gerekeni yapabiliyor.
 5. Görünüm ve metin: yalnız kullanıcıyı yanıltıyor ya da işi engelliyorsa önemli; aksi hâlde en sona.
 
-Önem (her bulguya verilir; türden ayrıdır):
-- S1 kritik: veri kaybı ya da bozulması, yetki sızıntısı, yanlış puan/hesap, akışın kilitlenmesi.
-- S2 yüksek: kural ya da zorunlu alan atlatılıyor, geçersiz durum geçişi kabul ediliyor, işlem sunucu hatasıyla (500)
-  çöküyor ya da iç hata ayrıntısı (veritabanı iletisi, yığın izi) kullanıcıya dönüyor, yanlış yönlendirme.
-- S3 orta: anlaşılmaz ya da yanıltıcı ileti, kötü hata yönetimi; kullanıcının geçici bir çözümü var.
-- S4 düşük: görünüm, metin, biçim.
+Önem tablosu (S1–S4) bütün rollerin ortak talimatındadır: `memory/brain/roles/temel.md` → Önem.
 
 Bulgu sayılmaz:
 - Tasarım tercihi, zevk, "böyle de olabilirdi" önerisi, yeni özellik isteği.

@@ -2,7 +2,7 @@ import { parseDocument } from './frontmatter.ts'
 
 /**
  * Test yöntemleri: testin nasıl yapılacağını anlatan, insanın yazıp geliştirdiği Markdown dosyaları
- * (`memory/test/*.md` platform geneli, `memory/apps/<p>/<u>/test/*.md` uygulama ve modül). Kodun içinde değil
+ * (`memory/brain/test/*.md` platform geneli, `memory/apps/<p>/<u>/test/*.md` uygulama ve modül). Kodun içinde değil
  * hafızadadır: takım Git'te düzeltir, geliştirir. Ön bilgi: `kimlik` (dizinde ve seçimde kullanılan ad), `aciklama`
  * (tek satır), `her_kosu: evet` (her koşuda yüklenir). Planlayıcı yalnız dizini görür ve isteğe uyanları seçer; seçilen
  * yöntemler sabit bütçeyle sayfanın önbellekli talimatına girer. Araç kullanımı, güvenlik ve çıktı biçimi koddadır.
@@ -16,7 +16,7 @@ export interface TestGuide {
 }
 
 /** Dosya başına ve toplam karakter bütçesi: seçilen yöntemler istemi şişirmez. */
-export const GUIDE_LIMITS = { file: 3_000, total: 10_000 }
+export const GUIDE_LIMITS = { file: 5_000, total: 12_000 }
 
 export function parseGuide(file: string, text: string): TestGuide | null {
   const { data, body } = parseDocument(text)

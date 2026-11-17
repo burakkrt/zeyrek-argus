@@ -64,14 +64,6 @@ export const KNOWLEDGE_SCHEMA = {
   additionalProperties: false,
 } as const
 
-export const KNOWLEDGE_TASK = `SAYFA BİLGİSİ GÖREVİ: Bu sayfa için önceki sayfa bilgisini ve bu koşuda yapılanları okuyup güncel sayfa bilgisini yaz. Bu bilgi sonraki koşularda planlayıcıya, gezgine ve göze verilir; amaç bir sonraki koşunun daha az harcayıp daha isabetli olması.
-Kurallar:
-- Damıt, biriktirme: yeni öğreneni ekle, bu koşuda doğrulananın güvenini artır, çelişeni düzelt, artık geçerli olmayanı ve gereksizi çıkar. Liste sınırları: ekranlar 10, beklentiler 15, kapsanan 12, kapsanmayan 8, tuhaflıklar 8; her madde tek kısa cümle.
-- beklentiler: sayfanın doğru davranışı (iş kuralı, sayılar arası ilişki, ekranlar arası tutarlılık). Ekranda doğrudan görülen ve tekrar doğrulanan → yuksek; bir kez görülen → orta; çıkarım → dusuk.
-- İnsanın kararları kesindir: "bulgu değil" denen davranış tuhaflıklara gerekçesiyle yazılır, ona aykırı beklenti silinir; "düzeltilecek" denen sorun beklentiye dönüşür.
-- kapsanmayan: bu koşuda denenmeyen ya da yarım kalan somut alanlar.
-- Veri değerlerini (sayılar, adlar) ezberleme; yapıyı ve ilişkiyi yaz ("toplam satır sayısıyla tutmalı", "Eylül kısmi veri olarak işaretli").`
-
 const clip = (value: unknown, max: number): string =>
   typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : ''
 

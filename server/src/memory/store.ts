@@ -20,13 +20,17 @@ import { ArgusError } from '../errors.ts'
 import { asList, asString, parseDocument, serializeDocument } from './frontmatter.ts'
 import type { Author } from '../author.ts'
 import { parseGuide, type TestGuide } from './guides.ts'
+import { parseRole, roleBook, type RoleBook } from './roles.ts'
 import { parseFindings, serializeFindings, type SharedFinding } from './shared.ts'
 
 /**
  * Git'te paylaşılan hafıza. Dosya düzeni:
- *   platform/rules/<id>.md                      bütün Zeyrek uygulamalarına ortak kurallar
- *   test/<kimlik>.md                            test yöntemleri (bütün uygulamalar; insan yazar, `guides.ts`)
- *   formats/<ad>.md                             çıktı biçimleri
+ *   brain/                                      Argus'un kendisi (bütün uygulamalara ortak, insanın okuyup geliştirdiği):
+ *     roles/<kimlik>.md                         rol talimatları: her rolün ne yaptığı (`roles.ts`)
+ *     test/<kimlik>.md                          test yöntemleri (`guides.ts`)
+ *     formats/<ad>.md                           çıktı biçimleri
+ *     platform/rules/<id>.md                    bütün Zeyrek uygulamalarına ortak kurallar
+ *   apps/                                       uygulamaların hafızası (koşulardan ve kararlardan birikir):
  *   apps/<proje>/<uygulama>/app.md              uygulama notları
  *   apps/<proje>/<uygulama>/rules/<id>.md       uygulamaya özel kurallar
  *   apps/<proje>/<uygulama>/test/<kimlik>.md    uygulamanın ve modüllerinin test yöntemleri (insan yazar)
@@ -35,6 +39,9 @@ import { parseFindings, serializeFindings, type SharedFinding } from './shared.t
  *   apps/<proje>/<uygulama>/pages/<sayfa>/<kimlik>.md  sayfa bilgisi (tek yazarlı, en yenisi kullanılır)
  *   apps/<proje>/<uygulama>/customer/<..>.md    içe aktarılan müşteri bulguları (isteme girmez)
  */
+
+/** Argus'un kendisinin (zekasının) klasörü (uygulama hafızası `apps/` altındadır). */
+const BRAIN = 'brain'
 
 export interface DecisionRecord {
   key: string
@@ -181,7 +188,7 @@ export class MemoryStore {
 
   /** Platform kuralları + (verildiyse) uygulamanın kuralları; bütün durumlar. Bozuk dosya atlanmaz, hata verir. */
   rules(app: AppRef | null): Rule[] {
-    const platform = this.list(join('platform', 'rules')).flatMap((rel) => this.parseRule(rel, null) ?? [])
+    const platform = this.list(join(BRAIN, 'platform', 'rules')).flatMap((rel) => this.parseRule(rel, null) ?? [])
     if (!app) return platform
     const own = this.list(join(this.appDir(app), 'rules')).flatMap((rel) => this.parseRule(rel, app) ?? [])
     return [...platform, ...own]
@@ -194,7 +201,7 @@ export class MemoryStore {
   writeRule(rule: Omit<Rule, 'file'>): Rule {
     if (!isRuleId(rule.id)) throw new ArgusError('RULE_FORMAT', `Kural kimliği geçersiz: ${rule.id} (küçük harf, rakam, tire).`)
     if (!isRuleScope(rule.scope)) throw new ArgusError('RULE_FORMAT', `Kapsam geçersiz: ${rule.scope}`)
-    const dir = rule.scope === 'platform' || !rule.app ? join('platform', 'rules') : join(this.appDir(rule.app), 'rules')
+    const dir = rule.scope === 'platform' || !rule.app ? join(BRAIN, 'platform', 'rules') : join(this.appDir(rule.app), 'rules')
     const rel = join(dir, `${rule.id}.md`)
     const data: Record<string, string | string[]> = {
       id: rule.id,
@@ -313,15 +320,20 @@ export class MemoryStore {
    */
   testGuides(app: AppRef): TestGuide[] {
     const byId = new Map<string, TestGuide>()
-    for (const rel of [...this.list('test'), ...this.list(join(this.appDir(app), 'test'))]) {
+    for (const rel of [...this.list(join(BRAIN, 'test')), ...this.list(join(this.appDir(app), 'test'))]) {
       const guide = parseGuide(rel.split(sep).join('/'), this.read(rel) ?? '')
       if (guide) byId.set(guide.id, guide)
     }
     return [...byId.values()]
   }
 
+  /** Rol talimatları (`brain/roles/*.md`); eksik rol hata verir. Her koşunun başında okunur: düzenleme sonraki koşuda geçerli. */
+  roles(): RoleBook {
+    return roleBook(this.list(join(BRAIN, 'roles')).flatMap((rel) => parseRole(this.read(rel) ?? '') ?? []))
+  }
+
   formats(): Array<{ name: string; content: string }> {
-    return this.list('formats').map((rel) => ({
+    return this.list(join(BRAIN, 'formats')).map((rel) => ({
       name: rel.split(/[\\/]/).pop()!.replace(/\.md$/, ''),
       content: this.read(rel) ?? '',
     }))

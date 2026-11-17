@@ -1,12 +1,25 @@
-# memory/ — kontrolcünün paylaşılan hafızası
+# memory/ — Argus'un zekası ve uygulamaların hafızası
 
 Bu klasör Git'e girer. Takım arkadaşın `git pull` alınca aynı eğitimli kontrolcüyle çalışır; senin kararların
 ve kuralların ona da geçer. Arayüzde **Hafıza → Dosyalar** buradaki her dosyayı düz metin olarak açar.
 
+İki ayrı bölge vardır:
+
+- **`brain/` — Argus'un kendisi.** Hangi rolün ne yaptığı, testin nasıl yapılacağı, neyin bulgu sayıldığı, önem
+  tablosu, çıktı biçimleri, bütün Zeyrek uygulamalarına ortak kurallar. Bütün uygulamalara aynı uygulanır; insan okur
+  ve geliştirir. Argus'un davranışını değiştirmek için önce buraya bakılır: davranışı anlatan metin koda yazılmaz.
+- **`apps/` — uygulamaların hafızası.** Koşulardan ve insan kararlarından birikir: bulgular, kararlar, sayfa bilgisi,
+  uygulamaya özel kurallar ve test yöntemleri.
+
+Kodda (`server/`, `ui/`, `shared/`) yalnız mekanizma durur: araçlar, güvenlik kapıları, şemalar, akış. Yerel veri
+(`data/`: koşu kayıtları, görüntüler, ayarlar) bu klasöre girmez.
+
 ```
-platform/rules/*.md              bütün Zeyrek uygulamalarına ortak kurallar
-test/*.md                        test yöntemleri: testin nasıl yapılacağı (bütün uygulamalar)
-formats/*.md                     bulgu çıktı biçimleri (Markdown şablonu)
+brain/
+  roles/*.md                     rol talimatları: her rolün ne yaptığı ve neye dikkat ettiği
+  test/*.md                      test yöntemleri: testin nasıl yapılacağı, neyin bulgu sayılmadığı
+  formats/*.md                   bulgu çıktı biçimleri (Markdown şablonu)
+  platform/rules/*.md            bütün Zeyrek uygulamalarına ortak kurallar
 apps/<proje>/<uygulama>/
   app.md                         uygulama notları (isteme girer)
   rules/*.md                     uygulamaya özel kurallar
@@ -16,6 +29,40 @@ apps/<proje>/<uygulama>/
   pages/<sayfa>/<kimlik>.md       sayfa bilgisi: kontrolcünün damıttığı (isteme en yenisi girer)
   customer/*.md                  içe aktarılan müşteri bulguları (isteme girmez)
 ```
+
+## Rol talimatları
+
+`brain/roles/` her rolün talimatıdır. Koşunun başında okunur: düzenleme sonraki koşuda geçerlidir.
+
+| Dosya | Rol | Ne zaman çalışır |
+|---|---|---|
+| `temel.md` | Ortak temel | Bütün rollerin sistem talimatı: üç yol (tanım, ekran, çalıştırma), kanıt kuralı, önem tablosu |
+| `planlayici.md` | Planlayıcı | Koşunun başında: isteği okur, kapsamı, senaryoları ve test vakalarını yazar |
+| `arastirmaci.md` | Araştırmacı | Tanım vakası: tanımı okur, test verisi kurar, çalıştırır, sonucu okur |
+| `sayfa-plani.md` | Sayfa planlayıcısı | Tarayıcıda test edilecek sayfanın görevlerini planlar |
+| `goz.md` | Göz | Gezginin ulaştığı her yeni ekranı inceler |
+| `terim-gozu.md` | Terim gözü | Sayfa sonunda etiketlerde aynı kavramın farklı adla geçtiği yeri arar |
+| `yargic.md` | Yargıç | Gezginin, gözün ve terim gözünün aday bulgusunu kayda girmeden önce denetler |
+| `gozetmen.md` | Gözetmen | Kalemler bitince kapsamı denetler, kaçmış bulguyu yazar, ek kalem ister |
+| `damitici.md` | Damıtıcı | Koşu sonunda sayfa bilgisini günceller |
+
+```
+---
+kimlik: yargic               # kodun bu dosyayı bulduğu ad; değiştirme
+rol: Yargıç
+aciklama: Tek satır; ne yaptığı
+---
+Ana metin.
+
+## Parça: son-tur               # isteğe bağlı: koşula göre eklenen metin (kod adıyla ister)
+```
+
+- `{{ad}}` yer tutucusunu kod o anın bilgisiyle doldurur (ör. sayfa planında görev sayısı). Yer tutucuyu silmek ya da
+  adını değiştirmek koşuyu nedenini söyleyerek durdurur; eksik talimatla sessizce koşulmaz.
+- Verinin kendisi (sayfa ağacı, aday bulgu, istek, bilinen sorunlar) koddan eklenir; metin yalnız talimattır.
+- Testin nasıl yapılacağı (öncelik, neye bakılır, ne bulgu sayılmaz) rol dosyasına değil test yöntemine yazılır: rol
+  "ne yaparsın", yöntem "nasıl test edilir" der.
+- Kaldırılan ya da yeni eklenen rol kodla birlikte değişir (`server/src/memory/roles.ts`, `ROLE_IDS`).
 
 ## Test yöntemleri
 
@@ -32,11 +79,11 @@ Gövde: neye, nasıl, hangi sırayla bakılacağı; neyin bulgu sayılmadığı.
 
 - Koşunun başında planlayıcı dizini görür ve isteğe uyan yöntemleri seçer (ek model çağrısı yoktur). Girdisiz sayfa
   taraması `genel` ve `arayuz` ile koşar.
-- Seçilenler koşunun önbellekli talimatına girer: dosya başına 3.000, toplam 10.000 karakter. Aşan dosya kesilir ve
+- Seçilenler koşunun önbellekli talimatına girer: dosya başına 5.000, toplam 12.000 karakter. Aşan dosya kesilir ve
   akışta söylenir; kısa ve öz yaz.
 - `arayuz` seçilmezse ekranları göz incelemez: akış ve kural testinde arayüz bulgusu gürültüdür, göz de en pahalı roldür.
 - Uygulamanın `test/` klasöründeki aynı kimlikli dosya platformunkinin yerine geçer.
-- Araç kullanımı, güvenlik kuralları ve çıktı biçimi koddadır; yöntem dosyası onları değiştiremez.
+- Araç kullanımı ve güvenlik kuralları koddadır; yöntem dosyası onları değiştiremez.
 - Yöntem değişikliği davranışı değiştirir: önemli bir değişiklikten sonra aynı isteği bir kez koşup sonucu karşılaştır.
 
 ## Çakışmasız paylaşım
@@ -114,5 +161,5 @@ işlenir. `durum`: `acik` | `duzeltilecek` | `bulgu-degil` | `duzeldi`.
 
 ## Biçim dosyası
 
-`formats/<ad>.md`: `{{baslik}}`, `{{tur}}`, `{{durum}}`, `{{sayfalar}}`, `{{senaryo}}`, `{{beklenen}}`, `{{gozlenen}}`,
+`brain/formats/<ad>.md`: `{{baslik}}`, `{{tur}}`, `{{durum}}`, `{{sayfalar}}`, `{{senaryo}}`, `{{beklenen}}`, `{{gozlenen}}`,
 `{{ekran}}`, `{{anahtar}}`, `{{ilk}}`, `{{son}}`, `{{gorulme}}`; tekrar eden bölüm `{{#yorumlar}}{{yazar}}: {{metin}}{{/yorumlar}}`.

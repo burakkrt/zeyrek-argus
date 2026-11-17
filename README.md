@@ -118,7 +118,10 @@ Sayfa başına:
 6. **Gruplama:** aynı kök neden (anahtar) uygulama genelinde tek sorundur; başka sayfada görülünce görünüm eklenir.
    Yargıç, araştırmacı ve gözetmen bulgu kaydederken bu koşuda kaydedilmiş ve modülde bilinen sorunları (tanım bulguları
    dahil) anahtarıyla görür; aynı kök nedense yeni sorun açmaz, o anahtara ekler. Yargıç adayı gezginin gördüğü pencereyle
-   ve görüntüyle denetler.
+   ve görüntüyle denetler; gözün ve terim gözünün adayını da (2026-11-17) incelendiği anda yakalanan ekranla, aday
+   başına ayrı denetler. Bu, aşağıda elenen "sayfa sonunda tek toplu yargıç" denemesinden farklıdır ama etkisi henüz
+   ölçülmedi (KOS-2026-0047'de 26 bulgunun 22'si yargıçsız göz bulgusuydu, çoğu gürültü): kabul ölçütü yakalanan gerçek
+   sorunun düşmemesi.
 
 **Tarayıcıda salt okur.** Yazma işi anlatan düğmeye ("Kaydet", "Sil", "Onaya gönder", "Oluştur"…) basmaz; veriyi değiştiren
 istekler (PUT/PATCH/DELETE, satır yazan POST) ağdan geçmez; kontrolcü bir alana yazdıktan sonra sayfa açılışında
@@ -153,7 +156,7 @@ veritabanında birbirinin koşusunu "sunucu kapandı" diye kapatıyordu.
 
 ## Test yöntemleri
 
-Testin nasıl yapılacağı `memory/test/` (bütün uygulamalar) ve `memory/apps/<p>/<u>/test/` (uygulama ve modül)
+Rollerin ne yaptığı `memory/brain/roles/`, testin nasıl yapılacağı `memory/brain/test/` (bütün uygulamalar) ve `memory/apps/<p>/<u>/test/` (uygulama ve modül)
 altındaki Markdown dosyalarındadır; takım Git'te geliştirir. Bugünkü yöntemler: `genel` (her koşuda: neyin bulgu
 olduğu, öncelik sırası, test verisi), `akis` (bir işlemi baştan sona yapmak, hata yolları, sonucun veride
 doğrulanması), `arayuz` (görünüm ve tutarlılık; seçilirse göz de çalışır), `kural`, `yetki`; uygulamada `performans` ve
@@ -207,6 +210,17 @@ kararıyla ("bulgu değil") azalır, otomatik retle değil. Yanlış kararın ka
 değil" kararı sayfanın Studio tanım izine bağlıdır, tanım değişince sorun gözden geçirilmek üzere yeniden açılır; iki
 kişinin zıt kararı "tartışmalı" kalır, bastırılmaz ve öğrenmeye girmez; kurala dayanan bulgu reddedilince kural
 "yanılttı" sayılır, iki kez yanıltan kural emekliye önerilir (`memory/README.md` §Karar dosyası).
+
+**Koşu incelemesi (KOS-2026-0048, 2026-11-17; dönem yönetimi, tam kapsam, 57 dk, 583 model çağrısı):** yaklaşık maliyetin
+%65'i göz (134 Opus çağrısı), %12'si yargıç, %7'si araştırmacıydı; en ağır iki bulgu (yönetici atamasında döngü, geçersiz
+tarihte 500) araştırmacıdan geldi. Sayfa görevlerinin 6/15'i platformun ortak tablo bileşenini (filtre, operatör,
+sıralama, sayfalama, kolonlar) test etti ve bulduğu hatalar zaten kayıtlıydı. Yargıç yeni bulgularda test verisi
+gürültüsünü sıfırladı, gerçek sorun kaybı görülmedi; önceki koşunun kapanıştaki "Önerildi" talebi bulgusu, araştırmacı
+yalnız "Bekliyor" talebi kurduğu için kaçtı. Sonuç (`memory/brain`): ortak bileşenler sayfa başına tek görevde kısa
+yoklanır (`test/arayuz.md`, `roles/sayfa-plani.md`); durum alanının her değeri ayrı test verisiyle denenir
+(`test/kural.md`, `test/akis.md`); gözetmen kalemin gerekçeli kararını yeniden açmaz (`roles/gozetmen.md`); araştırmacı
+kalemi kurulumda bırakmaz, kesilen okumayı sürdürür, aynı mekanizmayı kayıtlı anahtara eşler (`roles/arastirmaci.md`).
+Ölçüt: sonraki aynı istekli koşuda göz çağrısı ve süre düşmeli, değerli bulgular kaybolmamalı.
 
 **Abonelik ölçümü (2026-11-15; aynı 3 sayfa, aynı veri, API karşılığı):** önceki kod 3 sayfada $26,8 harcıyor, 16/24
 doğrulanmış sorunu buluyordu; maliyetin $20,9'u gözdü. Kök neden: gözün "önceki ekranların notları" her çağrıda tek metin
@@ -275,4 +289,4 @@ neden olmadığını söyler.
 | `server/src/api`      | HTTP uçları ve SSE akışı                                                                                                           |
 | `ui/`                 | Svelte 5 arayüz: shadcn-svelte + Tailwind v4, Phosphor + Material Symbols, Geist, LayerChart; kalıp `ui/src/lib/components/layout` |
 | `shared/`             | Sunucu ile arayüzün ortak türleri                                                                                                  |
-| `memory/`             | Git'te paylaşılan hafıza                                                                                                           |
+| `memory/`             | Git'te paylaşılan zeka (`brain/`: roller, test yöntemleri, biçimler, ortak kurallar) ve uygulama hafızası (`apps/`)                |

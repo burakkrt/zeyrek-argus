@@ -4,7 +4,7 @@ import { KIND_LABELS, STATUS_LABELS, type IssueDetail } from '@argus/shared'
 import { strToU8, zipSync } from 'fflate'
 
 /**
- * Çıktı biçimi: `memory/formats/<ad>.md` içindeki şablon. Alanlar `{{alan}}`, tekrar eden bölüm
+ * Çıktı biçimi: `memory/brain/formats/<ad>.md` içindeki şablon. Alanlar `{{alan}}`, tekrar eden bölüm
  * `{{#gorunumler}} … {{/gorunumler}}`. Model biçimle uğraşmaz (token harcamaz); alanları doldurur, şablon basar.
  */
 export const DEFAULT_FORMAT = `## {{baslik}}

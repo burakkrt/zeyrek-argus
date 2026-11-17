@@ -231,7 +231,7 @@ export interface RunStrategy {
   known: string[]
   infeasible: string[]
   items: StrategyItem[]
-  /** Bu koşu için seçilen test yöntemleri (`memory/test/` kimlikleri); `arayuz` seçildiyse ekranları göz de inceler. */
+  /** Bu koşu için seçilen test yöntemleri (`memory/brain/test/` kimlikleri); `arayuz` seçildiyse ekranları göz de inceler. */
   guides: string[]
 }
 

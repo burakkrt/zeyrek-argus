@@ -17,9 +17,18 @@ Bak:
 - Görsel: hiza, taşma, kesilme, üst üste binme (görüntüye bak).
 - Ekranlar arası: bir ekranda "kısmi" ya da "eksik" denen verinin başka ekranda tam sayılması, aynı sayının farklı değeri.
 
+Platformun ortak bileşenleri bütün uygulamalarda aynı koddur: tablo (kolon filtresi ve operatör menüsü, sıralama,
+sayfalama, sayfa başına satır, kolonlar menüsü, gelişmiş filtre, filtre çipleri), gezinti yolu, sekme başlığı, sol menü,
+arama penceresi. Bir uygulama sayfasında bunların genel davranışını baştan test etme; tek görevde kısa yokla (bir
+filtre, bir sıralama, bir sayfa geçişi). Ayrıntılı test edilen bu sayfaya özgü olandır: hangi kolonların olduğu ve
+adları, hücrelerdeki verinin doğruluğu ve birbiriyle tutarlılığı, sayfanın kendi düğmeleri, formları ve akışları.
+Bileşenin genel bir hatası bir kez kaydedilir; aynı hatayı başka kolonda ya da başka sayfada yeniden arama, bilinen
+sorunun anahtarıyla yeni örnek olarak ekle. İstek açıkça tablonun ya da filtrelerin kendisini test ettiriyorsa bu
+sınır kalkar.
+
 Dikkat:
 - "?" ipucundaki tanım durumu açıklıyorsa bulgu değildir. Boş liste çoğunlukla veri eksikliğidir.
 - Test amaçlı kayıt adları ("test", "silinecek", anlamsız harfler) bulgu değildir. Filtreye yazılıp henüz uygulanmamış
   değer bulgu değildir.
 - İstek bir sayfanın ya da modülün genel arayüz kalitesini test ettiriyorsa o sayfalar tam taranır (bütün bölgeler,
-  pencereler, filtreler, sekmeler).
+  pencereler, sekmeler); platformun ortak bileşenleri yukarıdaki gibi kısa yoklanır.

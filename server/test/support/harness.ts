@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -212,12 +212,22 @@ export interface Harness {
 export async function startHarness(script: Script, options: { memoryDir?: string } = {}): Promise<Harness> {
   const site = await startSite()
   const root = mkdtempSync(join(tmpdir(), 'argus-test-'))
+  // Rol talimatları depodakilerdir: testler gerçek talimatla koşar (hafızanın geri kalanı her testte boş başlar).
+  const memoryDir = options.memoryDir ?? join(root, 'memory')
+  if (!existsSync(join(memoryDir, 'brain', 'roles')))
+    cpSync(
+      fileURLToPath(new URL('../../../memory/brain/roles', import.meta.url)),
+      join(memoryDir, 'brain', 'roles'),
+      {
+        recursive: true,
+      },
+    )
   const config: Config = {
     rootDir: root,
     envFile: null,
     port: 0,
     dataDir: join(root, 'data'),
-    memoryDir: options.memoryDir ?? join(root, 'memory'),
+    memoryDir,
     zeyrekAppDir: null,
     anthropicApiKey: null,
     anthropicKeySource: null,

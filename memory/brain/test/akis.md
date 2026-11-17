@@ -13,6 +13,7 @@ Nasıl:
 3. Hata yolları: zorunlu alan boş, geçersiz değer, sınır değer, yanlış durumdaki kayıt, aynı işlemin ikinci kez
    yapılması. Her birinde işlem reddedilmeli ve kullanıcıya anlaşılır ileti dönmeli; ham teknik hata bulgudur.
 4. Yan etkiler: işlem yarıda kalırsa geride yarım kayıt kalıyor mu; bildirim, onay zinciri ve sonraki aşama doğru mu.
+   İşlem bağlı kayıtları durumlarına göre etkiliyorsa her durum değeri için bir bağlı kayıt kur (kural yöntemi, madde 7).
 5. Ekranda teyit: oluşan kaydı ilgili listede ve detayda aç; ekranda görünen ile veride yazan aynı mı.
 
 "Basit test" isteniyorsa: ana yol + en önemli 2-3 hata yolu + sonucun veride ve ekranda doğrulanması. Sayfanın tam

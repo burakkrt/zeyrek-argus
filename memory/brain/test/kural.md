@@ -11,3 +11,6 @@ Nasıl:
 4. Sessiz düzeltme bulgudur: geçersiz değerin uyarı vermeden kırpılması, yuvarlanması ya da başka değere çevrilmesi.
 5. İleti: kullanıcıya dönen ileti anlaşılır ve doğru mu; ham hata kodu, yanlış neden ya da çevrilmemiş metin bulgudur.
 6. Ekranda gösterilen kural (zorunlu işareti, açıklama, yer tutucu) tanımdaki kuralla uyuşuyor mu.
+7. Durum alanı: kural ya da işlem kayıtları bir durum alanına göre seçiyor veya değiştiriyorsa (ör. "kapanışta açık
+   talepler sonlanır"), alanın tanımdaki bütün değerlerini çıkar ve her biri için ayrı test verisi kur. Yalnız en
+   yaygın değeri denemek ara durumları (onay bekleyen, önerilmiş, askıda) kaçırır; sorgu çoğu zaman tek değere bakar.

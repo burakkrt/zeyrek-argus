@@ -44,11 +44,16 @@
 >
   <span class="flex items-center gap-1.5 text-[10px] font-bold tracking-[.08em] uppercase">
     <span style={`color:${tone}`}>{HEADLINE[finding.event.kind]}</span>
-    <span class="font-medium tracking-normal text-[#7d8698] normal-case" title={SEVERITY[finding.event.severity].hint}
-      >· {finding.event.severity}{#if caseLabel} · {caseLabel}{/if}</span
+    <span
+      class="font-medium tracking-normal text-[#7d8698] normal-case"
+      title={SEVERITY[finding.event.severity].hint}
+      >· {finding.event.severity}{#if caseLabel}
+        · {caseLabel}{/if}</span
     >
   </span>
-  <span class="line-clamp-2 text-[12.5px] leading-[17px] font-semibold text-[#eef1f6]">{finding.event.title}</span>
+  <span class="line-clamp-2 text-[12.5px] leading-[17px] font-semibold text-[#eef1f6]"
+    >{finding.event.title}</span
+  >
   <span class="absolute inset-x-0 bottom-0 block h-[2px] bg-white/[0.06]">
     <span
       class="countdown block h-full"

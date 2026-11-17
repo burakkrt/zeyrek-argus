@@ -93,7 +93,7 @@ describe('MemoryStore', () => {
     store.writeRule(rule({ id: 'sapkali-harf', pattern: '[âîû]', sources: ['musteri:K1#1'] }))
     const rules = store.rules(app)
     expect(rules.map((r) => `${r.id}:${r.scope}:${r.file}`)).toEqual([
-      'tarih-bicimi:platform:platform/rules/tarih-bicimi.md',
+      'tarih-bicimi:platform:brain/platform/rules/tarih-bicimi.md',
       'sapkali-harf:uygulama:apps/qm/web/rules/sapkali-harf.md',
     ])
     expect(rules[1]).toMatchObject({ pattern: '[âîû]', sources: ['musteri:K1#1'] })

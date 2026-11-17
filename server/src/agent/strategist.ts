@@ -8,6 +8,7 @@ import {
   type StrategyKind,
   type PlatformRead,
 } from '@argus/shared'
+import type { RoleBook } from '../memory/roles.ts'
 import type { PlatformReader } from '../platform/reader.ts'
 import type { Attachment } from '../runs/attachments.ts'
 import type { CreateMessage, MessageParams, Tool, UsageMeter } from './model.ts'
@@ -224,6 +225,8 @@ export async function planRun(input: {
   meter: UsageMeter
   model: string
   system: MessageParams['system']
+  /** Rol talimatları (`memory/brain/roles/planlayici.md`). */
+  roles: RoleBook
   reader: PlatformReader
   brief: string | null
   attachments: Attachment[]
@@ -263,38 +266,7 @@ export async function planRun(input: {
         }),
     first: [
       text(
-        `${STRATEGY_MARKER}: Kullanıcı aşağıdaki kapsamı test ettiriyor; amaç bulgu bulmak (hata, tutarsızlık, risk), soru ` +
-          'cevaplamak değil. Bu koşunun test planını yaz. Önce testin türüne karar ver: arayüz (ekranda ne görünüyor, ' +
-          'tutarlı mı, çalışıyor mu), kural/akış (hangi durumda ne olmalı, kural ve geçişler doğru işliyor mu, kullanıcı ' +
-          'uyarılıyor mu), ya da karışık. Her senaryo için beklenen davranışı ve neyin tutarsızlık sayılacağını yaz. Kural ' +
-          've akışın nasıl çalıştığı uygulamanın tanımındadır: platform_oku ile ilgili tanımları (akış, süreç, mikroservis, ' +
-          'sayfa şeması, varlık) oku ve öğrendiklerini kaynağıyla ' +
-          '"bilinenler"e yaz. Burada yalnız hangi tanımlara bakılacağını belirlemeye yetecek kadar oku; ayrıntılı okumayı tanım kalemine bırak (aynı tanım iki kez okunmasın). Sonra iş kalemlerini çıkar; her kalemin kaynağı: tanim (yalnız platform okuması), ekran ' +
-          '(tarayıcı, bir sayfada), ikisi (tanımı oku, sonucu ekranda teyit et).\n' +
-          'Kalemler TEST VAKASIDIR: her biri tek bir davranışı sınar (ana akış, geçersiz durum geçişi, zorunlu alan, ' +
-          'sınır değer, tekrar işlem, yetki); beklenen sonucu kısa ve gözlenebilir yazar, dayanağını (tanımdaki kural, akış adımı, yetki) ayrı alana. ' +
-          'Dayanağı olmayan beklenti yazma. Önce platform: test verisi kurmak, akışı çalıştırmak ve kuralı denemek ' +
-          'tanim kalemidir (tarayıcısız; yürüten koşunun ortamında platform_yaz ile test verisi yazar, akışı çalıştırır, ' +
-          'sonucu okur); tanim kalemlerini ekran kalemlerinden önce yaz. Vakaları bağımsız kur: her vaka kendi küçük ' +
-          'verisini kurar ve siler, bagimsiz=true (üçer üçer aynı anda yürür); yalnız ana akış zinciri (oluştur → ilerlet ' +
-          '→ sonuç) ve onun kaydına dayanan vaka false. Temizlik kalemi yazma: bırakılan test kayıtlarını koşunun sonunda ' +
-          'Argus siler. Ekran kalemi yalnız iddia yalnız ekranda görülebiliyorsa açılır (gösterilen metin, ileti, uyarı, ' +
-          'düğme durumu, liste gösterimi); platformda çalıştırılarak kanıtlanacak davranışı ekranda yineleme. Ekran ' +
-          'kalemi önceki kalemlerin kurduğu kaydı kullanır, test verisi kurmaz.\n' +
-          'Önce isteğin kapsamını seç; kapsam neyin test edileceğini belirler, nasıl test edileceğini değil: soru (tek ' +
-          'davranış ya da kural soruluyor: onu eksiksiz cevaplayan vakalar), degisiklik (yeni yapılan bir iş: önce ' +
-          'revision_list/revision_diff ile son değişikliği oku, değişen tanımı ve onu kullananları test et), musteri ' +
-          '(bildirilen maddeler: her madde bir vaka, hatayı yeniden üret; beklenen = maddenin söylediği doğru davranış), ' +
-          'tam (modülün ya da akışın tamamı, risk sırasıyla: para/puan hesabı, onay ve durum geçişi, yetki, başka modüle ' +
-          'yazan işlem önce). Vaka sayısı kapsamın gerektirdiği kadardır; sorulan şeyin bir yanını atlama, kapsam dışına ' +
-          'de taşma ("soru"da modülün geri kalanını test etme). İstek bulanık ya da yanlış adlandırılmışsa ' +
-          'tanımdan en yakın anlamı bul, "anlasilan"da nasıl yorumladığını açıkça yaz. İstek bir sayfanın ' +
-          'ya da modülün genel arayüz kalitesini test ettiriyorsa o sayfalar için tam_tarama=true kalem aç. Kalemler ' +
-          'kapsamı eksiksiz örtsün ama kapsam dışı genel tarama ekleme.\n\n' +
-          'Testin nasıl yapılacağı aşağıdaki test yöntemlerindedir: isteğe uyanları "yontemler"e yaz (kalemleri yürütenler ' +
-          'onları okur). arayuz seçilirse ekranları ayrıca göz inceler; istek arayüz kalitesini istemiyorsa (ör. bir ' +
-          'işlemi ya da kuralı test et) seçme. İsteğe uyan yöntem yoksa ya da istenen test bu araçlarla yapılamıyorsa ' +
-          'nedenini "yapilamayan"a yaz, tahminle doldurma.\n\n' +
+        `${STRATEGY_MARKER}: ${input.roles.text('planlayici')}\n\n` +
           `TEST YÖNTEMLERİ (kimlik — açıklama):\n${input.guides.index || '(yazılmamış)'}\n\n` +
           `İSTEK:\n${input.brief ?? '(yalnız dosya eklendi)'}\n${files}\n\n` +
           (input.selected.length

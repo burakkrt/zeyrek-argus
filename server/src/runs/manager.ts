@@ -37,7 +37,7 @@ import {
 import { inspectsScreens, normalizeItems, pageWork, planRun, scanStrategy } from '../agent/strategist.ts'
 import { supervise, SUPERVISE_ROUNDS } from '../agent/supervisor.ts'
 import { describeModelError, UsageMeter, type CreateMessage, type MessageParams } from '../agent/model.ts'
-import { appBlock, BASE_INSTRUCTIONS } from '../agent/prompts.ts'
+import { appBlock } from '../agent/prompts.ts'
 import { BrowserSession } from '../browser/session.ts'
 import type { Database } from '../db/database.ts'
 import {
@@ -240,12 +240,14 @@ export class RunManager {
         })
       // Talimatın ekleri bir kez okunur, her sayfanın planlayıcısına gider.
       const attachments = loadAttachments(this.deps.dataDir, run.options.attachments ?? [])
-      // Test yöntemleri (`memory/test/`, uygulamanın `test/`): planlayıcı dizinden seçer, seçilenler koşunun talimatına girer.
+      // Test yöntemleri (`memory/brain/test/`, uygulamanın `test/`): planlayıcı dizinden seçer, seçilenler koşunun talimatına girer.
       const guides = memory.testGuides(app)
+      // Rol talimatları (`memory/brain/roles/`) koşu başında bir kez okunur; eksik dosya koşuyu modelsiz durdurur.
+      const roles = memory.roles()
       // Anla adımı: girdi varsa güçlü model isteği çözümler (gerekirse tanımları okur) ve stratejiyi yazar; girdisiz
       // koşuda seçilen sayfalar baştan sona taranır. Koşunun sayfaları stratejinin ekran kalemlerinden gelir.
       const system: MessageParams['system'] = [
-        { type: 'text', text: BASE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: roles.text('temel'), cache_control: { type: 'ephemeral' } },
       ]
       const onRead = (reason: string, read: PlatformRead, task?: number) =>
         bus.publish(run.id, DEFINITION_PAGE, {
@@ -283,6 +285,7 @@ export class RunManager {
           ? replayStrategy(cases)
           : briefed
             ? await planRun({
+                roles,
                 createMessage: model,
                 meter,
                 model: settings.models.planner,
@@ -452,6 +455,7 @@ export class RunManager {
             title: item.title,
           })
           const summary = await investigate({
+            roles,
             createMessage: model,
             meter,
             model: settings.models.investigator,
@@ -538,6 +542,7 @@ export class RunManager {
         // Bu koşunun sayfa izi: sayfa bilgisiyle birlikte saklanır (takım genelinde "ne değişti?" dayanağı).
         let current: PagePrint | null = null
         const controller = new PageController({
+          roles,
           session: browser,
           url,
           page,
@@ -552,7 +557,7 @@ export class RunManager {
           verifyKnown: inspectsScreens(strategy),
           patterns: selection.patterns,
           system: [
-            { type: 'text', text: BASE_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: roles.text('temel'), cache_control: { type: 'ephemeral' } },
             { type: 'text', text: appBlock({ app, rules: selection, notes: memory.appNotes(app) }) },
             ...(methods.text ? [{ type: 'text' as const, text: methods.text }] : []),
           ],
@@ -679,6 +684,7 @@ export class RunManager {
         let coverage: RunCoverage | null = null
         for (let round = 1; round <= SUPERVISE_ROUNDS && !active.stop; round += 1) {
           const verdict = await supervise({
+            roles,
             createMessage: model,
             meter,
             model: settings.models.planner,
