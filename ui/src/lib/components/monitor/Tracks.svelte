@@ -1,21 +1,12 @@
 <script lang="ts">
   import type { FindingKind } from '@argus/shared'
-  import Icon from '$lib/components/Icon.svelte'
-  import {
-    ACTION_ICON,
-    FINDING_TONE,
-    formatClock,
-    pageLabel,
-    rulerTicks,
-    stackLabels,
-    type Lanes,
-  } from '$lib/monitor'
+  import { FINDING_TONE, formatClock, rulerTicks, stackLabels, type Lanes } from '$lib/monitor'
   import { cn } from '$lib/utils'
 
   /**
-   * Zaman çizelgesi şeritleri: cetvel, sayfalar (birden çoksa), görevler, adımlar (eylem ikonu, tek satır; sıkışınca
-   * üst üste biner) ve bulgular (tam başlık; çakışan alt satıra iner, en çok iki satır). Üstüne gelince açık renkli,
-   * tek satırlık ipucu çıkar (adımda ne yapıldığı, bulguda tür rozeti ve başlık); göreve ve sayfaya tıklayınca başına, adıma tıklayınca o ana gidilir, bulguya tıklayınca bulgu açılır.
+   * Zaman çizelgesi: cetvel ve yalnız bulgular (tam başlık; çakışan alt satıra iner, en çok iki satır). Sayfa, görev ve
+   * adım şeritleri kaldırıldı: adım çubuğu koşu ekranından yer aldı, akış zaten sağ panelde ve tuvalde görünür. Bulgunun
+   * üstüne gelince tür rozeti ve başlık ipucu çıkar; tıklayınca bulgu çekmecede açılır ve o an oynatılır.
    * Oynatma çizgisi hepsini keser; boş yere tıklayıp ya da çizginin tutamağını sürükleyerek saniye saniye gezilir.
    * Kesik çizgi, model düşünürken kısaltılan beklemedir. Konumlar oynatma saatindedir (ms).
    */
@@ -24,12 +15,8 @@
     duration,
     position,
     live,
-    gaps,
-    activeStep,
     selectedFinding,
-    pending,
     loading,
-    describe,
     onseek,
     onfinding,
   }: {
@@ -38,20 +25,13 @@
     position: number
     /** Canlının ucunda mı (çizgi yeşil, "şimdi"). */
     live: boolean
-    gaps: number[]
-    activeStep: number
     selectedFinding: number | null
-    /** Sonucu henüz gelmemiş canlı işlemin konumu. */
-    pending: number | null
-    /** Plan henüz yok: şeritler iskelet. */
+    /** Plan henüz yok: şerit iskelet. */
     loading: boolean
-    /** Adımın ipucu: ne yapıldı ("Yazdı · “PLN-2027”"). */
-    describe: (index: number) => string
     onseek: (position: number) => void
     onfinding: (index: number) => void
   } = $props()
 
-  const LANE = 26
   const FINDING_ROW = 24
   const TIP_HALF = 160
 
@@ -60,7 +40,6 @@
   let dragging = $state(false)
   let tip = $state<{
     text: string
-    label: string | null
     kind: FindingKind | null
     x: number
     y: number
@@ -90,7 +69,7 @@
   function showTip(
     event: MouseEvent,
     text: string,
-    { label = null, kind = null }: { label?: string | null; kind?: FindingKind | null } = {},
+    { kind = null }: { kind?: FindingKind | null } = {},
   ) {
     if (!area || dragging) return
     const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
@@ -98,7 +77,6 @@
     const center = box.left + box.width / 2 - host.left
     tip = {
       text,
-      label,
       kind,
       x: Math.min(Math.max(center, TIP_HALF), Math.max(TIP_HALF, host.width - TIP_HALF)),
       y: box.top - host.top,
@@ -149,85 +127,9 @@
         style={`width:${pct(position)}%`}
       ></span>
 
-      {#if lanes.pages.length > 1}
-        <div class="bg-surface-alt relative rounded-md" style={`height:${LANE}px`}>
-          {#each lanes.pages as page (page.page + page.start)}
-            {@const on = position >= page.start && position < page.end}
-            <button
-              type="button"
-              aria-label={`${pageLabel(page.page)} başına git`}
-              class={cn(
-                'absolute inset-y-[3px] flex items-center truncate rounded-[5px] border bg-white px-2 text-left text-xs font-medium hover:border-zinc-400',
-                on && 'border-brand-border bg-brand-soft text-brand-strong hover:border-brand-border',
-              )}
-              style={`left:calc(${pct(page.start)}% + 2px);width:calc(${pct(page.end) - pct(page.start)}% - 4px)`}
-              onmouseenter={(e) => showTip(e, page.page)}
-              onmouseleave={() => (tip = null)}
-              onclick={() => onseek(page.start)}>{pageLabel(page.page)}</button
-            >
-          {/each}
-        </div>
-      {/if}
-
       {#if loading}
-        <div class="bg-secondary animate-pulse rounded-md" style={`height:${LANE}px`}></div>
-        <div class="bg-secondary animate-pulse rounded-md" style={`height:${LANE}px`}></div>
-        <div class="bg-secondary animate-pulse rounded-md" style={`height:${LANE}px`}></div>
+        <div class="bg-secondary animate-pulse rounded-md" style={`height:${FINDING_ROW + 2}px`}></div>
       {:else}
-        <div class="bg-surface-alt relative rounded-md" style={`height:${LANE}px`}>
-          {#each lanes.tasks as task (task.page + task.index)}
-            {@const on = position >= task.start && position < task.end}
-            <button
-              type="button"
-              aria-label={`Görev ${task.index + 1}: ${task.title} — başına git`}
-              class={cn(
-                'text-muted-foreground absolute inset-y-[3px] flex items-center overflow-hidden rounded-[5px] border bg-white px-2 text-left text-xs whitespace-nowrap hover:border-zinc-400',
-                on &&
-                  'border-brand-border bg-brand-soft text-brand-strong font-medium hover:border-brand-border',
-              )}
-              style={`left:calc(${pct(task.start)}% + 2px);width:calc(${pct(task.end) - pct(task.start)}% - 4px)`}
-              onmouseenter={(e) => showTip(e, task.title, { label: `Görev ${task.index + 1}` })}
-              onmouseleave={() => (tip = null)}
-              onclick={() => onseek(task.start)}><span class="truncate">{task.title}</span></button
-            >
-          {/each}
-        </div>
-
-        <div class="bg-surface-alt relative rounded-md" style={`height:${LANE}px`}>
-          {#each gaps as gap, i (i)}
-            <span
-              class="absolute inset-y-0 w-2.5 -translate-x-1/2 bg-[repeating-linear-gradient(90deg,transparent_0_3px,rgb(0_0_0/0.08)_3px_4px)]"
-              style={`left:${pct(gap)}%`}
-            ></span>
-          {/each}
-          {#each lanes.steps as step (step.index)}
-            {@const info = describe(step.index)}
-            <button
-              type="button"
-              aria-label={info}
-              class={cn(
-                'text-muted-foreground absolute top-1 grid size-[18px] -translate-x-1/2 place-items-center rounded-[5px] border bg-white transition-colors hover:z-[2] hover:border-zinc-400',
-                step.index === activeStep && 'border-brand bg-brand z-[1] text-white hover:border-brand',
-              )}
-              style={`left:${pct(step.pos)}%`}
-              onmouseenter={(e) => showTip(e, info)}
-              onmouseleave={() => (tip = null)}
-              onclick={() => onseek(step.pos)}
-            >
-              <Icon name={ACTION_ICON[step.kind]} class="size-3" />
-              {#if step.dialog}<span
-                  class="bg-warning absolute -top-1 -right-1 size-[7px] rounded-full ring-[1.5px] ring-white"
-                ></span>{/if}
-            </button>
-          {/each}
-          {#if pending !== null}
-            <span
-              class="border-brand text-brand absolute top-1 grid size-[18px] -translate-x-1/2 place-items-center rounded-[5px] border border-dashed bg-white"
-              style={`left:${pct(pending)}%`}><Icon name="click" class="size-3" /></span
-            >
-          {/if}
-        </div>
-
         <div class="bg-surface-alt relative rounded-md" style={`height:${findingRows * FINDING_ROW + 2}px`}>
           {#each lanes.findings as finding (finding.index)}
             {@const slot = labels[finding.index]!}
@@ -278,9 +180,6 @@
         class="text-foreground pointer-events-none absolute z-[5] w-max max-w-[320px] -translate-x-1/2 -translate-y-[calc(100%+6px)] rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs leading-[17px] shadow-[0_4px_14px_rgb(16_24_40/0.12)]"
         style={`left:${tip.x}px;top:${tip.y}px`}
       >
-        {#if tip.label}<span class="text-muted-foreground mb-0.5 block text-[11px] font-medium"
-            >{tip.label}</span
-          >{/if}
         {#if tip.kind}<span
             class={cn(
               'mb-1 inline-flex rounded-[4px] border px-1.5 text-[10.5px] leading-4 font-semibold',

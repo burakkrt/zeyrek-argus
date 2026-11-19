@@ -21,6 +21,7 @@
     eyebrow,
     onclose,
     actions,
+    toolbar,
     children,
   }: {
     open: boolean
@@ -30,6 +31,8 @@
     eyebrow?: string
     onclose: () => void
     actions?: Snippet
+    /** Başlığın altında, yapışkan ikinci satır (sağa yaslı; ör. karar düğmeleri). */
+    toolbar?: Snippet
     children: Snippet
   } = $props()
 </script>
@@ -62,6 +65,9 @@
         <Icon name="close" class="size-5" />
       </Sheet.Close>
     </header>
+    {#if toolbar}
+      <div class="flex shrink-0 items-center justify-end gap-2 border-b bg-[#f9fafb] px-6 py-2">{@render toolbar()}</div>
+    {/if}
     <div class="scroll-thin min-h-0 flex-1 overflow-y-auto px-6 py-5">
       {@render children()}
     </div>

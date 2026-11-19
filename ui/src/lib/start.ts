@@ -14,7 +14,7 @@ export function startErrors(input: { brief: string; files: number; uploading: bo
   return validateFields([
     {
       id: 'girdi',
-      label: 'Girdi',
+      label: 'İstek',
       value: input.brief,
       required: input.files ? false : 'Ne test edileceğini yaz ya da dosya ekle.',
     },

@@ -57,6 +57,14 @@
   }
 }
 
+/* Yuvarlak köşeli kartın kendi kaydırması: çubuğun yolu köşe yarıçapı kadar içeriden başlar ve biter, çubuk köşeden
+   taşmaz (kart en üste ya da en alta kaydırılınca çubuk köşenin dışına çıkıyordu). `scroll-thin` ile birlikte. */
+@utility scroll-rounded {
+  &::-webkit-scrollbar-track {
+    margin-block: 12px;
+  }
+}
+
 /*
  * Renk ve ölçü Zeyrek platformunun (IMS Cortex) kabuk standardından alınır: docs/apps/qm/kabuk-ve-tasarim-standardi.md §1.
  * Zemin soğuk gri, kart beyaz, vurgu tek mavi. Seçili öğe = açık mavi zemin + kenar + koyu mavi yazı. Durum renkleri

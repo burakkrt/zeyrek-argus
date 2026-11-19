@@ -45,8 +45,15 @@ export const KNOWN_MODELS = Object.keys(PRICES)
 export class UsageMeter {
   readonly usage: Usage
 
-  constructor(private readonly provider: ModelProvider = 'api') {
-    this.usage = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, requests: 0, costUsd: 0, provider }
+  /** `initial`: koşunun önceki aşamasının kullanımı (plan onayından sonra planlamanın maliyeti eklenerek sürer). */
+  constructor(
+    private readonly provider: ModelProvider = 'api',
+    initial?: Usage,
+  ) {
+    this.usage =
+      initial && initial.provider === provider
+        ? structuredClone(initial)
+        : { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, requests: 0, costUsd: 0, provider }
   }
 
   add(model: string, message: Message, role?: ModelRole): void {

@@ -9,6 +9,9 @@ export function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return !init.method || init.method === 'GET' ? pageLoad.track(request) : request
 }
 
+/** Sayfayı gizlemeyen okuma: gösterilecek veri elde varken (ör. canlı akıştan) arka planda tazelemek için. */
+export const quietApi = <T>(path: string): Promise<T> => send<T>(path, {})
+
 async function send<T>(path: string, init: RequestInit): Promise<T> {
   const headers: Record<string, string> = {}
   if (init.body && !(init.body instanceof FormData)) headers['content-type'] = 'application/json'

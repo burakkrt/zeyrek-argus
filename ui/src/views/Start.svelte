@@ -1,7 +1,9 @@
 <script lang="ts">
-  import type { AppUserSetting, RunInfo } from '@argus/shared'
+  import type { RunInfo } from '@argus/shared'
   import { onMount } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
+  import PlanProgress from '$lib/components/run/PlanProgress.svelte'
+  import RunSummary from '$lib/components/run/RunSummary.svelte'
   import RunSteps from '$lib/components/run/RunSteps.svelte'
   import Attachments, { type AttachedFile } from '$lib/components/form/Attachments.svelte'
   import Page from '$lib/components/layout/Page.svelte'
@@ -14,11 +16,14 @@
   import { startErrors } from '$lib/start'
   import { cn } from '$lib/utils'
   import { errorOf } from '$lib/validation'
+  import { live } from '$lib/stream.svelte'
   import { workspace } from '$lib/workspace.svelte'
   import { go } from '../lib/router.svelte'
 
   /**
-   * Yeni koşu: yalnız girdi (ne test edilsin; bağlantı ve ekler); girdi konuşarak da yazılır (`Dictation`, yerel Whisper). Sayfalar koşu başında girdiden seçilir; derinlik
+   * Yeni koşu: yalnız girdi (ne test edilsin; bağlantı ve ekler); girdi konuşarak da yazılır (`Dictation`, yerel Whisper).
+   * "Koşuyu başlat"tan sonra sayfa değişmez: girdi alanının yerinde plan hazırlığı çizelgesi açılır (`PlanProgress`),
+   * plan hazır olunca planı düzenleme sayfasına (Plan) geçilir. Sayfalar koşu başında girdiden seçilir; derinlik
    * seçilmez, motor kalite öncelikli çalışır. Proje · uygulama · dal çalışma alanından, test kullanıcısı Ayarlar'daki
    * varsayılan hesaptan gelir.
    */
@@ -43,11 +48,17 @@
   let brief = $state('')
   let files = $state<AttachedFile[]>([])
   let attachments = $state<ReturnType<typeof Attachments> | null>(null)
-  let account = $state<AppUserSetting | null>(null)
   let uploading = $state(false)
   /** Başlatılınca atanacak kodun önizlemesi (sunucu ayırmaz; yenilemede tükenmez). */
   let nextCode = $state<string | null>(null)
   let starting = $state(false)
+  /** Başlatılan koşu: plan hazırlanırken girdi alanının yerinde çizelge görünür. */
+  let created = $state<RunInfo | null>(null)
+  const createdRun = $derived(created ? (live.runs[created.id] ?? created) : null)
+  $effect(() => {
+    if (createdRun && createdRun.planState !== 'hazirlaniyor' && createdRun.planState !== 'duzenleniyor')
+      go(`/plan/${createdRun.id}`)
+  })
   /** Konuşarak yazma sürerken alan salt okunur (metni konuşma yazar). */
   let dictating = $state(false)
   let dictation = $state<ReturnType<typeof Dictation> | null>(null)
@@ -96,9 +107,11 @@
         uygulama: target.application,
         ortam: target.environment,
         sayfalar: [],
-        secenekler: { brief: brief.trim() || null, attachments: files.map((f) => f.id) },
+        secenekler: { brief: brief.trim() || null, attachments: files.map((f) => f.id), reviewPlan: true },
       })
-      go(`/monitor/${run.id}`)
+      // Koşu önce planını yazar: sayfa değişmez, girdinin yerinde plan hazırlığı görünür; plan hazır olunca planı
+      // düzenleme sayfasına geçilir.
+      created = run
     } catch (e) {
       notify.error('Koşu başlatılamadı', e instanceof Error ? e.message : String(e))
       starting = false
@@ -106,14 +119,9 @@
   }
 
   onMount(() => {
-    const where = { proje: target.project, uygulama: target.application, ortam: target.environment }
-    void Promise.all([
-      api<{ accounts: AppUserSetting[] }>(`/kimlik${qs(where)}`).catch(() => null),
-      api<{ code: string }>('/kosular/siradaki-kod').catch(() => null),
-    ]).then(([identity, code]) => {
-      nextCode = code?.code ?? null
-      account = identity?.accounts.find((a) => a.isDefault) ?? identity?.accounts[0] ?? null
-    })
+    void api<{ code: string }>('/kosular/siradaki-kod')
+      .then((code) => (nextCode = code.code))
+      .catch(() => undefined)
   })
 </script>
 
@@ -126,23 +134,24 @@
 
 <Page
   title={nextCode ? `Yeni koşu · ${nextCode}` : 'Yeni koşu'}
-  description="Ne test edileceğini yaz; koşu başlayınca Koşu adımında izlenir"
 >
   {#snippet actions()}
-    <Button disabled={starting} onclick={start}>
-      <Icon name="mediaPlay" />
-      {starting ? 'Başlatılıyor…' : 'Koşuyu başlat'}
-    </Button>
+    {#if !created}
+      <Button disabled={starting} onclick={start}>
+        <Icon name="mediaPlay" />
+        {starting ? 'Başlatılıyor…' : 'Koşuyu başlat'}
+      </Button>
+    {/if}
   {/snippet}
-  {#snippet subheader()}<RunSteps run={null} current="tanim" />{/snippet}
+  {#snippet subheader()}<RunSteps run={createdRun} current="plan" />{/snippet}
   <!-- Solda girdi kabı, sağda ayrı yapışkan kutu (koşunun özeti) -->
   <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+    {#if created}
+      <div class="min-w-0"><PlanProgress runId={created.id} run={createdRun} /></div>
+    {:else}
     <div class="bg-card text-card-foreground min-w-0 rounded-xl border">
       <section class="flex flex-col gap-3 p-6">
-        {@render heading(
-          'Girdi',
-          'Ne test edileceğini ya da neye dikkat edileceğini yaz; test edilecek sayfalar buna göre seçilir.',
-        )}
+        {@render heading('Ne test edilsin?', 'Neyi test etmek istediğini anlat; Argus buna göre koşunun planını hazırlar.')}
         <FormErrors bind:this={formErrors} {errors} />
         <!-- Girdi alanı (Claude masaüstündeki gibi): içeride eklerin önizlemesi, saydam yazı alanı ve arkasında aynı
              metni biçimli çizen katman (bağlantı mavi, konuşmanın geçici kısmı italik ve soluk, sesle yazma notu soluk),
@@ -200,9 +209,9 @@
               onscroll={() => backdrop && textarea && (backdrop.scrollTop = textarea.scrollTop)}
               readonly={dictating}
               rows="6"
-              aria-label="Girdi"
-              placeholder="Ör. Performans dönemi oluşturma akışını uçtan uca test et; yönetici atama kurallarına dikkat et. Ekran görüntüsü yapıştırabilir, bağlantı ekleyebilirsin."
-              class="placeholder:text-placeholder relative block max-h-96 min-h-36 w-full resize-none bg-transparent px-3 py-2.5 text-sm leading-6 break-words text-transparent caret-[#101828] outline-none [field-sizing:content] [scrollbar-gutter:stable] selection:bg-[#cce0ff]"
+              aria-label="Ne test edilsin?"
+              placeholder="Hangi modülü, akışı ya da kuralı test edelim; nelere dikkat edilsin? Ekran görüntüsü yapıştırabilir, bağlantı ya da dosya ekleyebilirsin."
+              class="placeholder:text-placeholder relative block max-h-96 min-h-36 w-full resize-none bg-transparent px-3 py-2.5 text-sm leading-6 break-words text-transparent caret-[#101828] outline-none [field-sizing:content] [scrollbar-gutter:stable] selection:bg-[#0c66e4]/25"
             ></textarea>
           </div>
           <div class="flex items-center justify-between px-2 pb-2">
@@ -244,24 +253,14 @@
         {/if}
       </section>
     </div>
+    {/if}
 
-    <aside class="bg-card text-card-foreground rounded-xl border p-5 lg:sticky lg:top-[148px]">
-      <div class="flex flex-col gap-3">
-        {@render heading('Koşu', 'Başlatılacak koşunun özeti.')}
-        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-[13px]">
-          <dt class="text-muted-foreground">Kod</dt>
-          <dd class="text-right font-mono text-xs" title="Koşu başlatılınca atanır">{nextCode ?? '—'}</dd>
-          <dt class="text-muted-foreground">Dal</dt>
-          <dd class="truncate text-right" title="{target.project} · {target.application} · {target.environment}">
-            {target.environment}
-          </dd>
-          <dt class="text-muted-foreground">Test kullanıcısı</dt>
-          <dd class="flex min-w-0 items-center justify-end gap-1.5">
-            <span class="truncate" title={account?.identifier}>{account?.identifier ?? 'Platform jetonu'}</span>
-            <a href="#/ayarlar" class="text-primary shrink-0 text-xs hover:underline">Değiştir</a>
-          </dd>
-        </dl>
-      </div>
-    </aside>
+    <RunSummary
+      run={createdRun}
+      code={createdRun?.code ?? nextCode}
+      project={target.project}
+      application={target.application}
+      environment={target.environment}
+    />
   </div>
 </Page>

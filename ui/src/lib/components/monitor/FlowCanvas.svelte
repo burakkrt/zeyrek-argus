@@ -546,8 +546,10 @@
             title={focused ? 'Odaktan çık' : 'Bu vakaya odaklan'}
           >
             <span class={cn('dot', !tag.info.done && 'live')}></span>
-            {#if tag.info.no !== null}<span class="no">Vaka {tag.info.no}</span>{/if}
-            <span class="name">{tag.info.title}</span>
+            <span class="text">
+              {#if tag.info.no !== null}<span class="no">Vaka {tag.info.no}</span>{/if}
+              <span class="name">{tag.info.title}</span>
+            </span>
           </button>
         {/if}
       {/each}
@@ -560,9 +562,10 @@
         type="button"
         transition:fly={{ y: 8, duration: 180 }}
         onclick={() => toggleFocus(focusLane!)}
-        class="rounded-full bg-[#161b24] px-3 py-1.5 text-[12px] font-medium text-[#e6eaf1] ring-1 ring-[#262d3a] hover:bg-[#1c2230]"
+        title="Odaktan çık, bütün vakaları göster"
+        class="flex h-8 items-center gap-1.5 rounded-lg bg-[#1c2230] px-3 text-[12.5px] font-semibold text-[#e6eaf1] shadow-[0_4px_14px_rgb(0_0_0/0.35)] ring-1 ring-[#3a4456] transition-colors hover:bg-[#252c3b]"
       >
-        Tüm vakalar
+        <Icon name="close" class="size-4" />Tüm vakalar
       </button>
     {/if}
     {#if manual && active}
@@ -570,13 +573,14 @@
         type="button"
         transition:fly={{ y: 8, duration: 180 }}
         onclick={follow}
-        class="flex items-center gap-1.5 rounded-full bg-[#e6eaf1] px-3 py-1.5 text-[12px] font-medium text-[#0f131a]"
+        title="Kamerayı yeniden akışın ucuna bağla"
+        class="flex h-8 items-center gap-1.5 rounded-lg bg-[#0c66e4] px-3 text-[12.5px] font-semibold text-white shadow-[0_4px_14px_rgb(12_102_228/0.45)] transition-colors hover:bg-[#0055cc]"
       >
-        <Icon name="mediaZoom" class="size-3.5" />Akışa dön
+        <Icon name="mediaZoom" class="size-4" />Akışa dön
       </button>
     {/if}
     <div
-      class="flex items-center overflow-hidden rounded-full bg-[#161b24] text-[#aab3c2] ring-1 ring-[#262d3a]"
+      class="flex h-8 items-center overflow-hidden rounded-lg bg-[#1c2230] text-[#aab3c2] shadow-[0_4px_14px_rgb(0_0_0/0.35)] ring-1 ring-[#3a4456]"
     >
       <button
         type="button"
@@ -614,17 +618,18 @@
     background-image: radial-gradient(#212836 1px, transparent 1px);
     background-size: 20px 20px;
   }
-  /* Hat etiketi: sade, tek satır; renk yalnız noktada. Altındaki eski duraklar hafif bir perdeyle geri çekilir. */
+  /* Hat etiketi: üstte "Vaka n", altında en çok iki satır ad (okunabilsin); renk yalnız noktada. Altındaki eski duraklar
+     hafif bir perdeyle geri çekilir. */
   .tags {
     background: linear-gradient(90deg, rgba(20, 25, 34, 0.9), rgba(20, 25, 34, 0.55) 60%, transparent);
   }
   .tag {
     display: flex;
-    align-items: center;
-    gap: 7px;
-    max-width: 224px;
-    height: 26px;
-    padding: 0 10px 0 9px;
+    align-items: flex-start;
+    gap: 8px;
+    width: 228px;
+    padding: 6px 10px 7px 9px;
+    text-align: left;
     border-radius: 7px;
     transform: translateY(-50%);
     background: rgba(22, 27, 36, 0.92);
@@ -641,6 +646,7 @@
   .tag .dot {
     width: 7px;
     height: 7px;
+    margin-top: 4px;
     flex: none;
     border-radius: 50%;
     background: var(--c);
@@ -650,19 +656,28 @@
     opacity: 1;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 25%, transparent);
   }
+  .tag .text {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+  }
   .tag .no {
-    flex: none;
     font-size: 10.5px;
+    line-height: 14px;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: #9aa4b4;
   }
   .tag .name {
+    display: -webkit-box;
     overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     font-weight: 500;
+    line-height: 16px;
+    overflow-wrap: anywhere;
   }
   .glide-top {
     transition: top 0.9s cubic-bezier(0.22, 1, 0.36, 1);

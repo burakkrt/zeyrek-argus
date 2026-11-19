@@ -9,11 +9,14 @@ import {
   type RunCoverage,
   type StrategyItem,
   type AppRef,
+  type PlanState,
   type RunInfo,
+  type RunStrategy,
   type RunOptions,
   type Settings,
 } from '@argus/shared'
 import { findingReport } from '../issues/report.ts'
+import { revisionBrief, sanitizePlan } from '../agent/plan-brief.ts'
 import { severityOf } from '../issues/severity.ts'
 import { PageController } from '../agent/page-controller.ts'
 import type { Author } from '../author.ts'
@@ -40,6 +43,8 @@ import {
   setRunPages,
   startRun,
   closeRun,
+  getPlan,
+  setPlan,
 } from '../db/runs.ts'
 import { appSessionFile, getAppUser, getSettings, listAppUsers } from '../db/settings.ts'
 import { planIdentity } from '../identity/plan.ts'
@@ -141,10 +146,61 @@ export class RunManager {
       brief: input.options?.brief?.trim().slice(0, BRIEF_LIMIT) || null,
       attachments: validAttachments(this.deps.dataDir, input.options?.attachments),
       parentRunId: input.options?.parentRunId ?? null,
+      reviewPlan: input.options?.reviewPlan === true,
     }
-    const run = createRun(this.deps.db, { ...input, pages: [...new Set(input.pages)], options })
+    const created = createRun(this.deps.db, { ...input, pages: [...new Set(input.pages)], options })
+    // Plan onayı: koşu önce planını yazar, taslakta durur (`execute`); insan onaylayınca sürer.
+    if (options.reviewPlan) setPlan(this.deps.db, created.id, 'hazirlaniyor')
+    const run = getRun(this.deps.db, created.id)!
     this.deps.bus.runUpdated(run)
     void this.kick()
+    return run
+  }
+
+  /** Plan adımında insanın elle düzenlediği taslak (vakalar, senaryolar, kapsam). */
+  updatePlan(runId: string, plan: RunStrategy): RunInfo {
+    const run = this.planRun(runId, 'taslak')
+    setPlan(this.deps.db, run.id, 'taslak', sanitizePlan(plan))
+    return this.notify(run.id)
+  }
+
+  /** "Argus'a düzenlet": taslak (varsa elle düzenlenmiş hâli) ve istek planlayıcıya gider, plan yeniden yazılır. */
+  revisePlan(runId: string, feedback: string, plan?: RunStrategy): RunInfo {
+    const run = this.planRun(runId, 'taslak')
+    if (!feedback.trim()) throw new ArgusError('PLAN_ISTEK', "Argus'tan ne istediğini yaz.")
+    setPlan(this.deps.db, run.id, 'duzenleniyor', plan ? sanitizePlan(plan) : null, feedback.trim().slice(0, BRIEF_LIMIT))
+    const updated = this.notify(run.id)
+    void this.kick()
+    return updated
+  }
+
+  /** Planı onayla: koşu kayıtlı planla başlar (planlayıcı yeniden çağrılmaz). */
+  approvePlan(runId: string, plan?: RunStrategy): RunInfo {
+    const run = this.planRun(runId, 'taslak')
+    const current = plan ? sanitizePlan(plan) : getPlan(this.deps.db, run.id).plan
+    if (!current?.items.length) throw new ArgusError('PLAN_BOS', 'Planda en az bir vaka olmalı.')
+    setPlan(this.deps.db, run.id, 'onaylandi', current)
+    const updated = this.notify(run.id)
+    void this.kick()
+    return updated
+  }
+
+  private planRun(runId: string, state: PlanState): RunInfo {
+    const run = getRun(this.deps.db, runId)
+    if (!run) throw new ArgusError('RUN_NOT_FOUND', 'Koşu bulunamadı.')
+    if (run.planState !== state)
+      throw new ArgusError(
+        'PLAN_DURUMU',
+        run.planState === 'hazirlaniyor' || run.planState === 'duzenleniyor'
+          ? 'Argus planı yazıyor; bitince düzenlenebilir.'
+          : 'Bu koşunun planı onay beklemiyor.',
+      )
+    return run
+  }
+
+  private notify(runId: string): RunInfo {
+    const run = getRun(this.deps.db, runId)!
+    this.deps.bus.runUpdated(run)
     return run
   }
 
@@ -245,7 +301,8 @@ export class RunManager {
     const { db, bus, platform, memory, issues } = this.deps
     const app: AppRef = { project: run.project, application: run.application }
     const settings: Settings = getSettings(db)
-    const meter = new UsageMeter(settings.provider)
+    // Onaylanan planla süren koşu planlamanın maliyetini taşır.
+    const meter = new UsageMeter(settings.provider, run.planState === 'onaylandi' ? run.usage : undefined)
     const active = this.active!
     const runDir = join(this.deps.dataDir, 'runs', run.id)
     mkdirSync(runDir, { recursive: true })
@@ -326,7 +383,13 @@ export class RunManager {
       const catalog = briefed
         ? await platform.catalog.pages(run.project, run.application, run.environment)
         : []
-      const strategy = briefed
+      // Plan onayı: onaylanan plan kayıtlıdır, planlayıcı yeniden çağrılmaz; düzenleme isteğinde önceki taslak ve istek
+      // planlayıcıya gider.
+      const saved = run.planState ? getPlan(db, run.id) : { plan: null, feedback: null }
+      const approved = run.planState === 'onaylandi' ? saved.plan : null
+      const strategy = approved
+        ? approved
+        : briefed
         ? await planRun({
             roles,
             createMessage: model,
@@ -334,7 +397,7 @@ export class RunManager {
             model: settings.models.planner,
             system,
             reader,
-            brief: brief,
+            brief: run.planState === 'duzenleniyor' ? revisionBrief(brief, saved.plan, saved.feedback) : brief,
             attachments,
             catalog,
             selected: run.pages,
@@ -347,6 +410,16 @@ export class RunManager {
           'STRATEGY',
           'Koşunun stratejisi yazılamadı (anla adımı ilerleyemedi); girdiyi açıp yeniden deneyin.',
         )
+      if (run.planState === 'hazirlaniyor' || run.planState === 'duzenleniyor') {
+        // Taslak hazır: koşu tarayıcı açılmadan durur, insan Plan adımında düzenler ya da onaylar.
+        // Erken dönüş: bitiş yazılmaz (finally yalnız platform kapısını ve oturumu toplar). Plan sayfası canlı akıştan
+        // güncellenir, bildirim burada gider (dönüşten sonraki satırlar çalışmaz).
+        setPlan(db, run.id, 'taslak', strategy)
+        saveUsage(db, run.id, meter.usage)
+        bus.publish(run.id, null, { type: 'bilgi', message: 'Plan hazır; onayını bekliyor.' })
+        bus.runUpdated(getRun(db, run.id)!)
+        return
+      }
       bus.publish(run.id, null, { type: 'strateji', strategy })
       bus.publish(run.id, null, {
         type: 'bilgi',

@@ -34,9 +34,15 @@
 
   /**
    * Koşu onayı: koşu bitince bulgulara insan karar verir, sonra koşu kapatılır. Kartlar sürüklenip bırakılarak
-   * "İnceleme bekliyor", "Onaylandı" ve "Reddedildi" sütunlarına taşınır (karar sorunun durumuna yazılır; reddedileni
-   * Argus öğrenir). Kartın üstündeki etiket Argus'un tespit türüdür, sütun insanın kararıdır. Karta tıklayınca
-   * ayrıntısı çekmecede açılır. Bekleyen karar kalırken "Koşuyu kapat" kilitlidir.
+   * "İnceleme bekliyor", "Belirsiz", "Onaylandı" ve "Reddedildi" sütunlarına taşınır (karar sorunun durumuna yazılır;
+   * reddedileni Argus öğrenir). Kart başlığın altında önerilen çözümü gösterir: basit bulguya çekmeceyi açmadan karar
+   * verilebilir. Karta tıklayınca ayrıntısı çekmecede açılır, açık kart panoda vurgulanır, diğerleri soluklaşır;
+   * çekmecenin başlığından Onayla / Reddet / Belirsiz denir (isteğe bağlı notla), çekmece kapanır.
+   *
+   * Belirsiz (değerlendirmenin ikinci turu): insan anlamadığı kartı Belirsiz'e alır ve sorusunu yazar (zorunlu).
+   * "Belirsizleri netleştir" Argus'un bu kartları sorusuna göre yeniden yazmasını sağlar (`server/src/review/clarify.ts`);
+   * kartlar İnceleme bekliyor'a döner, insan yine karar verir. Belirsiz kalmazsa bu tur açılmaz. Belirsiz ya da bekleyen
+   * karar kalırken "Koşuyu kapat" nedenini söyler.
    *
    * "Yönlendir ve sürdür" koşuyu kapatmadan kullanıcının notuyla devam koşusu başlatır; devam koşusunun bulguları bu
    * panoya düşer (pano koşunun ve devam koşularının sorunlarını birlikte gösterir) ve sürerken koşu kapatılamaz. Devam
@@ -53,6 +59,14 @@
   let detail = $state<IssueDetail | null>(null)
   let confirm = $state(false)
   let steering = $state(false)
+  /** Çekmecedeki karar notu (onay ve retle isteğe bağlı, belirsizde zorunlu soru). */
+  let decisionNote = $state('')
+  let unclearSubmitted = $state(false)
+  const noteMissing = $derived(unclearSubmitted && !decisionNote.trim())
+  /** Panoda Belirsiz'e bırakılan kart: soru penceresi açılır. */
+  let askingUnclear = $state<string | null>(null)
+  let unclearModal = $state(false)
+  let clarifying = $state(false)
   let note = $state('')
   let sending = $state(false)
   // Yönlendirme notu zorunludur; hata ilk "Sürdür"den sonra alanda gösterilir (bildirim değil).
@@ -154,24 +168,97 @@
       .finally(() => (loading = false))
   })
 
-  /** Karar: kart yeni sütuna bırakılınca sorunun durumu yazılır; koşunun onay sayısı sunucudan tazelenir. */
-  async function move(id: string, column: ColumnId) {
+  /**
+   * Karar: kart yeni sütuna bırakılınca (ya da çekmeceden) sorunun durumu yazılır; koşunun sayıları sunucudan tazelenir.
+   * Belirsiz'e bırakmak soru ister (pencere açılır). Belirsiz'den İnceleme bekliyor'a almak belirsizliği kaldırır.
+   */
+  async function move(id: string, column: ColumnId, note: string | null = null) {
     const issue = issues.find((i) => i.id === id)
     if (!issue || !changes(issue, column) || run?.closedAt) return
-    const before = issue.status
+    if (column === 'belirsiz') {
+      if (note) return markUnclear(id, note)
+      askingUnclear = id
+      decisionNote = ''
+      unclearSubmitted = false
+      unclearModal = true
+      return
+    }
+    const before = { status: issue.status, unclear: issue.unclear }
     issue.status = statusOf(column)
+    issue.unclear = false
     try {
-      await post(`/sorunlar/${id}/karar`, { durum: issue.status })
+      await post(`/sorunlar/${id}/karar`, { durum: issue.status, not: note })
       loaded = await api<RunInfo>(`/kosular/${rootId}`)
-      if (openId === id) detail = await api<IssueDetail>(`/sorunlar/${id}`)
     } catch (e) {
-      issue.status = before
+      Object.assign(issue, before)
       notify.error('Karar kaydedilemedi', e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function markUnclear(id: string, question: string) {
+    const issue = issues.find((i) => i.id === id)
+    try {
+      const updated = await post<IssueDetail>(`/sorunlar/${id}/belirsiz`, { soru: question })
+      if (issue) Object.assign(issue, { status: updated.status, unclear: updated.unclear })
+      loaded = await api<RunInfo>(`/kosular/${rootId}`)
+    } catch (e) {
+      notify.error('Belirsiz olarak kaydedilemedi', e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** Çekmecenin başlığındaki karar: kaydedilir, çekmece kapanır. Belirsiz için not (soru) zorunludur. */
+  async function decideFromDrawer(column: ColumnId) {
+    if (!openId) return
+    if (column === 'belirsiz' && !decisionNote.trim()) {
+      unclearSubmitted = true
+      return document.getElementById('karar-not')?.focus()
+    }
+    const id = openId
+    const note = decisionNote.trim() || null
+    openId = null
+    decisionNote = ''
+    unclearSubmitted = false
+    await move(id, column, note)
+  }
+
+  /** Pano penceresinden belirsiz: soru zorunlu. */
+  async function confirmUnclear() {
+    unclearSubmitted = true
+    if (!askingUnclear || !decisionNote.trim()) return document.getElementById('belirsiz-soru')?.focus()
+    const id = askingUnclear
+    const question = decisionNote.trim()
+    unclearModal = false
+    askingUnclear = null
+    decisionNote = ''
+    unclearSubmitted = false
+    await markUnclear(id, question)
+  }
+
+  /** Netleştirme: Argus belirsiz kartları sorularına göre yeniden yazar; kartlar yeniden karar bekler. */
+  async function clarify() {
+    if (!run?.review.unclear)
+      return notify.error('Netleştirilecek bulgu yok', 'Anlamadığın kartı Belirsiz sütununa sürükleyip sorunu yaz.')
+    clarifying = true
+    try {
+      const result = await post<{ revised: number; failed: number }>(`/kosular/${rootId}/netlestir`, {})
+      await load()
+      if (result.failed)
+        notify.warning(
+          'Bir kısmı netleştirilemedi',
+          `${result.revised} bulgu yeniden yazıldı, ${result.failed} bulgu yazılamadı; yeniden deneyebilirsin.`,
+        )
+      else notify.success('Belirsizler netleştirildi', `${result.revised} bulgu yeniden yazıldı; yeniden değerlendir.`)
+    } catch (e) {
+      notify.error('Netleştirilemedi', e instanceof Error ? e.message : String(e))
+    } finally {
+      clarifying = false
     }
   }
 
   async function open(id: string) {
     openId = id
+    decisionNote = ''
+    unclearSubmitted = false
     detail = null
     detail = await api<IssueDetail>(`/sorunlar/${id}`).catch(() => null)
   }
@@ -207,6 +294,11 @@
 >
   {#snippet actions()}
     <Button variant="outline" onclick={askSteer}>Yönlendir ve sürdür</Button>
+    {#if run?.review.unclear}
+      <Button variant="outline" disabled={clarifying} onclick={clarify}>
+        {clarifying ? 'Netleştiriliyor…' : `Belirsizleri netleştir (${run.review.unclear})`}
+      </Button>
+    {/if}
     <Button onclick={askClose}>{run?.closedAt ? 'Kapatıldı' : 'Koşuyu kapat'}</Button>
   {/snippet}
   {#snippet subheader()}<RunSteps {run} current={run?.closedAt ? 'kapanis' : 'degerlendirme'} />{/snippet}
@@ -238,8 +330,8 @@
 
     <!-- Pano (Jira düzeni): beyaz kartın içinde gri sütunlar; sütun insanın kararıdır, kartlar sürüklenip bırakılır. -->
     <section class="bg-card grid gap-4 rounded-xl border p-4">
-      <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <div class="grid min-w-[240px] flex-1 gap-1.5">
+      <div class="grid gap-1.5">
+        <div class="grid gap-1.5">
           <div class="flex h-1.5 overflow-hidden rounded-full bg-[#f1f2f4]">
             <i
               class="block bg-[#1f845a] transition-[width]"
@@ -252,17 +344,15 @@
           </div>
           <p class="text-[12.5px] text-[#44546f] tabular-nums">
             <b class="font-semibold text-[#172b4d]">{total - run.review.pending}/{total}</b> karar verildi ·
-            {run.review.accepted} onaylandı · {run.review.rejected} reddedildi
+            {run.review.accepted} onaylandı · {run.review.rejected} reddedildi{#if run.review.unclear}
+              · {run.review.unclear} belirsiz{/if}{#if run.closedAt}
+              · {run.closedBy ?? ''} kapattı{/if}
           </p>
         </div>
-        <p class="text-[12.5px] text-[#44546f]">
-          {#if run.closedAt}{run.closedBy ?? ''} kapattı{:else}{blocker ??
-              'Bütün bulgular gözden geçirildi; koşu kapatılabilir.'}{/if}
-        </p>
       </div>
 
       <!-- Sütunlar her zaman aynı, tam yükseklikte (boş sütun da); kartlar sütunun içinde kayar. -->
-      <div class="grid gap-3 md:h-[calc(100svh-350px)] md:min-h-[420px] md:grid-cols-3">
+      <div class="grid gap-3 md:h-[calc(100svh-350px)] md:min-h-[420px] md:grid-cols-4">
         {#each COLUMNS as column (column.id)}
           <section
             aria-label={column.title}
@@ -296,7 +386,9 @@
               >
               <span class="ml-auto truncate text-[11.5px] text-[#626f86]">{column.hint}</span>
             </header>
-            <div class="scroll-thin grid min-h-0 content-start gap-2 overflow-y-auto px-2 pb-2">
+            <!-- Üstte 4 px boşluk: ilk kartın kenarı ve gölgesi (açık kartın mavi çerçevesi) başlığın altında kesilmesin;
+                 yatay kayma yok, kart sütuna sığar. -->
+            <div class="scroll-thin scroll-rounded grid min-h-0 content-start gap-2 overflow-x-hidden overflow-y-auto px-2 pt-1 pb-2">
               {#each columns[column.id] as issue (issue.id)}
                 <button
                   type="button"
@@ -307,18 +399,26 @@
                   }}
                   ondragend={() => (dragging = null)}
                   onclick={() => open(issue.id)}
+                  aria-current={openId === issue.id ? 'true' : undefined}
                   class={cn(
-                    'card grid gap-2.5 rounded-md bg-white px-3 py-2.5 text-left',
+                    'card grid min-w-0 gap-2 rounded-md bg-white px-3 py-2.5 text-left',
                     !run.closedAt && 'cursor-grab active:cursor-grabbing',
                     dragging === issue.id && 'dragging',
+                    openId === issue.id && 'active',
+                    openId && openId !== issue.id && 'dimmed',
                   )}
                 >
                   <span class="text-[13.5px] leading-5 font-medium text-[#172b4d]">{issue.title}</span>
-                  <span class="flex min-w-0 items-center gap-2 text-[11.5px] text-[#626f86]">
+                  {#if issue.fix}
+                    <span class="line-clamp-2 text-[12.5px] leading-[18px] text-[#44546f]"
+                      ><b class="font-semibold text-[#172b4d]">Çözüm:</b> {issue.fix}</span
+                    >
+                  {/if}
+                  <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-[11.5px] text-[#626f86]">
                     <span class={cn('size-[8px] shrink-0', MARK[issue.kind])}></span>
                     <span class={cn('font-semibold', KIND_TEXT[issue.kind])}>{KIND[issue.kind]}</span>
-                    <span class="truncate">{issue.pages.map(pageLabel).join(', ')}</span>
-                    <span class="ml-auto flex shrink-0 items-center gap-1.5">
+                    <span class="min-w-0 flex-1 truncate">{issue.pages.map(pageLabel).join(', ')}</span>
+                    <span class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                       {#if seenBefore(issue, run)}<span title="Önceki koşularda da görüldü"
                           ><Icon name="history" class="size-3.5 text-[#6941c6]" /></span
                         >{/if}
@@ -341,7 +441,11 @@
                 <p
                   class="m-1 rounded-md border border-dashed border-[#dcdfe4] px-2 py-8 text-center text-[12.5px] text-[#626f86]"
                 >
-                  {column.id === 'bekliyor' ? 'Karar bekleyen bulgu yok.' : 'Kartı buraya sürükle.'}
+                  {column.id === 'bekliyor'
+                    ? 'Karar bekleyen bulgu yok.'
+                    : column.id === 'belirsiz'
+                      ? 'Anlamadığın kartı buraya sürükle; Argus netleştirir.'
+                      : 'Kartı buraya sürükle.'}
                 </p>
               {/each}
             </div>
@@ -363,13 +467,34 @@
   onclose={() => (openId = null)}
 >
   {#snippet actions()}
-    {#if detail}<a
-        class="text-brand hover:bg-secondary inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium"
-        href={`#/bulgular/${detail.id}`}>Bulgu kaydı <Icon name="openInNew" class="size-4" /></a
-      >{/if}
+    {#if detail}
+      <a
+        class="text-brand hover:bg-secondary inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] font-medium"
+        href={`#/bulgular/${detail.id}`}
+        target="_blank"
+        rel="noreferrer"
+        title="Bulgu kaydını yeni sekmede aç">Bulgu kaydı <Icon name="openInNew" class="size-4" /></a
+      >
+    {/if}
+  {/snippet}
+  {#snippet toolbar()}
+    {#if detail && !run?.closedAt}
+      <span class="text-muted-foreground mr-auto text-[12.5px]">Karar</span>
+      <Button size="sm" variant="outline" onclick={() => decideFromDrawer('belirsiz')}>Belirsiz</Button>
+      <Button size="sm" variant="outline" onclick={() => decideFromDrawer('ret')}>Reddet</Button>
+      <Button size="sm" onclick={() => decideFromDrawer('onay')}>Onayla</Button>
+    {/if}
   {/snippet}
   {#if detail}
     {#if occurrence}
+      {#if detail.comments.length}
+        <section class="mb-5 grid gap-2 rounded-lg bg-[#f9fafb] px-3.5 py-3 text-[13px] leading-5">
+          <h3 class="text-sm font-semibold text-[#101828]">Yorumlar</h3>
+          {#each detail.comments as comment, i (i)}
+            <p class="text-[#475467]"><b class="font-semibold text-[#101828]">{comment.author}:</b> {comment.text}</p>
+          {/each}
+        </section>
+      {/if}
       <FindingReport
         title={detail.title}
         {occurrence}
@@ -386,10 +511,52 @@
     {:else}
       <p class="text-muted-foreground text-[13px]">Bu bulgunun görünümü okunamadı.</p>
     {/if}
+    {#if !run?.closedAt}
+      <div class="mt-6 border-t pt-4">
+        <Field
+          label="Not"
+          for="karar-not"
+          description="Onaylarken ya da reddederken isteğe bağlı; Belirsiz derken neyi anlamadığını yaz."
+          error={noteMissing ? 'Neyi anlamadığını yaz; Argus buna göre netleştirir.' : null}
+        >
+          <textarea
+            id="karar-not"
+            bind:value={decisionNote}
+            rows="3"
+            aria-invalid={noteMissing ? true : undefined}
+            aria-describedby={noteMissing ? 'karar-not-hata' : undefined}
+            placeholder="Ör. Bulgu doğru ama önerilen çözüm yanlış; filtre değil toplam hesabı düzeltilmeli."
+            class="placeholder:text-placeholder aria-invalid:border-destructive w-full rounded-lg border px-3 py-2 text-[13.5px] leading-5 outline-none focus:border-[#0c66e4]"
+          ></textarea>
+        </Field>
+      </div>
+    {/if}
   {:else}
     <p class="text-muted-foreground text-[13px]">Yükleniyor…</p>
   {/if}
 </Drawer>
+
+<Modal
+  bind:open={unclearModal}
+  title="Neyi anlamadın?"
+  description="Kart Belirsiz sütununa geçer. Belirsizleri netleştir dediğinde Argus kartı sorusuna göre yeniden yazar."
+>
+  <Field label="Soru" for="belirsiz-soru" required error={noteMissing ? 'Neyi anlamadığını yaz.' : null}>
+    <textarea
+      id="belirsiz-soru"
+      bind:value={decisionNote}
+      rows="4"
+      aria-invalid={noteMissing ? true : undefined}
+      aria-describedby={noteMissing ? 'belirsiz-soru-hata' : undefined}
+      placeholder="Ör. Toplam neden 5? Hangi süzgeçle bakıldı, kullanıcı bunu nerede görüyor?"
+      class="placeholder:text-placeholder aria-invalid:border-destructive w-full rounded-lg border px-3 py-2 text-[13.5px] leading-5 outline-none focus:border-[#0c66e4]"
+    ></textarea>
+  </Field>
+  {#snippet footer()}
+    <Button variant="outline" onclick={() => (unclearModal = false)}>Vazgeç</Button>
+    <Button onclick={confirmUnclear}>Belirsiz olarak işaretle</Button>
+  {/snippet}
+</Modal>
 
 <Modal
   bind:open={steering}
@@ -451,6 +618,15 @@
   }
   .card:hover {
     background: #f7f8f9;
+  }
+  /* Çekmecede açık olan kart belirgin, diğerleri soluk: hangi kartın okunduğu panoda görünür. */
+  .card.active {
+    box-shadow:
+      0 0 0 2px #0c66e4,
+      0 4px 12px -4px rgba(12, 102, 228, 0.35);
+  }
+  .card.dimmed {
+    opacity: 0.55;
   }
   .card:focus-visible {
     outline: 2px solid #0c66e4;

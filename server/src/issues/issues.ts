@@ -75,6 +75,18 @@ interface IssueRow {
   last_seen: string
   seen_count: number
   last_shot: string | null
+  unclear_at: string | null
+}
+
+/** Netleştirme adımında Argus'un yeniden yazdığı bulgu (son görünümün yerine geçer). */
+export interface IssueRevision {
+  title: string
+  scenario: string
+  expected: string
+  observed: string
+  report: FindingReport
+  /** İnsanın sorusuna yanıt; Argus'un yorumu olarak eklenir. */
+  answer: string
 }
 
 const KIND_RANK: Record<FindingKind, number> = { not: 0, tutarsizlik: 1, kesin: 2 }
@@ -132,6 +144,16 @@ export class IssueService {
       seenCount: row.seen_count,
       pages: this.pages(row.id),
       lastShot: row.last_shot,
+      unclear: !!row.unclear_at && row.status === 'acik',
+      fix:
+        json<FindingReport | null>(
+          (
+            this.db
+              .prepare('select report from occurrences where issue_id = ? and report is not null order by at desc limit 1')
+              .get(row.id) as { report: string } | undefined
+          )?.report ?? null,
+          null,
+        )?.fix || null,
     }
   }
 
@@ -455,6 +477,8 @@ export class IssueService {
   decide(id: string, status: IssueStatus, author: string, note: string | null): IssueDetail {
     const row = this.row(id)
     transaction(this.db, () => {
+      // Karar verilen bulgu belirsiz değildir.
+      this.db.prepare('update issues set unclear_at = null where id = ?').run(id)
       if (note)
         this.db
           .prepare('insert into comments (issue_id, author, text, at) values (?, ?, ?, ?)')
@@ -501,6 +525,45 @@ export class IssueService {
           .run(removed, row.id)
       return true
     })
+  }
+
+  /**
+   * İnsan bulguyu anlamadı: sorusu yorum olur, bulgu karar bekler (verilmiş karar geri alınır) ve netleştirmeyi bekler.
+   */
+  markUnclear(id: string, author: string, question: string): IssueDetail {
+    const row = this.row(id)
+    transaction(this.db, () => {
+      this.db
+        .prepare('insert into comments (issue_id, author, text, at) values (?, ?, ?, ?)')
+        .run(id, author, question, now())
+      if (row.status !== 'acik')
+        this.setStatus(row, 'acik', author, 'Belirsiz: netleştirilecek.', {
+          project: row.project,
+          application: row.application,
+        })
+      this.db.prepare('update issues set unclear_at = ? where id = ?').run(now(), id)
+    })
+    return this.detail(id)
+  }
+
+  /** Netleştirme: Argus son görünümü daha anlaşılır yazar, sorusuna yanıt verir; bulgu yeniden karar bekler. */
+  revise(id: string, revision: IssueRevision): IssueDetail {
+    this.row(id)
+    transaction(this.db, () => {
+      const last = this.db
+        .prepare('select id from occurrences where issue_id = ? order by at desc limit 1')
+        .get(id) as { id: string } | undefined
+      if (last)
+        this.db
+          .prepare('update occurrences set scenario = ?, expected = ?, observed = ?, report = ? where id = ?')
+          .run(revision.scenario, revision.expected, revision.observed, JSON.stringify(revision.report), last.id)
+      this.db.prepare('update issues set title = ?, unclear_at = null where id = ?').run(revision.title, id)
+      this.db
+        .prepare('insert into comments (issue_id, author, text, at) values (?, ?, ?, ?)')
+        .run(id, 'Argus', revision.answer, now())
+    })
+    this.writeFile(this.row(id))
+    return this.detail(id)
   }
 
   comment(id: string, author: string, text: string): IssueDetail {

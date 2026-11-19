@@ -225,6 +225,16 @@ const MIGRATIONS: string[] = [
   `
   alter table occurrences add column report text;
   `,
+  // Değerlendirmede "belirsiz": insan bulguyu anlamadı (sorusu yorumdadır); netleştirilince temizlenir.
+  `
+  alter table issues add column unclear_at text;
+  `,
+  // Plan onayı: koşunun planı (RunStrategy, JSON), durumu ve Argus'tan istenen düzenleme.
+  `
+  alter table runs add column plan text;
+  alter table runs add column plan_state text;
+  alter table runs add column plan_feedback text;
+  `,
 ]
 
 export function openDatabase(file: string): Database {

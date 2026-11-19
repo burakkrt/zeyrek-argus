@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createApi } from '../src/api/routes.ts'
 import { getRun } from '../src/db/runs.ts'
 import { refOf, startHarness, type Harness, type Script } from './support/harness.ts'
 
@@ -62,7 +63,7 @@ describe('koşu onayı', () => {
     expect(found.map((i) => i.key)).toEqual(
       expect.arrayContaining(['yz:toplam-tutmuyor', 'yz:baslik-farkli']),
     )
-    expect(getRun(h.ctx.db, run.id)!.review).toEqual({ pending: found.length, accepted: 0, rejected: 0 })
+    expect(getRun(h.ctx.db, run.id)!.review).toEqual({ pending: found.length, accepted: 0, rejected: 0, unclear: 0 })
     expect(() => h.ctx.runs.close(run.id, 'Burak')).toThrow(`${found.length} bulguya karar`)
     expect(getRun(h.ctx.db, run.id)!.closedAt).toBeNull()
 
@@ -71,7 +72,7 @@ describe('koşu onayı', () => {
     for (const issue of rest) h.ctx.issues.decide(issue.id, 'duzeltilecek', 'Burak', null)
     expect(() => h.ctx.runs.close(run.id, 'Burak')).toThrow('1 bulguya karar')
     h.ctx.issues.decide(last!.id, 'bulgu-degil', 'Burak', 'Tasarım gereği.')
-    expect(getRun(h.ctx.db, run.id)!.review).toEqual({ pending: 0, accepted: rest.length, rejected: 1 })
+    expect(getRun(h.ctx.db, run.id)!.review).toEqual({ pending: 0, accepted: rest.length, rejected: 1, unclear: 0 })
 
     const closed = h.ctx.runs.close(run.id, 'Burak')
     expect(closed.closedAt).not.toBeNull()
@@ -116,5 +117,28 @@ describe('koşu onayı', () => {
     expect(getRun(h.ctx.db, child.id)!.closedAt).not.toBeNull()
     // Kapatılmış koşu sürdürülemez.
     expect(() => h.ctx.runs.continueRun(root.id, 'Bir daha bak')).toThrow('kapatıldı')
+  })
+  it('belirsiz: soru yorum olur, bulgu karar bekler ve kapatma kapısı açılmaz; netleştirilince Argus yeniden yazar, yanıtlar', async () => {
+    const run = await start()
+    // Önceki testlerde karar verilmiş bir bulgu: belirsize alınınca kararı geri alınır, yeniden karar bekler.
+    const [first] = h.ctx.issues.list({ runId: run.id }).filter((i) => i.status !== 'acik')
+    expect(first).toBeDefined()
+    h.ctx.issues.markUnclear(first!.id, 'Ayşe', 'Toplam neden 5? Hangi süzgeçle bakıldı?')
+    expect(h.ctx.issues.detail(first!.id)).toMatchObject({ unclear: true, status: 'acik' })
+    expect(getRun(h.ctx.db, run.id)!.review.unclear).toBe(1)
+    expect(() => h.ctx.runs.close(run.id, 'Ayşe')).toThrow(/karar verilmeli/)
+
+    const api = createApi(h.ctx)
+    const response = await api.request(`/kosular/${run.id}/netlestir`, { method: 'POST' })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ revised: 1, failed: 0 })
+    const after = h.ctx.issues.detail(first!.id)
+    expect(after).toMatchObject({ unclear: false, status: 'acik', title: `${first!.title} (netleştirildi)` })
+    expect(after.fix).toBe('Toplamı süzülmüş satırlardan hesapla.')
+    expect(after.occurrences[0]!.report?.summary).toBe('Toplam sayı ile tablodaki satırlar farklı.')
+    expect(after.comments.at(-1)).toMatchObject({ author: 'Argus', text: expect.stringContaining('süzgeçten önceki') })
+    expect(getRun(h.ctx.db, run.id)!.review.unclear).toBe(0)
+    // Belirsiz kalmayınca netleştirme yeniden açılmaz.
+    expect((await api.request(`/kosular/${run.id}/netlestir`, { method: 'POST' })).status).toBe(400)
   })
 })

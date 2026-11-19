@@ -9,6 +9,8 @@ import {
   type RunStatus,
   type Usage,
   type Workspace,
+  type PlanState,
+  type RunStrategy,
 } from '@argus/shared'
 import { json, newId, now, type Database } from './database.ts'
 
@@ -38,6 +40,9 @@ interface RunRow {
   coverage: string | null
   closed_at: string | null
   closed_by: string | null
+  plan: string | null
+  plan_state: PlanState | null
+  plan_feedback: string | null
 }
 
 function counts(db: Database, runId: string): RunInfo['counts'] {
@@ -74,7 +79,21 @@ function review(db: Database, rootId: string): RunReview {
     )
     .all(rootId, rootId) as Array<{ status: string; n: number }>
   const of = (s: string) => rows.find((r) => r.status === s)?.n ?? 0
-  return { pending: of('acik'), accepted: of('duzeltilecek') + of('duzeldi'), rejected: of('bulgu-degil') }
+  const unclear = (
+    db
+      .prepare(
+        `select count(distinct i.id) as n from occurrences o join issues i on i.id = o.issue_id
+         where i.unclear_at is not null and i.status = 'acik'
+           and (o.run_id = ? or o.run_id in (select id from runs where json_extract(options, '$.parentRunId') = ?))`,
+      )
+      .get(rootId, rootId) as { n: number }
+  ).n
+  return {
+    pending: of('acik'),
+    accepted: of('duzeltilecek') + of('duzeldi'),
+    rejected: of('bulgu-degil'),
+    unclear,
+  }
 }
 
 function toInfo(db: Database, row: RunRow): RunInfo {
@@ -100,6 +119,7 @@ function toInfo(db: Database, row: RunRow): RunInfo {
     continuations: continuationsOf(db, root),
     closedAt: row.closed_at ?? null,
     closedBy: row.closed_by ?? null,
+    planState: row.plan_state ?? null,
   }
 }
 
@@ -180,9 +200,38 @@ export function recentWorkspaces(db: Database, limit = 10): Workspace[] {
 }
 
 export function nextQueuedRun(db: Database): RunInfo | null {
-  const row = db.prepare(`select * from runs where status = 'sirada' order by created_at limit 1`).get() as
-    RunRow | undefined
+  // Planı onay bekleyen koşu sırada durur ama yürütülmez.
+  const row = db
+    .prepare(
+      `select * from runs where status = 'sirada' and coalesce(plan_state, '') <> 'taslak' order by created_at limit 1`,
+    )
+    .get() as RunRow | undefined
   return row ? toInfo(db, row) : null
+}
+
+/** Koşunun planı ve Argus'tan istenen son düzenleme. */
+export function getPlan(db: Database, id: string): { plan: RunStrategy | null; feedback: string | null } {
+  const row = db.prepare('select plan, plan_feedback from runs where id = ?').get(id) as
+    | { plan: string | null; plan_feedback: string | null }
+    | undefined
+  return { plan: json<RunStrategy | null>(row?.plan ?? null, null), feedback: row?.plan_feedback ?? null }
+}
+
+/**
+ * Planın durumu. Taslak, düzenleniyor ve onaylandı koşuyu sıraya geri koyar (taslak sırada bekler, ötekiler yürütülür);
+ * plan verilirse yazılır, düzenleme isteği yalnız "düzenleniyor"da tutulur.
+ */
+export function setPlan(
+  db: Database,
+  id: string,
+  state: PlanState,
+  plan?: RunStrategy | null,
+  feedback: string | null = null,
+): void {
+  db.prepare(
+    `update runs set plan_state = ?, plan_feedback = ?, plan = coalesce(?, plan),
+       status = case when ? = 'hazirlaniyor' then status else 'sirada' end where id = ?`,
+  ).run(state, feedback, plan ? JSON.stringify(plan) : null, state, id)
 }
 
 export function setRunCoverage(db: Database, id: string, coverage: RunCoverage): void {

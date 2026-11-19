@@ -64,6 +64,7 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /** Menüde olmayan sayfalar (bir kayıttan açılanlar) ve bağlı oldukları modül. */
 const OTHER: Record<string, { label: string; module: string }> = {
+  plan: { label: 'Plan', module: 'Koşular' },
   monitor: { label: 'Koşu izleme', module: 'Koşular' },
   onay: { label: 'Değerlendirme', module: 'Koşular' },
 }

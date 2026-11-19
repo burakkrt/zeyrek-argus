@@ -45,6 +45,7 @@ apps/<proje>/<uygulama>/
 | `yargic.md` | Yargıç | Gezginin, gözün ve terim gözünün aday bulgusunu kayda girmeden önce denetler |
 | `gozetmen.md` | Gözetmen | Kalemler bitince kapsamı denetler, kaçmış bulguyu yazar, ek kalem ister |
 | `damitici.md` | Damıtıcı | Koşu sonunda sayfa bilgisini günceller |
+| `netlestirici.md` | Netleştirici | Değerlendirmede insanın anlamadığı (belirsiz) bulguyu sorusuna göre yeniden yazar, soruyu yanıtlar |
 
 ```
 ---

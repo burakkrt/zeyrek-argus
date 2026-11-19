@@ -676,7 +676,7 @@ export const FINDING_TONE: Record<
   }
 > = {
   kesin: {
-    label: 'Kesin',
+    label: 'Bulgu',
     chip: 'border-[#ecc8c5] bg-[#fbf2f1] text-[#962f2a]',
     strong: 'border-[#d6a39e] bg-[#f4dedb] text-[#842823]',
     dot: 'bg-[#b04a43]',
@@ -696,7 +696,7 @@ export const FINDING_TONE: Record<
     tag: 'bg-[#855a17]',
   },
   not: {
-    label: 'Not',
+    label: 'Şüphe',
     chip: 'border-[#cfdae6] bg-[#f3f6fa] text-[#36567a]',
     strong: 'border-[#abc0d6] bg-[#e2eaf3] text-[#2d4a6a]',
     dot: 'bg-[#5c7ea4]',

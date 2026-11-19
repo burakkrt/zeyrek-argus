@@ -1,4 +1,5 @@
 import { cpSync, existsSync, mkdtempSync } from 'node:fs'
+import { CLARIFY_MARKER } from '../../src/review/clarify.ts'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,6 +42,8 @@ export interface Script {
   supervise?: (prompt: string) => unknown
   /** Tanım kalemi: araç hamleleri; `kalemi_bitir` bitirir. Verilmezse hemen biter. */
   define?: (conversation: string, turn: number) => Move | Move[]
+  /** Netleştirme: belirsiz bulgunun yeniden yazılmış hâli (verilmezse başlığa "(netleştirildi)" eklenir). */
+  clarify?: (prompt: string) => unknown
   /** Model çağrısını cevaplamadan önce bekletir (uzun süren çağrı; durdurma testi). */
   hold?: (prompt: string) => Promise<void> | undefined
 }
@@ -144,6 +147,23 @@ export function scriptedModel(script: Script): { model: CreateMessage; calls: Me
         test_edilemeyen: [],
         kacmis_bulgular: [],
         ek_kalemler: [],
+      }
+      return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
+    }
+    if (params.output_config?.format && prompt.includes(CLARIFY_MARKER)) {
+      const title = /BULGU: (.+)/.exec(prompt)?.[1] ?? 'Bulgu'
+      const value = script.clarify?.(prompt) ?? {
+        baslik: `${title} (netleştirildi)`,
+        aciklama: 'Toplam sayı ile tablodaki satırlar farklı.',
+        sonuc: 'Kullanıcı yanlış sayıya güvenir.',
+        nerede: 'Eğitim listesi › tablo başlığı',
+        senaryo: 'Eğitim listesini aç\nToplamı ve satırları say',
+        beklenen: 'Toplam satır sayısıyla aynı',
+        gozlenen: 'Toplam 5, tabloda 3 satır',
+        kok_neden: '',
+        duzeltme: 'Toplamı süzülmüş satırlardan hesapla.',
+        kabul: ['Toplam, görünen satır sayısıyla aynı.'],
+        yanit: 'Toplam alanı süzgeçten önceki sayıyı gösteriyor; açıklamayı buna göre düzelttim.',
       }
       return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')
     }

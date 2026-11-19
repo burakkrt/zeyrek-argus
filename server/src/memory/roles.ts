@@ -20,6 +20,7 @@ export const ROLE_IDS = [
   'arastirmaci',
   'gozetmen',
   'damitici',
+  'netlestirici',
 ] as const
 export type RoleId = (typeof ROLE_IDS)[number]
 

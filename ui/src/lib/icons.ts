@@ -51,6 +51,7 @@ import add from '@material-symbols/svg-400/outlined/add.svg?raw'
 import dragIndicator from '@material-symbols/svg-400/outlined/drag_indicator.svg?raw'
 import warning from '@material-symbols/svg-400/outlined/warning.svg?raw'
 import mic from '@material-symbols/svg-400/outlined/mic.svg?raw'
+import attachFile from '@material-symbols/svg-400/outlined/attach_file.svg?raw'
 import firstPage from '@material-symbols/svg-400/outlined/first_page.svg?raw'
 import lastPage from '@material-symbols/svg-400/outlined/last_page.svg?raw'
 import upload from '@material-symbols/svg-400/outlined/upload.svg?raw'
@@ -135,6 +136,7 @@ export const icons = {
   upload,
   warning,
   mic,
+  attachFile,
   firstPage,
   lastPage,
   dragIndicator,

@@ -10,13 +10,14 @@ import {
   type IssueStatus,
   type MemoryBudget,
   type RuleScope,
+  type RunStrategy,
   type Settings,
   type StreamMessage,
 } from '@argus/shared'
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppContext } from '../context.ts'
-import { listEvents, listRuns, getRun, nextRunCode, recentWorkspaces } from '../db/runs.ts'
+import { getPlan, listEvents, listRuns, getRun, nextRunCode, recentWorkspaces } from '../db/runs.ts'
 import {
   deleteAppUser,
   forgetAppSessions,
@@ -28,6 +29,7 @@ import {
   saveSettings,
   saveWorkspace,
 } from '../db/settings.ts'
+import { clarifyIssues } from '../review/clarify.ts'
 import { ArgusError } from '../errors.ts'
 import { DEFAULT_FORMAT, issuesCsv, markdownZip } from '../memory/format.ts'
 import { platformNotes } from '../memory/platform-notes.ts'
@@ -265,9 +267,33 @@ export function createApi(ctx: AppContext): Hono {
       user?: string | null
       brief?: string | null
       attachments?: string[]
+      reviewPlan?: boolean
     }
     const run = ctx.runs.create({ ...appOf(body), environment: str(body.ortam, 'ortam'), pages, options })
     return c.json(run)
+  })
+
+  // Plan adımı: plan onayı istenen koşunun planı; elle düzenle, Argus'a düzenlet, onayla (`RunManager`).
+  const planOf = (body: Record<string, unknown>) =>
+    body.plan && typeof body.plan === 'object' ? (body.plan as RunStrategy) : undefined
+  api.get('/kosular/:id/plan', (c) => {
+    const run = getRun(ctx.db, c.req.param('id'))
+    if (!run) bad('Koşu bulunamadı.')
+    return c.json({ state: run!.planState, ...getPlan(ctx.db, run!.id) })
+  })
+  api.put('/kosular/:id/plan', async (c) => {
+    const body = (await c.req.json()) as Record<string, unknown>
+    const plan = planOf(body)
+    if (!plan) bad('plan gerekli.')
+    return c.json(ctx.runs.updatePlan(c.req.param('id'), plan!))
+  })
+  api.post('/kosular/:id/plan/duzenle', async (c) => {
+    const body = (await c.req.json()) as Record<string, unknown>
+    return c.json(ctx.runs.revisePlan(c.req.param('id'), str(body.mesaj, 'mesaj'), planOf(body)))
+  })
+  api.post('/kosular/:id/plan/onayla', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    return c.json(ctx.runs.approvePlan(c.req.param('id'), planOf(body)))
   })
 
   /** Talimata eklenen dosya (çok parçalı `dosya`); kimliği döner, koşu oluşturulurken `secenekler.attachments`e yazılır. */
@@ -412,6 +438,42 @@ export function createApi(ctx: AppContext): Hono {
     if (!ISSUE_STATUSES.includes(status)) bad('durum geçersiz.')
     const note = typeof body.not === 'string' && body.not.trim() ? body.not.trim() : null
     return c.json(ctx.issues.decide(c.req.param('id'), status, ctx.author().name, note))
+  })
+
+  /** Değerlendirmede "belirsiz": insan bulguyu anlamadı; sorusu zorunludur (netleştirmede Argus yanıtlar). */
+  api.post('/sorunlar/:id/belirsiz', async (c) => {
+    const body = (await c.req.json()) as Record<string, unknown>
+    return c.json(ctx.issues.markUnclear(c.req.param('id'), ctx.author().name, str(body.soru, 'soru')))
+  })
+
+  /**
+   * Netleştirme: koşu ailesindeki belirsiz bulguları Argus sorularına göre yeniden yazar; bulgular yeniden karar bekler.
+   * Model çağrıları sürerken istek açık kalır (bulgu başına birkaç saniye, üçü birlikte).
+   */
+  api.post('/kosular/:id/netlestir', async (c) => {
+    const run = getRun(ctx.db, c.req.param('id'))
+    if (!run) bad('Koşu bulunamadı.')
+    const root = getRun(ctx.db, run!.options.parentRunId ?? run!.id)!
+    if (root.closedAt) bad('Koşu kapatıldı; netleştirilemez.')
+    const ids = [
+      ...new Set(
+        [root.id, ...root.continuations.map((r) => r.id)].flatMap((runId) =>
+          ctx.issues
+            .list({ runId })
+            .filter((i) => i.unclear)
+            .map((i) => i.id),
+        ),
+      ),
+    ]
+    if (!ids.length) bad('Belirsiz bulgu yok.')
+    const result = await clarifyIssues({
+      ids,
+      issues: ctx.issues,
+      roles: ctx.memory.roles(),
+      createMessage: ctx.model(),
+      model: getSettings(ctx.db).models.planner,
+    })
+    return c.json({ ...result, run: getRun(ctx.db, root.id) })
   })
 
   api.post('/sorunlar/:id/yorum', async (c) => {

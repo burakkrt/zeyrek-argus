@@ -374,8 +374,13 @@
     seekPlay(clock.toPlay(at))
   }
 
-  // Bulgu çekmecede açılır; akış sürer. `seek` yalnız şeritten ve klavyeyle gezinirken: bulgudan önceki adımdan oynatılır
-  // ve bulgunun anında durulur.
+  // Bulgu çekmecede açılır; akış sürer. `seek` yalnız şeritten ve klavyeyle gezinirken: bulgudan biraz önce (önceki
+  // adımın imleç yolculuğu dahil) oynatılır, tuval o ana odaklanır ve bulgudan hemen sonra durulur (bulgunun ardından ne
+  // olduğu da görünsün).
+  /** Bulguya gidilince oynatma bulgudan bu kadar önce başlar ve bu kadar sonra durur (ms). */
+  const FINDING_LEAD_MS = 3_000
+  const FINDING_TAIL_MS = 1_500
+
   function openFinding(index: number, seek = false) {
     const finding = model.findings[index]
     if (!finding) return
@@ -391,8 +396,9 @@
     selected = index
     if (!seek) return
     const before = model.steps.filter((s) => s.at <= finding.at).at(-1)
-    seekPlay(clock.toPlay(before?.at ?? finding.at) - TRAVEL_MS - 400, true)
-    pauseAt = finding.at
+    const start = Math.min(clock.toPlay(before?.at ?? finding.at) - TRAVEL_MS - 400, clock.toPlay(finding.at) - FINDING_LEAD_MS)
+    seekPlay(Math.max(0, start), true)
+    pauseAt = Math.min(clock.end, finding.at + FINDING_TAIL_MS)
   }
 
   function moveFinding(delta: number) {
@@ -525,6 +531,8 @@
         api<RunEvent[]>(`/kosular/${runId}/olaylar`),
         api<{ frames: number[]; dropped: boolean }>(`/kosular/${runId}/kareler`),
       ])
+      // Planı onaylanmamış koşu henüz koşmuyor: izleme yerine Plan adımı açılır.
+      if (info.planState && info.planState !== 'onaylandi') return go(`/plan/${runId}`)
       run = info
       pageName.current = info.code
       events = list
@@ -577,15 +585,14 @@
   sağda her zaman açık panel (akış ya da bulgunun ayrıntısı). Kayıt tuvale iki yönde de sığar; zaman çizelgesi laptop
   boyutunda da kaydırmadan görünür.
 -->
-<Page
-  title={current ? `${current.code} · ${running ? 'Koşu sürüyor' : 'Koşu kaydı'}` : 'Koşu'}
-  description={current?.options.brief ?? current?.pages.join(', ') ?? ''}
-  class="h-[calc(100svh-56px-68px-69px)] max-w-none gap-3 px-3 py-3"
->
-  {#snippet actions()}
-    <Button onclick={nextStep}>Sıradaki: Değerlendirme</Button>
+<!-- Başlık şeridi yok: tuval yer kazansın. Koşunun kodu üstteki izde ve sekme başlığında, "Sıradaki" düğmesi adım
+     çubuğunun sağında. -->
+<Page class="h-[calc(100svh-56px-69px)] gap-3 py-3">
+  {#snippet subheader()}
+    <RunSteps run={current} current="kosu">
+      {#snippet actions()}<Button onclick={nextStep}>Sıradaki: Değerlendirme</Button>{/snippet}
+    </RunSteps>
   {/snippet}
-  {#snippet subheader()}<RunSteps run={current} current="kosu" />{/snippet}
 
   <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_clamp(300px,24vw,380px)] gap-3">
     <div
@@ -706,12 +713,8 @@
           duration={clock.duration}
           {position}
           live={atLive}
-          gaps={clock.gaps}
-          activeStep={stepIndex}
           selectedFinding={selected}
-          pending={pendingNow ? clock.toPlay(pendingNow.at) : null}
           loading={running && !planned}
-          {describe}
           onseek={(value) => seekPlay(value)}
           onfinding={(index) => openFinding(index, true)}
         />

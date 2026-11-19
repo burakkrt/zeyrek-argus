@@ -19,6 +19,7 @@
   import Memory from './views/Memory.svelte'
   import Monitor from './views/Monitor.svelte'
   import Review from './views/Review.svelte'
+  import Plan from './views/Plan.svelte'
   import Overview from './views/Overview.svelte'
   import Runs from './views/Runs.svelte'
   import Settings from './views/Settings.svelte'
@@ -36,9 +37,15 @@
   let loadError = $state<string | null>(null)
   // Yerel depolama sınırı aşıldıysa açılışta üç günde en çok bir kez (karar sunucuda) gösterilen şerit.
   let storageNotice = $state<StorageStatus | null>(null)
-  const activeRunId = $derived(
-    Object.values(live.runs).find((r) => r.status === 'calisiyor')?.id ?? status?.activeRunId ?? null,
-  )
+  // Menüdeki "Canlı koşu": yalnız gerçekten koşan koşu. Planını yazan koşu da "çalışıyor"dur ama henüz koşmuyor;
+  // onu göstermek izleme ekranını açıp Plan'a yönlendiriyordu (sayfa iki kez yükleniyordu).
+  const activeRunId = $derived.by(() => {
+    const running = Object.values(live.runs).find((r) => r.status === 'calisiyor')
+    const id = running?.id ?? status?.activeRunId ?? null
+    // Durumu bilinmeyen koşu (yenilemeden hemen sonra canlı akış henüz gelmemişken) gösterilmez; ilk güncellemede gelir.
+    const known = id ? (live.runs[id] ?? running) : null
+    return known && !(known.planState && known.planState !== 'onaylandi') ? id : null
+  })
   const statusLines = $derived([
     { ok: live.connected, label: live.connected ? 'Sunucuya bağlı' : 'Sunucu bağlantısı yok' },
     ...(status
@@ -162,6 +169,8 @@
         <Runs />
       {:else if route.parts[0] === 'monitor' && route.parts[1]}
         {#key route.parts[1]}<Monitor runId={route.parts[1]} />{/key}
+      {:else if route.parts[0] === 'plan' && route.parts[1]}
+        {#key route.parts[1]}<Plan runId={route.parts[1]} />{/key}
       {:else if route.parts[0] === 'onay' && route.parts[1]}
         {#key route.parts[1]}<Review runId={route.parts[1]} />{/key}
       {:else if route.parts[0] === 'ayarlar'}

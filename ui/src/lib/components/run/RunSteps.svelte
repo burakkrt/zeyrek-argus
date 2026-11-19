@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { RunInfo } from '@argus/shared'
+  import type { Snippet } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import { doneCount, runSteps, type StepId } from '$lib/run-steps'
   import { cn } from '$lib/utils'
 
   /**
-   * Koşunun adım çubuğu: Tanım → Koşu → Değerlendirme → Kapanış. Koşunun bütün sayfalarında (Yeni koşu, izleme,
+   * Koşunun adım çubuğu: Plan → Koşu → Değerlendirme → Kapanış. Koşunun bütün sayfalarında (Yeni koşu, plan, izleme,
    * değerlendirme) başlık şeridinin altında, ayrı ve yapışkan bir şerittir (`Page` › `subheader`). Açılmış adıma
    * tıklayınca o sayfaya gidilir, kilitli adım pasiftir.
    *
@@ -14,12 +15,21 @@
    * 13.5/18, alt yazı 11.5/15. Şerit 69 px'tir (10 px üst/alt dolgu, 1 px alt çizgi); izleme ekranı kalan yüksekliği
    * buna göre hesaplar.
    */
-  let { run, current }: { run: RunInfo | null; current: StepId } = $props()
+  let {
+    run,
+    current,
+    actions,
+  }: {
+    run: RunInfo | null
+    current: StepId
+    /** Şeridin sağında, sayacın yerine (ör. başlık şeridi olmayan izleme ekranının "Sıradaki" düğmesi). */
+    actions?: Snippet
+  } = $props()
 
   const steps = $derived(runSteps(run, current))
 </script>
 
-<nav class="strip bg-card border-b px-7 py-2.5" aria-label="Koşunun adımları">
+<nav class="strip bg-card border-b px-5 py-2.5" aria-label="Koşunun adımları">
   <span class="strip-label">Adımlar</span>
   <div class="chevrons">
     {#each steps as step, i (step.id)}
@@ -40,7 +50,11 @@
       </svelte:element>
     {/each}
   </div>
-  <span class="strip-count"><b>{doneCount(steps)}</b>/{steps.length} tamamlandı</span>
+  {#if actions}
+    <div class="ml-4 flex flex-none items-center gap-2">{@render actions()}</div>
+  {:else}
+    <span class="strip-count"><b>{doneCount(steps)}</b>/{steps.length} tamamlandı</span>
+  {/if}
 </nav>
 
 <style>

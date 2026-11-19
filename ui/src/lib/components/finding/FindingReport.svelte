@@ -2,6 +2,7 @@
   import type { Occurrence } from '@argus/shared'
   import { fileUrl } from '$lib/api'
   import { findingDocument } from '$lib/finding'
+  import { cn } from '$lib/utils'
 
   /**
    * Bulgu belgesi: akıştaki, değerlendirmedeki ve Bulgular'daki çekmecenin ortak gövdesi. Bulgunun başlığı (sebebi)
@@ -9,9 +10,9 @@
    * yakalandı (adımlar, beklenen, gerçekleşen, ekrandaki metin), Kök neden, Önerilen düzeltme (kabul ölçütleriyle),
    * Kanıt (kanıtın türü ve görüntü), Değerlendirme notu; boş bölüm çıkmaz (`findingDocument`). En altta tek satır künye.
    *
-   * Tek tip yazı: bölüm başlığı 14/600 koyu; her metin 13.5/1.6 normal ikincil renk (kalın ya da renkli vurgu yok);
-   * alt etiketler (Beklenen, Gerçekleşen, Kabul ölçütleri…) 12.5/500 soluk ve metnin üstünde, böylece etiket uzunluğu
-   * hizayı bozmaz.
+   * Tek tip yazı: bölüm başlığı 14/600 koyu; her metin 13.5/1.6 normal ikincil renk. Alt başlık yoktur: Kabul ölçütleri
+   * kendi bölümüdür. Adımlar numaralıdır (sıralıdır); Beklenen, Gerçekleşen ve Ekrandaki metin sabit etiket sütunlu
+   * (132 px) bir tablodadır.
    */
   let {
     title,
@@ -40,11 +41,13 @@
   <h3 class="mb-1 text-sm leading-5 font-semibold text-[#101828]">{title}</h3>
 {/snippet}
 
-{#snippet field(label: string, value: string)}
-  <div>
-    <p class="text-[12.5px] leading-5 font-medium text-[#98a2b3]">{label}</p>
-    <p class="[overflow-wrap:anywhere]">{value}</p>
-  </div>
+{#snippet row(label: string, value: string, strong = false)}
+  <tr class="border-t first:border-t-0">
+    <th scope="row" class="w-[132px] bg-[#f9fafb] px-3 py-2 text-left align-top text-[13px] font-medium whitespace-nowrap text-[#344054]">
+      {label}
+    </th>
+    <td class={cn('px-3 py-2 align-top [overflow-wrap:anywhere]', strong && 'text-[#101828]')}>{value}</td>
+  </tr>
 {/snippet}
 
 <div class="grid content-start gap-5 text-[13.5px] leading-[1.6] text-[#475467]">
@@ -57,33 +60,38 @@
     <section>{@render section('Sonucu')}<p>{doc.impact}</p></section>
   {/if}
   <section>{@render section('Nerede oluyor')}<p class="whitespace-pre-line">{doc.location}</p></section>
-  <section class="grid gap-2.5">
+  <section class="grid gap-3">
     <div>
       {@render section('Nasıl yakalandı')}
       {#if doc.steps.length}
-        <ul class="grid list-disc gap-0.5 pl-4 marker:text-[#98a2b3]">
-          {#each doc.steps as step, i (i)}<li>{step}</li>{/each}
-        </ul>
+        <ol class="grid list-decimal gap-0.5 pl-5 marker:font-medium marker:text-[#667085]">
+          {#each doc.steps as step, i (i)}<li class="pl-1">{step}</li>{/each}
+        </ol>
       {/if}
     </div>
-    {@render field('Beklenen', doc.expected || '—')}
-    {@render field('Gerçekleşen', doc.observed || '—')}
-    {#if doc.quote}{@render field('Ekrandaki metin', `"${doc.quote}"`)}{/if}
+    <!-- Beklenen ve gerçekleşen yan yana değil alt alta, sabit etiket sütunlu tabloda: etiket uzunluğu hizayı bozmaz. -->
+    <div class="overflow-hidden rounded-lg border">
+      <table class="w-full border-collapse text-[13.5px] leading-[1.55]">
+        <tbody>
+          {@render row('Beklenen', doc.expected || '—')}
+          {@render row('Gerçekleşen', doc.observed || '—', true)}
+          {#if doc.quote}{@render row('Ekrandaki metin', `"${doc.quote}"`)}{/if}
+        </tbody>
+      </table>
+    </div>
   </section>
   {#if doc.rootCause}
     <section>{@render section('Kök neden')}<p class="[overflow-wrap:anywhere]">{doc.rootCause}</p></section>
   {/if}
-  {#if doc.fix || doc.acceptance.length}
-    <section class="grid gap-2.5">
-      <div>{@render section('Önerilen düzeltme')}{#if doc.fix}<p>{doc.fix}</p>{/if}</div>
-      {#if doc.acceptance.length}
-        <div>
-          <p class="text-[12.5px] leading-5 font-medium text-[#98a2b3]">Kabul ölçütleri</p>
-          <ul class="grid list-disc gap-0.5 pl-4 marker:text-[#98a2b3]">
-            {#each doc.acceptance as item, i (i)}<li>{item}</li>{/each}
-          </ul>
-        </div>
-      {/if}
+  {#if doc.fix}
+    <section>{@render section('Önerilen düzeltme')}<p>{doc.fix}</p></section>
+  {/if}
+  {#if doc.acceptance.length}
+    <section>
+      {@render section('Kabul ölçütleri')}
+      <ul class="grid list-disc gap-0.5 pl-5 marker:text-[#98a2b3]">
+        {#each doc.acceptance as item, i (i)}<li class="pl-1">{item}</li>{/each}
+      </ul>
     </section>
   {/if}
   {#if doc.proof || (shot && occurrence.shot)}

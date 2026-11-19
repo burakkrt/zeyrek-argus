@@ -138,7 +138,15 @@ export interface RunOptions {
    * onayına düşer; ana koşu kapatılınca o da kapanır.
    */
   parentRunId?: string | null
+  /**
+   * Plan onayı: koşu önce planını yazar ve durur; insan planı düzenler ya da Argus'a düzenletir, onaylayınca koşu
+   * başlar (Yeni koşu hep ister; devam koşusu istemez).
+   */
+  reviewPlan?: boolean
 }
+
+/** Planın durumu: hazırlanıyor (planlayıcı yazıyor), taslak (onay bekliyor), düzenleniyor (Argus isteğe göre yeniden yazıyor), onaylandı. */
+export type PlanState = 'hazirlaniyor' | 'taslak' | 'duzenleniyor' | 'onaylandi'
 
 export interface RunInfo {
   id: string
@@ -166,14 +174,19 @@ export interface RunInfo {
   /** Koşunun kapatıldığı an ve kapatan; açıksa null. */
   closedAt: string | null
   closedBy: string | null
+  /** Plan onayı istenen koşuda planın durumu; istenmeyende null. */
+  planState: PlanState | null
   /** Ana koşunun devam koşuları (yönlendir ve sürdür), eskiden yeniye; devam koşusunda da ana koşununkiler. */
   continuations: Array<{ id: string; code: string; status: RunStatus }>
 }
 
 export interface RunReview {
+  /** Karar bekleyen (belirsizler dahil). */
   pending: number
   accepted: number
   rejected: number
+  /** İnsanın anlamadığı, netleştirilmeyi bekleyen bulgular (bekleyenlerin içinde). */
+  unclear: number
 }
 
 export interface NetworkEntry {
@@ -440,6 +453,10 @@ export interface Issue {
   seenCount: number
   pages: string[]
   lastShot: string | null
+  /** İnsan anlamadı, sorusunu yazdı; netleştirme adımında Argus kartı yeniden yazar (karar bekler). */
+  unclear: boolean
+  /** Son görünümün önerilen düzeltmesi (kartta başlığın altında); yoksa null. */
+  fix: string | null
 }
 
 /** Takım arkadaşının makinesinde görülen (Git'teki `findings/<yazar>.md`'den okunan) son görünüm; görüntüsü yoktur. */

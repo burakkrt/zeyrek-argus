@@ -22,9 +22,10 @@ const run = (over: Partial<RunInfo>): RunInfo => ({
   finishedAt: ago(1, -1 / 12),
   counts: { new: 0, repeated: 0, suppressed: 0 },
   coverage: null,
-  review: { pending: 0, accepted: 0, rejected: 0 },
+  review: { pending: 0, accepted: 0, rejected: 0, unclear: 0 },
   closedAt: null,
   closedBy: null,
+  planState: null,
   continuations: [],
   ...over,
 })
@@ -45,6 +46,8 @@ const issue = (over: Partial<Issue>): Issue => ({
   seenCount: 1,
   pages: ['a'],
   lastShot: null,
+  unclear: false,
+  fix: null,
   ...over,
 })
 

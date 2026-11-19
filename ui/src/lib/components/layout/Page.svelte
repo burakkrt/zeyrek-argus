@@ -8,7 +8,8 @@
   /**
    * Sayfa (Zeyrek kabuğu): üst çubuğun hemen altında yapışkan, kenardan kenara beyaz başlık şeridi (68 px; başlık
    * 22/600/28, açıklama 12.5/18 ikincil renk, aralarında 2 px; sağda 38 px eylem düğmeleri) ve altında içerik
-   * kapsayıcısı (en çok 1480 px, 28 px yan, 24 px dikey boşluk, bölümler arası 20 px). `title` verilmezse şerit
+   * kapsayıcısı (her sayfada aynı: tam genişlik, 20 px yan ve dikey boşluk, bölümler arası 20 px; koşu ekranı da bu
+   * genişliktedir, sayfalar arasında geçerken kap daralıp genişlemez). `title` verilmezse şerit
    * çizilmez (henüz taşınmamış sayfalar). Sayfa kendi kenar boşluğunu yazmaz.
    *
    * Açılış yüklemesi sürerken (`page-load.ts`) içerik gizli kalır ve içerik alanının görünen kısmının tam ortasında
@@ -34,7 +35,7 @@
 </script>
 
 {#if title}
-  <div class="bg-card sticky top-14 z-20 flex h-[68px] items-center gap-6 border-b px-7">
+  <div class="bg-card sticky top-14 z-20 flex h-[68px] items-center gap-6 border-b px-5">
     <div class="min-w-0 flex-1">
       <h1 class="truncate text-[22px] leading-7 font-semibold tracking-[-0.11px]">{title}</h1>
       {#if description}
@@ -69,7 +70,7 @@
 {/if}
 <!-- Yüklenirken de bağlı kalır (sayfanın istekleri buradan başlar), yalnız gizlidir. -->
 <div
-  class={cn('mx-auto flex w-full max-w-[1480px] flex-col gap-5 px-7 py-6', $pageLoad && 'hidden', className)}
+  class={cn('flex w-full flex-col gap-5 px-5 py-5', $pageLoad && 'hidden', className)}
   aria-busy={$pageLoad}
 >
   {@render children()}
