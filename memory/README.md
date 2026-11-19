@@ -25,7 +25,7 @@ apps/<proje>/<uygulama>/
   rules/*.md                     uygulamaya özel kurallar
   test/*.md                      uygulamanın ve modüllerinin test yöntemleri (kritik akışlar, kurallar)
   decisions/*.md                 sorun başına insan kararı, tarihçe ve yorumlar (Git'te union ile birleşir)
-  findings/<kimlik>.md            o kişinin makinesinde açık duran bulgular ve kayıtlı vakaları (koşu sonunda yazılır)
+  findings/<kimlik>.md            o kişinin makinesinde açık duran bulgular (koşu sonunda yazılır)
   pages/<sayfa>/<kimlik>.md       sayfa bilgisi: kontrolcünün damıttığı (isteme en yenisi girer)
   customer/*.md                  içe aktarılan müşteri bulguları (isteme girmez)
 ```
@@ -123,13 +123,6 @@ Arayüzde şapkalı harf (â, î, û) kullanılmaz.
 - Kullanım sayaçları dosyada değil, yerel veritabanında tutulur (her koşu Git'te fark üretmesin). "Yanılttı" sayacı
   kurala dayanan bulguya "bulgu değil" denince ya da "sorun sayma" kuralının bastırdığı sorun gerçek çıkınca artar;
   iki kez yanıltan (ve kullanımının yarısından fazla yanıltan) kural bakımda emekliye önerilir, insan onaylar.
-
-## Kayıtlı vaka
-
-Çalıştırılarak kanıtlanan bulgunun bulgu dosyasındaki bölümünde `adimlar:` satırı durur: bulguyu kanıtlayan platform
-çağrıları (araç, girdi, yazma mı), JSON, en çok 25 adım, girdi başına 800 karakter. "Kayıtlı vakaları doğrula" ve
-"Yayın kapısı" bunları yeniden kurar; takım arkadaşının vakası da (kendi makinende görülmemiş olsa bile) doğrulanır.
-Bozuk satır yok sayılır, bulgu kaybolmaz.
 
 ## Platform notu
 

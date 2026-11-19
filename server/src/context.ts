@@ -13,8 +13,10 @@ import type { PlatformAccess } from './platform/credentials.ts'
 import { Platform } from './platform/platform.ts'
 import { EventBus } from './runs/bus.ts'
 import { RunManager } from './runs/manager.ts'
+import { SpeechEngine } from './speech/whisper.ts'
 
 /** Sunucunun bütün servisleri. Testte platform erişimi ve model dışarıdan verilir. */
+
 export interface AppContext {
   config: Config
   db: Database
@@ -27,6 +29,8 @@ export interface AppContext {
   model: () => CreateMessage
   /** Bu makinenin yazar kimliği (otomatik; kullanıcı belirlemez). */
   author: () => Author
+  /** Sesli yazım motoru (ilk kullanımda açılır, boşta kapanır). */
+  speech: SpeechEngine
 }
 
 export function createContext(
@@ -72,5 +76,6 @@ export function createContext(
     author,
     headless: overrides.headless ?? true,
   })
-  return { config, db, bus, memory, issues, platform, learner, runs, model, author }
+  const speech = new SpeechEngine(config.dataDir)
+  return { config, db, bus, memory, issues, platform, learner, runs, model, author, speech }
 }

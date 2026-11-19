@@ -206,10 +206,24 @@ const MIGRATIONS: string[] = [
   alter table issues add column decision_print text;
   alter table rule_stats add column misled integer not null default 0;
   `,
-  // Kayıtlı vaka: kanıtlı bulgunun platform çağrıları (yeniden doğrulama, yayın kapısı).
+  // Bulgunun platform çağrıları (kaldırılan özellik; sütunlar sondaki göçle silinir).
   `
   alter table occurrences add column steps text;
   alter table shared_sightings add column steps text;
+  `,
+  // Koşu onayı: bulgulara karar verilince koşu kapatılır (kim, ne zaman).
+  `
+  alter table runs add column closed_at text;
+  alter table runs add column closed_by text;
+  `,
+  // Bulgunun platform çağrıları artık saklanmaz.
+  `
+  alter table occurrences drop column steps;
+  alter table shared_sightings drop column steps;
+  `,
+  // Bulgunun belge alanları (FindingReport, JSON).
+  `
+  alter table occurrences add column report text;
   `,
 ]
 

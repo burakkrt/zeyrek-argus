@@ -34,6 +34,7 @@
     description,
     disabled = false,
     label = 'Ekler',
+    variant = 'alan',
   }: {
     files?: AttachedFile[]
     uploading?: boolean
@@ -45,6 +46,11 @@
     description?: string
     disabled?: boolean
     label?: string
+    /**
+     * alan: sürükle-bırak kutusu ve 88 px kutucuklar. satir: kutu yok, yalnız eklenen dosyalar küçük kutucuklarla
+     * (56 px; ör. girdi alanının içinde); dosya seçmek `open()`, sürükle-bırak ve yapıştırma çağıranın `add`'iyle.
+     */
+    variant?: 'alan' | 'satir'
   } = $props()
 
   let input = $state<HTMLInputElement | null>(null)
@@ -95,7 +101,9 @@
     files = files.filter((f) => f.id !== id)
   }
 
-  const open = () => !disabled && room > 0 && input?.click()
+  export function open() {
+    if (!disabled && room > 0) input?.click()
+  }
   const hasFilesIn = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files')
 
   onDestroy(() => files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview)))
@@ -137,6 +145,42 @@
 {/snippet}
 
 <div class="text-sm" aria-label={label} role="group">
+  {#if variant === 'satir'}
+    {#if hasFiles}
+      <ul class="m-0 flex list-none flex-wrap gap-2" aria-label="Eklenen dosyalar">
+        {#each files as file (file.id)}
+          <li class="group/tile relative" title="{file.name} · {sizeText(file.size)}">
+            {#if file.preview}
+              <button
+                type="button"
+                class="bg-muted block size-14 overflow-hidden rounded-lg border"
+                aria-label="{file.name} büyüt"
+                onclick={() => (zoomed = file)}
+              >
+                <img src={file.preview} alt="" class="size-full object-cover" />
+              </button>
+            {:else}
+              <span class="bg-muted/50 grid size-14 place-items-center rounded-lg border">
+                <span class="block h-8 w-[26px]">{@render typeIcon(file.name)}</span>
+              </span>
+            {/if}
+            <button
+              type="button"
+              class="bg-card text-muted-foreground hover:text-destructive absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full border shadow-sm"
+              aria-label="{file.name} kaldır"
+              title="Kaldır"
+              onclick={() => remove(file.id)}
+            >
+              <Icon name="close" class="size-3" />
+            </button>
+          </li>
+        {/each}
+        {#each pending as item (item.key)}
+          <li><span class="bg-muted/60 block size-14 animate-pulse rounded-lg border" title={item.name}></span></li>
+        {/each}
+      </ul>
+    {/if}
+  {:else}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class={cn(
@@ -255,6 +299,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 
   <input
     bind:this={input}

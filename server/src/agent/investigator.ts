@@ -1,9 +1,10 @@
-import type { FindingKind, PlatformCall, PlatformRead, StrategyItem } from '@argus/shared'
+import type { FindingKind, PlatformRead, StrategyItem } from '@argus/shared'
 import type { RoleBook } from '../memory/roles.ts'
 import type { PlatformReader } from '../platform/reader.ts'
 import type { CreateMessage, MessageParams, Tool, UsageMeter } from './model.ts'
 import { toolLoop } from './tool-loop.ts'
 import { platformTools } from './tools.ts'
+import { REPORT_PROPERTIES } from '../issues/report.ts'
 import { SEVERITY_GUIDE } from '../issues/severity.ts'
 
 /**
@@ -78,6 +79,7 @@ const FINDING_TOOL: Tool = {
         description:
           'Bilinen ya da bu koşuda kaydedilmiş bir sorunla aynı kök nedense onun anahtarı (listeden, ör. yz:...); yeni sorunsa boş.',
       },
+      ...REPORT_PROPERTIES,
     },
     required: ['tur', 'onem', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'kaynak', 'dogrulama', 'anahtar'],
     additionalProperties: false,
@@ -119,13 +121,12 @@ export async function investigate(input: {
   known: () => string[]
   /** Her platform okuması (akışa adım olarak yazılır). */
   onRead: (reason: string, read: PlatformRead) => void
-  /** Tanım bulgusunu kaydeder (kalemde o ana dek yapılan platform çağrılarıyla: kayıtlı vaka); modele dönecek sonucu verir. */
-  record: (finding: DefinitionFinding, calls: PlatformCall[]) => string
+  /** Tanım bulgusunu kaydeder; modele dönecek sonucu verir. */
+  record: (finding: DefinitionFinding) => string
   /** Adım tavanı; yoksa DEFINITION_CEILING. */
   ceiling?: number
 }): Promise<string> {
   const tools = [...platformTools(input.reader), FINDING_TOOL, FINISH_TOOL]
-  const calls: PlatformCall[] = []
   const known = input.known()
   const result = await toolLoop<{ ozet: string; kanitlar: string[]; eksik: string }>({
     finishTool: FINISH_TOOL.name,
@@ -168,7 +169,7 @@ export async function investigate(input: {
         const finding = args as DefinitionFinding
         if (!KINDS.includes(finding.tur) || !finding.kaynak?.trim())
           return 'Kaydedilmedi: tur kesin/tutarsizlik/not olmalı ve kaynak (araç, kayıt, alan) yazılmalı.'
-        return input.record(finding, [...calls])
+        return input.record(finding)
       }
       if (name === 'platform_arac') return input.reader.describe(field('arac'))
       if (name === 'platform_oku') {
@@ -183,7 +184,6 @@ export async function investigate(input: {
           result: read,
           label: field('adim'),
         })
-        calls.push({ tool: field('arac'), input: field('girdi'), write: false })
         return read
       }
       if (name === 'platform_yaz') {
@@ -195,7 +195,6 @@ export async function investigate(input: {
           write: true,
           label: field('adim'),
         })
-        calls.push({ tool: field('arac'), input: field('girdi'), write: true })
         return written
       }
       return `Bilinmeyen araç: ${name}`

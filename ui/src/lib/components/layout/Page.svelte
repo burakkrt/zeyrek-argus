@@ -19,12 +19,15 @@
     title,
     description,
     actions,
+    subheader,
     children,
     class: className,
   }: {
     title?: string
     description?: string
     actions?: Snippet
+    /** Başlık şeridinin altında, kenardan kenara ayrı yapışkan şerit (ör. koşunun adım çubuğu). */
+    subheader?: Snippet
     children: Snippet
     class?: string
   } = $props()
@@ -41,11 +44,16 @@
       {/if}
     </div>
     {#if actions}<div class="flex shrink-0 items-center gap-2">{@render actions()}</div>{/if}
-    <!-- Bildirimler: başlık şeridinin hemen altında, eylem düğmelerinin altında (şeritle birlikte yapışkan). -->
-    <div class="absolute top-full right-7 z-40 mt-3"><Notifications /></div>
   </div>
-{:else}
-  <div class="sticky top-14 z-40 h-0"><div class="absolute top-3 right-7"><Notifications /></div></div>
+{/if}
+<!-- Bildirimler: başlık şeridinin hemen altında, eylem düğmelerinin altında. Sabit katmandadır: kayarak girerken sayfa
+     akışını genişletmez (yatay ve dikey kaydırma çubuğu bir an açılıp sıçratıyordu). -->
+<div class={cn('pointer-events-none fixed right-7 z-40', title ? 'top-[136px]' : 'top-[68px]')}>
+  <Notifications />
+</div>
+
+{#if subheader}
+  <div class={cn('sticky z-[19]', title ? 'top-[124px]' : 'top-14')}>{@render subheader()}</div>
 {/if}
 
 {#if $pageLoad}

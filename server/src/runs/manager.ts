@@ -4,11 +4,8 @@ import {
   DEFINITION_PAGE,
   moduleOf,
   RUN_CEILINGS,
-  RUN_MODES,
   SCOPE_LABELS,
-  type PlatformCall,
   type PlatformRead,
-  type RunMode,
   type RunCoverage,
   type StrategyItem,
   type AppRef,
@@ -16,16 +13,8 @@ import {
   type RunOptions,
   type Settings,
 } from '@argus/shared'
+import { findingReport } from '../issues/report.ts'
 import { severityOf } from '../issues/severity.ts'
-import {
-  caseSteps,
-  closesItself,
-  FIXED_MARK,
-  gateBrief,
-  gateVerdict,
-  replayItems,
-  replayStrategy,
-} from './regression.ts'
 import { PageController } from '../agent/page-controller.ts'
 import type { Author } from '../author.ts'
 import {
@@ -50,6 +39,7 @@ import {
   setRunCoverage,
   setRunPages,
   startRun,
+  closeRun,
 } from '../db/runs.ts'
 import { appSessionFile, getAppUser, getSettings, listAppUsers } from '../db/settings.ts'
 import { planIdentity } from '../identity/plan.ts'
@@ -92,11 +82,19 @@ interface ActiveRun {
   id: string
   stop: boolean
   steering: string[]
+  /** Durdurulunca reddolur: süren model çağrısı beklenmez (planlayıcının tek çağrısı dakikalar sürebilir). */
+  halted: Promise<never>
+  halt: () => void
 }
 
+const STOPPED = 'Koşu durduruldu.'
+
 /** Koşuları sırayla yürütür (aynı anda tek koşu). Sunucu açılırken yarım kalanlar "hata" ile kapanır. */
-/** Talimatın üst sınırı (karakter): isteme sınırsız metin girmesin. */
-const BRIEF_LIMIT = 2_000
+/**
+ * Talimatın güvenlik sınırı (karakter). Kullanıcıya sınır gösterilmez: uzun bir istem yapıştırılabilir; bu yalnız
+ * kazara dev bir metnin (ör. yanlış dosya) modele gitmesini önler.
+ */
+const BRIEF_LIMIT = 100_000
 
 export class RunManager {
   private active: ActiveRun | null = null
@@ -118,19 +116,16 @@ export class RunManager {
     options?: Partial<RunOptions>
   }): RunInfo {
     assertNotProduction(input.environment)
-    const mode: RunMode = RUN_MODES.includes(input.options?.mode as RunMode) ? input.options!.mode! : 'normal'
-    // Sayfa seçmek isteğe bağlıdır: yalnız girdi (ya da ek) verilirse sayfalar koşu başında girdiden seçilir.
-    if (
-      mode === 'normal' &&
-      !input.pages.length &&
-      !input.options?.brief?.trim() &&
-      !input.options?.attachments?.length
-    )
-      throw new ArgusError('NO_PAGES', 'Sayfa seçin ya da girdi yazın.')
-    if (mode === 'tekrar' && !this.deps.issues.recordedCases(input).length)
+    // Koşunun kapsamı girdiden (ya da ekten) çıkar: sayfalar koşu başında girdiye göre seçilir. Sayfa listesini yalnız
+    // devam koşusu taşır (ana koşunun sayfaları).
+    if (!input.pages.length && !input.options?.brief?.trim() && !input.options?.attachments?.length)
+      throw new ArgusError('NO_BRIEF', 'Ne test edileceğini girdiye yazın ya da dosya ekleyin.')
+    // UTF-8 olmayan metin (ör. komut satırından yanlış kodlamayla gönderilen) çözülemeyen karakterlerle (�) gelir;
+    // kaydedilirse girdi ve başlık okunmaz olur (KOS-2026-0036, 0050). Sessizce kaydetmek yerine nedeni söylenir.
+    if (input.options?.brief?.includes('�'))
       throw new ArgusError(
-        'NO_CASES',
-        'Yeniden doğrulanacak kayıtlı vaka yok: çalıştırılarak kanıtlanmış açık bulgu oluşunca vakası saklanır.',
+        'GIRDI_KODLAMA',
+        'Girdide çözülemeyen karakter var; metin UTF-8 olarak gönderilmemiş. Metni yeniden yapıştırıp deneyin.',
       )
     // Görev ve adım kullanıcıya bırakılmaz (kalite önceliklidir); tavanlar yalnız kaçağı durdurur.
     const options: RunOptions = {
@@ -145,7 +140,7 @@ export class RunManager {
       user: input.options?.user?.trim() || null,
       brief: input.options?.brief?.trim().slice(0, BRIEF_LIMIT) || null,
       attachments: validAttachments(this.deps.dataDir, input.options?.attachments),
-      mode,
+      parentRunId: input.options?.parentRunId ?? null,
     }
     const run = createRun(this.deps.db, { ...input, pages: [...new Set(input.pages)], options })
     this.deps.bus.runUpdated(run)
@@ -154,7 +149,10 @@ export class RunManager {
   }
 
   stop(runId: string): void {
-    if (this.active?.id === runId) this.active.stop = true
+    if (this.active?.id === runId) {
+      this.active.stop = true
+      this.active.halt()
+    }
     else {
       const run = getRun(this.deps.db, runId)
       if (run?.status === 'sirada') {
@@ -162,6 +160,62 @@ export class RunManager {
         this.deps.bus.runUpdated(getRun(this.deps.db, runId)!)
       }
     }
+  }
+
+  /**
+   * Koşuyu kapatır: koşu bitmiş olmalı ve her bulgusuna insan karar vermiş olmalı (onay ya da ret). Kapatılmış koşuyu
+   * yeniden kapatmak bir şey değiştirmez.
+   */
+  close(runId: string, author: string): RunInfo {
+    const run = this.rootOf(runId)
+    if (run.status === 'sirada' || run.status === 'calisiyor')
+      throw new ArgusError('KOSU_SURUYOR', 'Koşu bitmeden kapatılamaz.')
+    if (run.continuations.some((c) => c.status === 'sirada' || c.status === 'calisiyor'))
+      throw new ArgusError('DEVAM_SURUYOR', 'Devam koşusu bitmeden koşu kapatılamaz.')
+    if (run.review.pending)
+      throw new ArgusError(
+        'ONAY_EKSIK',
+        `Koşuyu kapatmak için ${run.review.pending} bulguya karar verilmeli (onayla ya da reddet).`,
+      )
+    closeRun(this.deps.db, run.id, author)
+    for (const id of [run.id, ...run.continuations.map((c) => c.id)])
+      this.deps.bus.runUpdated(getRun(this.deps.db, id)!)
+    return getRun(this.deps.db, runId)!
+  }
+
+  /**
+   * Yönlendir ve sürdür: biten ve kapatılmamış koşu, kullanıcının notuyla aynı sayfalarda devam koşusu olarak sürer.
+   * Not isteğin başına girer, asıl istek bağlam olarak kalır; devam koşusunun bulguları ana koşunun onayına düşer.
+   * Devam koşusundan sürdürmek de ana koşuya bağlanır (aile tek düzeydir).
+   */
+  continueRun(runId: string, message: string): RunInfo {
+    const root = this.rootOf(runId)
+    const note = message.trim()
+    if (!note) throw new ArgusError('BAD_REQUEST', 'Yönlendirme notu boş olamaz.')
+    if (root.closedAt) throw new ArgusError('KOSU_KAPALI', 'Koşu kapatıldı; sürdürülemez.')
+    if ([root, ...root.continuations].some((r) => r.status === 'sirada' || r.status === 'calisiyor'))
+      throw new ArgusError(
+        'DEVAM_SURUYOR',
+        'Koşu ya da devam koşusu sürüyor; bitince yeniden sürdürülebilir.',
+      )
+    return this.create({
+      project: root.project,
+      application: root.application,
+      environment: root.environment,
+      pages: root.pages,
+      options: {
+        brief: `Yönlendirme: ${note}${root.options.brief ? `\n\nAsıl istek: ${root.options.brief}` : ''}`,
+        user: root.options.user ?? null,
+        parentRunId: root.id,
+      },
+    })
+  }
+
+  /** Koşunun ailesindeki ana koşu (devam koşusu için ana koşusu). */
+  private rootOf(runId: string): RunInfo {
+    const run = getRun(this.deps.db, runId)
+    if (!run) throw new ArgusError('NOT_FOUND', 'Koşu bulunamadı.')
+    return run.options.parentRunId ? getRun(this.deps.db, run.options.parentRunId)! : run
   }
 
   steer(runId: string, message: string): void {
@@ -175,7 +229,10 @@ export class RunManager {
     this.kicking = true
     try {
       for (let run = nextQueuedRun(this.deps.db); run; run = nextQueuedRun(this.deps.db)) {
-        this.active = { id: run.id, stop: false, steering: [] }
+        let halt = () => undefined as void
+        const halted = new Promise<never>((_, reject) => (halt = () => reject(new ArgusError('DURDURULDU', STOPPED))))
+        halted.catch(() => undefined)
+        this.active = { id: run.id, stop: false, steering: [], halted, halt }
         await this.execute(run).catch(() => undefined)
         this.active = null
       }
@@ -205,7 +262,7 @@ export class RunManager {
     // Süper giriş açıldıysa koşu sonunda (hata olsa da) kapatılır.
     let superLogin: SuperLoginSpec | null = null
     // Platform kapısı (okuma ve yazma); koşu sonunda bıraktığı test kayıtları silinir (hata olsa da).
-    let platformGate: PlatformReader | null = null
+    let cleanupReader: PlatformReader | null = null
     startRun(db, run.id)
     bus.runUpdated(getRun(db, run.id)!)
     bus.publish(run.id, null, { type: 'kosu-basladi', pages: run.pages })
@@ -214,7 +271,12 @@ export class RunManager {
     try {
       // Koşunun bütün model çağrıları ve platform okumaları yerel ize yazılır (data/runs/<id>/iz/).
       const trace = new RunTrace(runDir)
-      const model = trace.wrap(this.deps.model())
+      // Durdurulan koşuda model çağrısı başlamaz; süren çağrı beklenmeden bırakılır (yanıtı yok sayılır).
+      const traced = trace.wrap(this.deps.model())
+      const model: CreateMessage = (params, role) =>
+        active.stop
+          ? Promise.reject(new ArgusError('DURDURULDU', STOPPED))
+          : Promise.race([traced(params, role), active.halted])
       const access = platform.access()
       const environment = await platform.catalog.environment(run.project, run.environment)
       // Modelin platform kapısı: okuma işaretli araçlar ve veri/çalıştırma yazma araçları, ortam bu koşununkine sabit.
@@ -229,7 +291,7 @@ export class RunManager {
         },
         trace,
       )
-      platformGate = reader
+      cleanupReader = reader
       const urlOf = (page: string) =>
         pageUrl({
           studioBaseUrl: access.credentials.studioBaseUrl,
@@ -259,52 +321,32 @@ export class RunManager {
           target: null,
           ...readStep(read),
         })
-      // Kip: tekrar kayıtlı vakaları yeniden doğrular (planlama, keşif, gözetmen yok); kapı, ortam farkını isteğe
-      // çevirir ve kayıtlı vakaları ekler.
-      const mode = run.options.mode ?? 'normal'
-      const cases = mode === 'normal' ? [] : issues.recordedCases(app)
-      let brief = run.options.brief ?? null
-      if (mode === 'kapi') {
-        const diff = await reader.read(
-          'environment_diff',
-          JSON.stringify({ source: run.environment, target: 'production' }),
-        )
-        if (diff.startsWith("'environment_diff'"))
-          throw new ArgusError(
-            'GATE',
-            'Yayın kapısı ortam farkını okuyamadı: platformda environment_diff aracı yok.',
-          )
-        brief = gateBrief(run.environment, diff, brief)
-      }
+      const brief = run.options.brief ?? null
       const briefed = Boolean(brief || attachments.length)
       const catalog = briefed
         ? await platform.catalog.pages(run.project, run.application, run.environment)
         : []
-      const strategy =
-        mode === 'tekrar'
-          ? replayStrategy(cases)
-          : briefed
-            ? await planRun({
-                roles,
-                createMessage: model,
-                meter,
-                model: settings.models.planner,
-                system,
-                reader,
-                brief: brief,
-                attachments,
-                catalog,
-                selected: run.pages,
-                guides: { index: guideIndex(guides), ids: guides.map((g) => g.id) },
-                onRead,
-              })
-            : scanStrategy(run.pages)
+      const strategy = briefed
+        ? await planRun({
+            roles,
+            createMessage: model,
+            meter,
+            model: settings.models.planner,
+            system,
+            reader,
+            brief: brief,
+            attachments,
+            catalog,
+            selected: run.pages,
+            guides: { index: guideIndex(guides), ids: guides.map((g) => g.id) },
+            onRead,
+          })
+        : scanStrategy(run.pages)
       if (!strategy)
         throw new ArgusError(
           'STRATEGY',
           'Koşunun stratejisi yazılamadı (anla adımı ilerleyemedi); girdiyi açıp yeniden deneyin.',
         )
-      if (mode === 'kapi') strategy.items.push(...replayItems(cases))
       bus.publish(run.id, null, { type: 'strateji', strategy })
       bus.publish(run.id, null, {
         type: 'bilgi',
@@ -393,11 +435,7 @@ export class RunManager {
         return session
       }
       // Tanımdan çıkan bulgu (araştırmacının ya da gözetmenin): görüntüsüz, kanıtı kaynağıdır (araç, kayıt, alan).
-      const recordDefinition = (
-        finding: DefinitionFinding,
-        page: string,
-        calls: PlatformCall[] = [],
-      ): string => {
+      const recordDefinition = (finding: DefinitionFinding, page: string): string => {
         const result = issues.record({
           app,
           runId: run.id,
@@ -413,15 +451,18 @@ export class RunManager {
           source: 'yz',
           scenario: finding.senaryo,
           expected: finding.beklenen,
-          observed: `${finding.gozlenen} (${finding.dogrulama === 'calistirildi' ? 'Çalıştırılarak doğrulandı' : 'Tanımdan çıkarım, çalıştırılarak doğrulanmadı'}; kaynak: ${finding.kaynak})`,
+          observed: finding.gozlenen,
           quote: null,
           shot: null,
           box: null,
+          // Kanıtın türü ve kaynağı rapora (çekmecenin "Kanıt" satırı); gözlenen yalnız ne olduğunu söyler.
+          report: findingReport(
+            finding,
+            `${finding.dogrulama === 'calistirildi' ? 'Çalıştırılarak doğrulandı' : 'Tanımdan çıkarım; çalıştırılarak doğrulanmadı'}. Kaynak: ${finding.kaynak}`,
+          ),
           rules: [],
           verified: true,
           suppressedByRule: null,
-          // Kayıtlı vaka: yalnız çalıştırılarak kanıtlanan bulgunun adımları saklanır.
-          steps: finding.dogrulama === 'calistirildi' ? caseSteps(calls) : [],
         })
         if (result.duplicate) return 'Bu koşuda zaten kayıtlı (aynı anahtar); yeniden kaydedilmedi.'
         bus.publish(run.id, page, {
@@ -476,25 +517,8 @@ export class RunManager {
             },
             ...(ceiling ? { ceiling } : {}),
             onRead: (reason, read) => onRead(reason, read, offset + i),
-            record: (finding, calls) => recordDefinition(finding, item.page ?? DEFINITION_PAGE, calls),
+            record: (finding) => recordDefinition(finding, item.page ?? DEFINITION_PAGE),
           })
-          const known = item.caseKey ? issues.list({ app }).find((x) => x.key === item.caseKey) : undefined
-          if (
-            known &&
-            summary.startsWith(FIXED_MARK) &&
-            !issues.list({ app, runId: run.id }).some((x) => x.key === known.key)
-          ) {
-            if (!closesItself(known.severity))
-              bus.publish(run.id, DEFINITION_PAGE, {
-                type: 'bilgi',
-                message: `Kayıtlı vaka görülmedi (${known.severity}): ${known.key}. Kritik ve yüksek önemli sorun kendiliğinden kapanmaz; özete bakıp Bulgular'dan "düzeldi" deyin.`,
-              })
-            else if (issues.markFixed(app, known.key, summary))
-              bus.publish(run.id, DEFINITION_PAGE, {
-                type: 'bilgi',
-                message: `Kayıtlı vaka düzelmiş: ${known.key}.`,
-              })
-          }
           notes.push(`${item.title}: ${summary}`)
           results.push(`Tanım — ${item.title}: ${summary}`)
           bus.publish(run.id, DEFINITION_PAGE, { type: 'gorev-bitti', index: offset + i, summary })
@@ -641,6 +665,7 @@ export class RunManager {
           },
         })
         const summary = await controller.run().catch((error: unknown) => {
+          if (active.stop) return STOPPED
           const message = `${page}: ${describeModelError(error)}`
           bus.publish(run.id, page, { type: 'hata', message })
           return message
@@ -733,19 +758,19 @@ export class RunManager {
           ],
           CLEANUP_CEILING,
         )
-      if (mode === 'kapi' && !active.stop)
-        bus.publish(run.id, null, {
-          type: 'bilgi',
-          message: gateVerdict(issues.list({ app, runId: run.id })).message,
-        })
       if (active.stop) status = 'durduruldu'
     } catch (error) {
-      status = 'hata'
-      failure = describeModelError(error)
-      bus.publish(run.id, null, { type: 'hata', message: failure })
+      if (active.stop) {
+        status = 'durduruldu'
+        bus.publish(run.id, null, { type: 'bilgi', message: STOPPED })
+      } else {
+        status = 'hata'
+        failure = describeModelError(error)
+        bus.publish(run.id, null, { type: 'hata', message: failure })
+      }
     } finally {
-      const gate = platformGate as PlatformReader | null
-      const removed = gate ? await gate.cleanup() : 0
+      const cleaner = cleanupReader as PlatformReader | null
+      const removed = cleaner ? await cleaner.cleanup() : 0
       if (removed)
         bus.publish(run.id, null, {
           type: 'bilgi',

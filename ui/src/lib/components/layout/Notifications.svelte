@@ -3,14 +3,14 @@
   import { cubicOut } from 'svelte/easing'
   import { fly } from 'svelte/transition'
   import Icon from '$lib/components/Icon.svelte'
-  import type { IconName } from '$lib/icons'
   import type { Notice, NoticeTone } from '$lib/notices'
   import { notify } from '$lib/notify.svelte'
 
   /**
    * Bildirimler: sayfa başlığının hemen altında, sağda (eylem düğmelerinin altı) üst üste en çok üç kart.
-   * - Görünüm: beyaz kart, ince nötr kenar ve belirgin gölge; ton yalnız soldaki 3 px şeritte, ikonun yuvarlak açık
-   *   zemininde ve alttaki geri sayım çizgisinde görünür. Başlık 14/600 koyu, açıklama 13 ikincil renk; sağda kapat.
+   * - Görünüm: simgesiz kart; ton yalnız zeminin çok hafif renginde ve onunla uyumlu kenarda (başarı yeşil, bilgi
+   *   mavi, uyarı amber, hata kırmızı; açık sayfa zemininden ayrılsın diye beyaz değil). Başlık 14/600 koyu (#101828),
+   *   açıklama 13/19 ikincil (#475467); sağda kapat. Alttaki geri sayım çizgisi nötr gridir.
    * - Sayfa değişince hepsi kapanır (`App.svelte` → `notify.clear()`).
    * - Hareket: sağ kenardan kayarak girer, sağa kayarak çıkar; diğer kartlar yerlerine yumuşakça kayar (flip).
    *   Aynı bildirim tekrar gelirse kart yerinde kalır (yeniden çizilmez, sıçramaz): "×n" artar, kısa bir vurgu yapar,
@@ -18,11 +18,11 @@
    * - Üzerine gelince sayaç durur, ayrılınca kalan süreden sürer. Hata ve uyarı ekran okuyucuya hemen (`alert`),
    *   diğerleri sırası gelince (`status`) okunur.
    */
-  const TONES: Record<NoticeTone, { icon: IconName; label: string; color: string; soft: string }> = {
-    success: { icon: 'checkCircle', label: 'Başarılı', color: '#16A34A', soft: '#DCFCE7' },
-    info: { icon: 'info', label: 'Bilgi', color: '#0C66E4', soft: '#E9F2FF' },
-    warning: { icon: 'warning', label: 'Uyarı', color: '#D97706', soft: '#FEF3C7' },
-    error: { icon: 'error', label: 'Hata', color: '#DC2626', soft: '#FEE2E2' },
+  const TONES: Record<NoticeTone, { label: string; bg: string; border: string }> = {
+    success: { label: 'Başarılı', bg: '#F3FAF6', border: '#C9E7D6' },
+    info: { label: 'Bilgi', bg: '#F3F7FD', border: '#CCDDF5' },
+    warning: { label: 'Uyarı', bg: '#FFFAF0', border: '#F4DDB0' },
+    error: { label: 'Hata', bg: '#FEF6F5', border: '#F5CFCB' },
   }
 
   /** Kartın sayacı: başlar, üzerine gelince durur, kalan süreden sürer; aynı bildirim tekrar gelince baştan başlar. */
@@ -63,13 +63,14 @@
   }
 </script>
 
-<div class="pointer-events-none flex w-[380px] max-w-[calc(100vw-32px)] flex-col gap-2">
+<div class="pointer-events-none flex w-[400px] max-w-[calc(100vw-32px)] flex-col gap-2.5">
   {#each notify.items as notice (notice.id)}
     {@const tone = TONES[notice.tone]}
     <div
       role={notice.tone === 'error' || notice.tone === 'warning' ? 'alert' : 'status'}
       aria-label={tone.label}
-      class="group bg-card pointer-events-auto relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 overflow-hidden rounded-lg border py-3 pr-2.5 pl-4 shadow-[0_12px_32px_-10px_rgba(15,23,42,0.28),0_2px_6px_rgba(15,23,42,0.06)]"
+      class="group pointer-events-auto relative grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 overflow-hidden rounded-[10px] border py-3 pr-3 pl-4 shadow-[0_12px_32px_-12px_rgba(16,24,40,0.28),0_2px_6px_rgba(16,24,40,0.06)]"
+      style="background: {tone.bg}; border-color: {tone.border}"
       in:fly={{ x: 40, duration: 260, easing: cubicOut }}
       out:fly={{ x: 40, duration: 200, easing: cubicOut }}
       animate:flip={{ duration: 220, easing: cubicOut }}
@@ -78,27 +79,18 @@
       {#key notice.key}
         {#if notice.count > 1}<span
             class="notice-bump absolute inset-0 rounded-[inherit]"
-            style="--bump: {tone.color}"
+            style="--bump: {tone.border}"
           ></span>{/if}
       {/key}
-      <span class="absolute inset-y-0 left-0 w-[3px]" style="background: {tone.color}"></span>
-      <span
-        class="relative grid size-7 place-items-center rounded-full"
-        style="color: {tone.color}; background: {tone.soft}"
-        ><Icon name={tone.icon} class="size-[18px]" /></span
-      >
-      <div class="relative flex min-w-0 flex-col gap-0.5 pt-0.5 text-left">
-        <p class="text-foreground flex items-baseline gap-2 text-sm leading-5 font-semibold">
+      <div class="relative flex min-w-0 flex-col gap-0.5 text-left">
+        <p class="flex items-baseline gap-2 text-sm leading-5 font-semibold text-[#101828]">
           {notice.title}
           {#if notice.count > 1}
-            <span
-              class="rounded-full px-1.5 text-xs font-semibold"
-              style="color: {tone.color}; background: {tone.soft}">×{notice.count}</span
-            >
+            <span class="rounded-full bg-black/[0.06] px-1.5 text-xs font-semibold text-[#344054]">×{notice.count}</span>
           {/if}
         </p>
         {#if notice.message}
-          <p class="text-muted-foreground text-[13px] leading-[18px] break-words">{notice.message}</p>
+          <p class="text-[13px] leading-[19px] break-words text-[#475467]">{notice.message}</p>
         {/if}
       </div>
       <button
@@ -113,8 +105,8 @@
       {#if notice.duration}
         {#key notice.key}
           <span
-            class="notice-progress absolute bottom-0 left-0 h-[2px] w-full origin-left opacity-60 group-hover:[animation-play-state:paused]"
-            style="background: {tone.color}; animation-duration: {notice.duration}ms"
+            class="notice-progress absolute bottom-0 left-0 h-[2px] w-full origin-left bg-black/15 group-hover:[animation-play-state:paused]"
+            style="animation-duration: {notice.duration}ms"
           ></span>
         {/key}
       {/if}
@@ -141,7 +133,7 @@
   /* Tekrar gelen bildirimin kısa vurgusu: kart yerinde kalır, kenarı bir an tonun rengiyle parlar. */
   .notice-bump {
     pointer-events: none;
-    box-shadow: inset 0 0 0 1.5px var(--bump);
+    box-shadow: inset 0 0 0 1.5px var(--bump), 0 0 0 1px var(--bump);
     opacity: 0;
     animation: notice-bump 600ms ease-out;
   }

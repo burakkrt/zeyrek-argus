@@ -14,7 +14,6 @@ const finding = (key: string, over: Partial<SharedFinding> = {}): SharedFinding 
   expected: 'Toplam satırla tutmalı',
   observed: 'Toplam 5,\ntabloda 3 satır',
   quote: 'Toplam: 5 kayıt',
-  steps: [{ tool: 'row_create', input: '{"baslik": "Argus test, 1"}', write: true }],
   ...over,
 })
 
@@ -40,5 +39,13 @@ describe('paylaşılan bulgular', () => {
       '## yz:bozuk\n- baslik: \n- tur: bilinmez\n\n## yz:iyi',
     )
     expect(parseFindings(text).findings.map((f) => f.key)).toEqual(['yz:iyi'])
+  })
+
+  it('eski dosyadaki adimlar satırı yok sayılır', () => {
+    const text = serializeFindings('Ali', 'x', [finding('yz:eski')]).replace(
+      '- alinti: Toplam: 5 kayıt',
+      '- alinti: Toplam: 5 kayıt\n- adimlar: [{"tool":"row_create","input":"{}","write":true}]',
+    )
+    expect(parseFindings(text).findings).toEqual([finding('yz:eski', { observed: 'Toplam 5, tabloda 3 satır' })])
   })
 })

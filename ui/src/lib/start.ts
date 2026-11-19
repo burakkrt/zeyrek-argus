@@ -1,130 +1,28 @@
-import type { Issue, PageGroup, RunInfo } from '@argus/shared'
+import { validateFields, type FieldError } from './validation'
 
 /**
- * Yeni koşu ekranının saf mantığı: yapıştırılan bağlantıdan sayfa çözme, sayfa satırları, başlatma denetimi ve geçmiş
- * koşulardan süre/maliyet tahmini. Bileşen yalnız bunları çağırır. Koşunun derinliği seçilmez: motor kalite
- * öncelikli çalışır (bkz. `RUN_CEILINGS`).
+ * Yeni koşu ekranının saf mantığı: başlatma doğrulaması. Koşunun kapsamı girdiden çıkar (sayfalar koşu başında girdiye
+ * göre seçilir); derinlik seçilmez, motor kalite öncelikli çalışır (bkz. `RUN_CEILINGS`).
  */
-
-/** Bağlantı; cümle sonundaki noktalama bağlantıya katılmaz. */
-const URL_RE = /https?:\/\/[^\s<>"')]*[^\s<>"').,;:!?]/g
 
 /**
- * Metindeki bağlantıların gösterdiği sayfalar (katalogdaki slug'lar, metindeki sırayla, tekrarsız). Zeyrek adresi
- * `…/<proje>/<uygulama>/<slug>` biçimindedir (önünde dal ya da ortam öneki olabilir); yolun son parçası katalogda bir
- * sayfaysa eşlenir. Katalogda olmayan bağlantı yok sayılır.
+ * Koşuyu başlatmaya engel olan alan hataları (Başlat düğmesi hep etkindir; tıklanınca alanlarda ve formun üstündeki
+ * listede gösterilir). Girdi ya da ek gerekir (girdinin sınırı yoktur, uzun istem yapıştırılabilir); yükleme sürerken
+ * ekler koşuya giremez.
  */
-export function pagesFromLinks(text: string, groups: PageGroup[]): string[] {
-  const known = new Set(groups.flatMap((g) => g.pages.map((p) => p.slug)))
-  const found: string[] = []
-  for (const raw of text.match(URL_RE) ?? []) {
-    let segments: string[]
-    try {
-      segments = new URL(raw).pathname.split('/').filter(Boolean).map(decodeURIComponent)
-    } catch {
-      continue
-    }
-    const slug = [...segments].reverse().find((s) => known.has(s))
-    if (slug && !found.includes(slug)) found.push(slug)
-  }
-  return found
-}
-
-/** Geçmiş yokken kullanılan birim (sayfa başına). */
-const FALLBACK = { minutes: 2, cost: 0.8 }
-
-export interface Estimate {
-  minutes: number
-  cost: number
-  /** `gecmis`: bu dalın biten koşularından; `varsayim`: geçmiş yok. */
-  basis: 'gecmis' | 'varsayim'
-}
-
-const median = (values: number[]) => {
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2
-}
-
-/**
- * Süre ve maliyet tahmini: model çalıştırmış (maliyeti sıfırdan büyük) bitmiş son 20 koşunun sayfa başına süre ve
- * maliyet medyanı, seçilen sayfa sayısıyla çarpılır. Modelsiz koşu (açılışta doğrulanıp biten) birimi sıfıra çeker,
- * sayılmaz. Sayfa seçilmediyse (sayfalar girdiden seçilecek) tahmin yoktur.
- */
-export function estimateRun(history: RunInfo[], pages: number): Estimate | null {
-  if (!pages) return null
-  const units = history
-    .filter((r) => r.status === 'bitti' && r.startedAt && r.finishedAt && (r.usage.costUsd ?? 0) > 0)
-    .slice(0, 20)
-    .map((r) => {
-      const work = Math.max(1, r.pages.length)
-      const minutes = (Date.parse(r.finishedAt!) - Date.parse(r.startedAt!)) / 60_000
-      return { minutes: minutes / work, cost: r.usage.costUsd! / work }
-    })
-    .filter((u) => u.minutes > 0)
-  const unit = units.length
-    ? { minutes: median(units.map((u) => u.minutes)), cost: median(units.map((u) => u.cost)) }
-    : FALLBACK
-  return {
-    minutes: unit.minutes * pages,
-    cost: unit.cost * pages,
-    basis: units.length ? 'gecmis' : 'varsayim',
-  }
-}
-
-/** Sayfa tablosunun satırı: katalogdaki sayfa + bu daldaki son koşusu ve uygulamadaki açık bulgu sayısı. */
-export interface ScopeRow {
-  id: string
-  slug: string
-  name: string
-  module: string
-  lastRun: string | null
-  openIssues: number
-}
-
-const OPEN_STATUSES = new Set(['acik', 'duzeltilecek'])
-
-/**
- * Sayfa kataloğundan kapsam satırları. Son koşu, sayfayı içeren en yeni koşunun başlangıcıdır (geçmiş en yeniden
- * eskiye gelir); açık bulgu, durumu "açık" ya da "düzeltilecek" olup sayfada görülen sorun sayısıdır.
- */
-export function scopeRows(
-  groups: PageGroup[],
-  runs: Pick<RunInfo, 'pages' | 'createdAt' | 'startedAt'>[],
-  issues: Pick<Issue, 'pages' | 'status'>[],
-): ScopeRow[] {
-  const lastRun = new Map<string, string>()
-  for (const run of runs)
-    for (const slug of run.pages) if (!lastRun.has(slug)) lastRun.set(slug, run.startedAt ?? run.createdAt)
-  const open = new Map<string, number>()
-  for (const issue of issues)
-    if (OPEN_STATUSES.has(issue.status))
-      for (const slug of new Set(issue.pages)) open.set(slug, (open.get(slug) ?? 0) + 1)
-  return groups.flatMap((group) =>
-    group.pages.map((page) => ({
-      id: page.id,
-      slug: page.slug,
-      name: page.name,
-      module: group.key === '—' ? '' : group.key,
-      lastRun: lastRun.get(page.slug) ?? null,
-      openIssues: open.get(page.slug) ?? 0,
-    })),
-  )
-}
-
-/**
- * Koşuyu başlatmaya engel olan ilk eksik (Başlat düğmesi hep etkindir; tıklanınca bu bildirim olarak gösterilir).
- * Talimat ve ekler isteğe bağlıdır; yalnız kapsam zorunludur, yükleme sürerken ekler koşuya giremez.
- */
-export function startProblem(input: {
-  pages: number
-  brief: string
-  files: number
-  uploading: boolean
-}): { title: string; message: string } | null {
-  if (!input.pages && !input.brief.trim() && !input.files)
-    return { title: 'Ne test edilsin?', message: 'Sayfa seç ya da girdi alanına ne test edileceğini yaz.' }
-  if (input.uploading)
-    return { title: 'Dosyalar yükleniyor', message: 'Ekler yüklenince koşuyu yeniden başlat.' }
-  return null
+export function startErrors(input: { brief: string; files: number; uploading: boolean }): FieldError[] {
+  return validateFields([
+    {
+      id: 'girdi',
+      label: 'Girdi',
+      value: input.brief,
+      required: input.files ? false : 'Ne test edileceğini yaz ya da dosya ekle.',
+    },
+    {
+      id: 'ekler',
+      label: 'Ekler',
+      value: '',
+      check: () => (input.uploading ? 'Dosyalar yükleniyor; bitince koşuyu başlat.' : null),
+    },
+  ])
 }

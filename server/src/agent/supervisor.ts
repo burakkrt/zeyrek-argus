@@ -2,6 +2,7 @@ import type { CoverageStatus, FindingKind, RunCoverage, RunStrategy } from '@arg
 import type { RoleBook } from '../memory/roles.ts'
 import type { DefinitionFinding } from './investigator.ts'
 import { jsonOf, type CreateMessage, type MessageParams, type UsageMeter } from './model.ts'
+import { REPORT_PROPERTIES } from '../issues/report.ts'
 import { SEVERITY_GUIDE } from '../issues/severity.ts'
 
 /**
@@ -54,6 +55,7 @@ const SUPERVISE_SCHEMA = {
             description:
               'Bilinen ya da bu koşuda kaydedilmiş bir sorunla aynı kök nedense onun anahtarı (listeden, ör. yz:...); yeni sorunsa boş.',
           },
+          ...REPORT_PROPERTIES,
         },
         required: ['tur', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'kaynak', 'onem', 'anahtar'],
         additionalProperties: false,

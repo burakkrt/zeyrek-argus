@@ -2,13 +2,13 @@ import type {
   AppRef,
   Box,
   FindingKind,
+  FindingReport,
   Issue,
   IssueDetail,
   IssueHistoryEntry,
   IssueStatus,
   Occurrence,
   OccurrenceOutcome,
-  PlatformCall,
   Severity,
   SharedSighting,
 } from '@argus/shared'
@@ -19,7 +19,6 @@ import type { Author } from '../author.ts'
 import type { SharedFinding } from '../memory/shared.ts'
 import { bumpMisled } from '../memory/stats.ts'
 import type { DecisionRecord, MemoryStore } from '../memory/store.ts'
-import type { RecordedCase } from '../runs/regression.ts'
 import { isContested } from './contested.ts'
 
 export interface OccurrenceInput {
@@ -44,10 +43,10 @@ export interface OccurrenceInput {
   verified: boolean
   /** "Sorun sayma" kuralı gereği kayda alınıp bastırılan görünüm. */
   suppressedByRule: string | null
+  /** Bulgunun belge alanları; modelin doldurduğu kadarı (`findingReport`). */
+  report?: FindingReport | null
   /** Sayfanın şu anki Studio tanım izi: "bulgu değil" kararından sonra tanım değiştiyse karar gözden geçirilir. */
   studioPrint?: string | null
-  /** Kayıtlı vaka: bulguyu çalıştırarak kanıtlayan platform çağrıları. */
-  steps?: PlatformCall[]
 }
 
 export interface RecordResult {
@@ -246,11 +245,12 @@ export class IssueService {
         box: input.box,
         reason,
         rules: input.rules,
+        report: input.report ?? null,
         at,
       }
       this.db
         .prepare(
-          `insert into occurrences (id, issue_id, run_id, page, phase, kind, severity, outcome, scenario, expected, observed, quote, shot, box, reason, rules, steps, at)
+          `insert into occurrences (id, issue_id, run_id, page, phase, kind, severity, outcome, scenario, expected, observed, quote, shot, box, reason, rules, report, at)
            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
@@ -270,7 +270,7 @@ export class IssueService {
           input.box ? JSON.stringify(input.box) : null,
           reason,
           JSON.stringify(input.rules),
-          input.steps?.length ? JSON.stringify(input.steps) : null,
+          input.report ? JSON.stringify(input.report) : null,
           at,
         )
       const upgrade = KIND_RANK[kind] > KIND_RANK[row.kind] ? kind : row.kind
@@ -350,6 +350,7 @@ export class IssueService {
       box: json<Box | null>(o.box as string | null, null),
       reason: (o.reason as string | null) ?? null,
       rules: json<string[]>(o.rules as string, []),
+      report: json<FindingReport | null>((o.report as string | null) ?? null, null),
       at: o.at as string,
     }))
     const comments = this.db
@@ -702,8 +703,8 @@ export class IssueService {
             this.insertRemote(app, f.key, f.title, f.kind, f.lastSeen || now(), 'acik')
           this.db
             .prepare(
-              `insert or replace into shared_sightings (issue_id, author, pages, page, scenario, expected, observed, quote, steps, first_seen, last_seen, seen_count)
-               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `insert or replace into shared_sightings (issue_id, author, pages, page, scenario, expected, observed, quote, first_seen, last_seen, seen_count)
+               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               row.id,
@@ -714,7 +715,6 @@ export class IssueService {
               f.expected,
               f.observed,
               f.quote,
-              f.steps.length ? JSON.stringify(f.steps) : null,
               f.firstSeen || f.lastSeen,
               f.lastSeen,
               f.seenCount,
@@ -790,11 +790,6 @@ export class IssueService {
         observed: string
         quote: string | null
       }
-      const steps = this.db
-        .prepare(
-          'select steps from occurrences where issue_id = ? and steps is not null order by at desc limit 1',
-        )
-        .get(row.id) as { steps: string } | undefined
       const pages = (
         this.db
           .prepare('select distinct page from occurrences where issue_id = ? order by page')
@@ -815,48 +810,7 @@ export class IssueService {
         expected: sample.expected,
         observed: sample.observed,
         quote: sample.quote,
-        steps: json<PlatformCall[]>(steps?.steps ?? null, []),
       }
-    })
-  }
-
-  /**
-   * Kayıtlı vakalar: açık, kanıtlı ve adımları saklanmış sorunlar (bu makinenin son görünümü, yoksa takım
-   * arkadaşınınki). Yeniden doğrulama ve yayın kapısı bunları tekrar kurar.
-   */
-  recordedCases(app: AppRef): RecordedCase[] {
-    const rows = this.db
-      .prepare(
-        `select id, key, title from issues where project = ? and application = ? and status in ('acik', 'duzeltilecek')
-           and suppressed_by is null and kind in ('kesin', 'tutarsizlik') order by severity, last_seen desc`,
-      )
-      .all(app.project, app.application) as Array<{ id: string; key: string; title: string }>
-    return rows.flatMap((row) => {
-      const found = (this.db
-        .prepare(
-          `select scenario, expected, observed, steps from occurrences where issue_id = ? and steps is not null
-           order by at desc limit 1`,
-        )
-        .get(row.id) ??
-        this.db
-          .prepare(
-            `select scenario, expected, observed, steps from shared_sightings where issue_id = ? and steps is not null
-             order by last_seen desc limit 1`,
-          )
-          .get(row.id)) as { scenario: string; expected: string; observed: string; steps: string } | undefined
-      const steps = json<PlatformCall[]>(found?.steps ?? null, [])
-      return found && steps.length
-        ? [
-            {
-              key: row.key,
-              title: row.title,
-              scenario: found.scenario,
-              expected: found.expected,
-              observed: found.observed,
-              steps,
-            },
-          ]
-        : []
     })
   }
 

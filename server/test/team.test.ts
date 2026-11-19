@@ -36,7 +36,6 @@ const finding = (key: string, page: string, quote: string) => ({
   expected: 'Toplam satırla tutmalı',
   observed: 'Toplam 5, tabloda 3 satır',
   quote,
-  steps: [],
 })
 
 beforeAll(async () => {

@@ -41,6 +41,8 @@ export interface Script {
   supervise?: (prompt: string) => unknown
   /** Tanım kalemi: araç hamleleri; `kalemi_bitir` bitirir. Verilmezse hemen biter. */
   define?: (conversation: string, turn: number) => Move | Move[]
+  /** Model çağrısını cevaplamadan önce bekletir (uzun süren çağrı; durdurma testi). */
+  hold?: (prompt: string) => Promise<void> | undefined
 }
 
 function judgeCandidate(prompt: string): Record<string, string> {
@@ -114,6 +116,7 @@ export function scriptedModel(script: Script): { model: CreateMessage; calls: Me
         usage,
       }) as unknown as Message
     const prompt = textOfParams(params)
+    await script.hold?.(prompt)
     if (params.output_config?.format && prompt.includes('TERİM GÖZÜ GÖREVİ')) {
       const value = script.terms?.(prompt) ?? { bulgular: [], notlar: [] }
       return reply([{ type: 'text', text: JSON.stringify(value) }], 'end_turn')

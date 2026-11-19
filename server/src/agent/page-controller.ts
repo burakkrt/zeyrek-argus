@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import type {
   Box,
   FindingKind,
+  FindingReport,
   Issue,
   ModelRole,
   PlatformRead,
@@ -11,6 +12,7 @@ import type {
   Severity,
   StepTarget,
 } from '@argus/shared'
+import { findingReport } from '../issues/report.ts'
 import { severityOf } from '../issues/severity.ts'
 import type { Locator } from 'playwright'
 import {
@@ -68,6 +70,7 @@ export interface FindingDraft {
   quote: string | null
   shot: string | null
   box: Box | null
+  report?: FindingReport | null
   rules: string[]
   verified: boolean
   suppressedByRule: string | null
@@ -437,6 +440,7 @@ export class PageController {
       quote: quote || null,
       shot: file.rel,
       box,
+      report: findingReport(item, 'Ekran incelenirken görüldü; ekran görüntüsü alındı.'),
       rules: [],
       verified,
       suppressedByRule: null,
@@ -1481,6 +1485,7 @@ export class PageController {
       quote: quote || null,
       shot: file.rel,
       box,
+      report: findingReport(input, 'Ekranda tekrar edildi; ekran görüntüsü alındı.'),
       rules,
       verified,
       suppressedByRule: suppressedBy,

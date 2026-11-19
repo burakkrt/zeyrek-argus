@@ -1,5 +1,6 @@
 import { FINDING_KINDS } from '@argus/shared'
 import type { Tool } from './model.ts'
+import { REPORT_PROPERTIES } from '../issues/report.ts'
 import { SEVERITY_GUIDE } from '../issues/severity.ts'
 
 const reason = { type: 'string', description: 'Bunu neden yaptığın, tek kısa cümle.' } as const
@@ -147,6 +148,7 @@ export const TASK_TOOLS: Tool[] = [
       type: 'string',
       description: 'SORUN SAYMA kuralı gereğiyse kuralın kimliği; değilse boş.',
     },
+    ...REPORT_PROPERTIES,
   }),
   tool('bulgu_geri_al', 'Bu sayfada daha önce bildirdiğin bir bulguyu geri alır (yanlış bildirdiysen).', {
     anahtar: { type: 'string' },
@@ -220,6 +222,7 @@ const FINDINGS = {
       beklenen: { type: 'string' },
       gozlenen: { type: 'string' },
       alinti: { type: 'string' },
+      ...REPORT_PROPERTIES,
     },
     required: ['tur', 'onem', 'anahtar', 'baslik', 'senaryo', 'beklenen', 'gozlenen', 'alinti'],
     additionalProperties: false,

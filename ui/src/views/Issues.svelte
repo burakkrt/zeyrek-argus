@@ -2,6 +2,7 @@
   import type { FindingKind, Issue, IssueDetail, IssueStatus } from '@argus/shared'
   import { onMount } from 'svelte'
   import Shot from '../components/Shot.svelte'
+  import FindingReport from '$lib/components/finding/FindingReport.svelte'
   import { api, fileUrl, post, qs } from '../lib/api'
   import { formatDate, KIND, OUTCOME, SEVERITY, STATUS } from '../lib/format'
   import { pageLabel } from '../lib/monitor'
@@ -226,20 +227,20 @@
               {/each}
             </div>
           {/if}
-          <dl>
-            <dt>Sayfa</dt>
-            <dd>{pageLabel(occurrence.page)} · <a href={`#/monitor/${occurrence.runId}`}>koşuyu izle</a></dd>
-            <dt>Senaryo</dt>
-            <dd>{occurrence.scenario || '—'}</dd>
-            <dt>Beklenen</dt>
-            <dd>{occurrence.expected || '—'}</dd>
-            <dt>Gözlenen</dt>
-            <dd>{occurrence.observed || '—'}</dd>
-            {#if occurrence.reason}<dt>Not</dt>
-              <dd>{occurrence.reason}</dd>{/if}
-            {#if occurrence.rules.length}<dt>Dayandığı kural</dt>
-              <dd>{occurrence.rules.join(', ')}</dd>{/if}
-          </dl>
+          <FindingReport
+            title={detail.title}
+            {occurrence}
+            place={pageLabel(occurrence.page)}
+            shot={false}
+            note={occurrence.reason}
+            footer={[
+              occurrence.rules.length ? `Dayandığı kural: ${occurrence.rules.join(', ')}` : null,
+              `${detail.seenCount} kez görüldü`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          />
+          <a class="small" href={`#/monitor/${occurrence.runId}`}>Bu görünümün koşusunu izle</a>
         {/if}
 
         {#if detail.elsewhere.length}
@@ -387,23 +388,6 @@
 
   .occ {
     gap: 6px;
-  }
-
-  dl {
-    display: grid;
-    grid-template-columns: 120px minmax(0, 1fr);
-    gap: 4px 12px;
-    margin: 0;
-  }
-
-  dt {
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  dd {
-    margin: 0;
-    overflow-wrap: anywhere;
   }
 
   .sighting {

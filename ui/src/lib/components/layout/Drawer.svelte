@@ -10,13 +10,14 @@
    *
    * - Sağdan açılır; genişlik 560 px (dar ekranda ekranın 16 px eksiği), tam yükseklik, sol kenarda ince çizgi ve
    *   belirgin gölge. Açılış 300 ms yumuşak kayma + soluklaşma, kapanış 200 ms.
-   * - Başlık bölümü 64 px yükseklik, 24 px yan dolgu, içerik dikeyde ortalı: solda üst başlık (`eyebrow`) ve başlık
-   *   16/600/24; sağda aynı 32 px yükseklikte isteğe bağlı eylem (`actions`) ve kapat düğmesi, aralarında 8 px ve ince
-   *   bir ayraç. Gövde 24 px yan dolguyla kendi içinde kayar.
+   * - Başlık bölümü en az 64 px, 14 px üst/alt ve 24 px yan dolgu, üste hizalı: solda üst başlık (`eyebrow`) ve
+   *   başlık 15/600/22 (uzunsa en çok 3 satıra sarılır, taşmaz), yanında aynı satırda soluk `meta`; sağda aynı 32 px yükseklikte isteğe bağlı eylem
+   *   (`actions`) ve kapat düğmesi, aralarında 8 px ve ince bir ayraç. Gövde 24 px yan dolguyla kendi içinde kayar.
    */
   let {
     open,
     title,
+    meta,
     eyebrow,
     onclose,
     actions,
@@ -24,6 +25,8 @@
   }: {
     open: boolean
     title: string
+    /** Başlıkla aynı satırda, soluk ve ince (ör. "KOS-2026-0050 · S3 Orta"); tek satırlık başlık. */
+    meta?: string
     eyebrow?: string
     onclose: () => void
     actions?: Snippet
@@ -39,12 +42,15 @@
     style="width: min(560px, calc(100vw - 16px)); max-width: none; box-shadow: -24px 0 60px -20px rgba(15, 23, 42, 0.35), -1px 0 0 rgba(15, 23, 42, 0.04)"
     class="gap-0 data-closed:duration-200 data-open:duration-300 data-open:ease-out data-[side=right]:data-closed:slide-out-to-right-1/3 data-[side=right]:data-open:slide-in-from-right-1/3"
   >
-    <header class="flex h-16 shrink-0 items-center gap-3 border-b px-6">
+    <header class="flex min-h-16 shrink-0 items-start gap-3 border-b px-6 py-3.5">
       <div class="min-w-0 flex-1">
         {#if eyebrow}<p class="text-[11px] font-semibold tracking-[.06em] text-zinc-500 uppercase">
             {eyebrow}
           </p>{/if}
-        <Sheet.Title class="text-base leading-6 font-semibold text-zinc-900">{title}</Sheet.Title>
+        <Sheet.Title
+          class="line-clamp-3 text-[15px] leading-[22px] font-semibold [overflow-wrap:anywhere] text-zinc-900"
+          >{title}{#if meta}<span class="ml-1.5 font-normal text-zinc-500">· {meta}</span>{/if}</Sheet.Title
+        >
       </div>
       {#if actions}<div class="flex h-8 items-center gap-2">
           {@render actions()}<span class="h-5 w-px bg-zinc-200"></span>

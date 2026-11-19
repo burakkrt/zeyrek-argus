@@ -197,10 +197,12 @@ describe('anla adımı', () => {
     )
     const detail = h.ctx.issues.detail(found.find((i) => i.title.startsWith('Kalibrasyon kullanıcı'))!.id)
     expect(detail.occurrences[0]).toMatchObject({ page: DEFINITION_PAGE, shot: null, kind: 'not' })
-    // Çalıştırılarak kanıtlanmayan tanım iddiası şüphedir (not), kanıt türü yazılır.
-    expect(detail.occurrences[0]!.observed).toContain(
-      'Tanımdan çıkarım, çalıştırılarak doğrulanmadı; kaynak: workflow_get donem, steps[0].onFalse',
+    // Çalıştırılarak kanıtlanmayan tanım iddiası şüphedir (not), kanıt türü ve kaynağı raporun Kanıt satırına yazılır;
+    // gözlenen yalnız ne olduğunu söyler.
+    expect(detail.occurrences[0]!.report?.proof).toBe(
+      'Tanımdan çıkarım; çalıştırılarak doğrulanmadı. Kaynak: workflow_get donem, steps[0].onFalse',
     )
+    expect(detail.occurrences[0]!.observed).toBe('Uyarı yok, ilerletme serbest')
     expect(
       events.filter((e) => e.type === 'bulgu' && e.page === DEFINITION_PAGE).length,
     ).toBeGreaterThanOrEqual(2)
@@ -385,7 +387,7 @@ describe('anla adımı', () => {
     // Sorunun önemi en ağır görünümündendir; liste önce kritikleri gösterir.
     expect(issue.severity).toBe('S1')
     expect(h.ctx.issues.list({ app })[0]!.severity).toBe('S1')
-    expect(h.ctx.issues.detail(issue.id).occurrences[0]!.observed).toContain('Çalıştırılarak doğrulandı')
+    expect(h.ctx.issues.detail(issue.id).occurrences[0]!.report?.proof).toContain('Çalıştırılarak doğrulandı')
     // İkinci kalemin bulgusu aynı soruna eklendi; aynı koşuda aynı sayfada ikinci görünüm yazılmaz.
     expect(h.ctx.issues.detail(issue.id).occurrences.filter((o) => o.runId === done.id)).toHaveLength(1)
   })
@@ -453,7 +455,11 @@ describe('anla adımı', () => {
     expect(done.error).toContain('stratejisi yazılamadı')
   })
 
-  it('ne sayfa ne girdi varsa koşu açılmaz', () => {
-    expect(() => start('  ')).toThrow('Sayfa seçin ya da girdi yazın.')
+  it('kodlaması bozuk girdi (UTF-8 olmayan metin, yerine geçen �) kaydedilmez, nedeni söylenir', () => {
+    expect(() => start('Performans y�netimi test et')).toThrow('Girdide çözülemeyen karakter var')
+  })
+
+  it('girdi ve ek yoksa koşu açılmaz', () => {
+    expect(() => start('  ')).toThrow('Ne test edileceğini girdiye yazın ya da dosya ekleyin.')
   })
 })

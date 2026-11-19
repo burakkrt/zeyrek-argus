@@ -18,6 +18,7 @@
   import Issues from './views/Issues.svelte'
   import Memory from './views/Memory.svelte'
   import Monitor from './views/Monitor.svelte'
+  import Review from './views/Review.svelte'
   import Overview from './views/Overview.svelte'
   import Runs from './views/Runs.svelte'
   import Settings from './views/Settings.svelte'
@@ -161,6 +162,8 @@
         <Runs />
       {:else if route.parts[0] === 'monitor' && route.parts[1]}
         {#key route.parts[1]}<Monitor runId={route.parts[1]} />{/key}
+      {:else if route.parts[0] === 'onay' && route.parts[1]}
+        {#key route.parts[1]}<Review runId={route.parts[1]} />{/key}
       {:else if route.parts[0] === 'ayarlar'}
         <Settings />
       {:else if route.parts[0] === 'yapay-zeka'}

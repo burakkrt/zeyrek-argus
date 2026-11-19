@@ -122,20 +122,6 @@ export type RunStatus = (typeof RUN_STATUSES)[number]
  */
 export const RUN_CEILINGS = { maxTasks: 20, maxSteps: 150 } as const
 
-/**
- * Koşunun kipi: normal (sayfa ya da istek), tekrar (kayıtlı vakaları yeniden doğrula; planlama ve keşif yok), kapi
- * (yayın kapısı: development → production farkına odaklı koşu + kayıtlı vakalar; kanıtlı S1/S2 varsa kapı kapalı).
- */
-export const RUN_MODES = ['normal', 'tekrar', 'kapi'] as const
-export type RunMode = (typeof RUN_MODES)[number]
-
-/** Kayıtlı vakanın bir adımı: kanıtlayan platform çağrısı. */
-export interface PlatformCall {
-  tool: string
-  input: string
-  write: boolean
-}
-
 export interface RunOptions {
   /** Sayfa başına görev tavanı (`RUN_CEILINGS`; testler küçültür). */
   maxTasks: number
@@ -147,8 +133,11 @@ export interface RunOptions {
   brief?: string | null
   /** Talimata eklenen görsellerin kimlikleri (`data/ekler/`); planlayıcı görür. */
   attachments?: string[]
-  /** Yoksa normal. */
-  mode?: RunMode
+  /**
+   * Devam koşusu: biten koşu kapatılmadan yönlendirilip sürdürülünce açılan koşunun ana koşusu. Bulguları ana koşunun
+   * onayına düşer; ana koşu kapatılınca o da kapanır.
+   */
+  parentRunId?: string | null
 }
 
 export interface RunInfo {
@@ -169,6 +158,22 @@ export interface RunInfo {
   counts: { new: number; repeated: number; suppressed: number }
   /** Girdili koşunun kapsam raporu; girdisiz (yalnız tarama) koşuda null. */
   coverage: RunCoverage | null
+  /**
+   * İnsan onayı: koşuda ve devam koşularında görülen sorunların kararı (bekleyen = açık, onaylanan = düzeltilecek ya da
+   * düzeldi, reddedilen = bulgu değil). Bekleyen kalırken koşu kapatılamaz.
+   */
+  review: RunReview
+  /** Koşunun kapatıldığı an ve kapatan; açıksa null. */
+  closedAt: string | null
+  closedBy: string | null
+  /** Ana koşunun devam koşuları (yönlendir ve sürdür), eskiden yeniye; devam koşusunda da ana koşununkiler. */
+  continuations: Array<{ id: string; code: string; status: RunStatus }>
+}
+
+export interface RunReview {
+  pending: number
+  accepted: number
+  rejected: number
 }
 
 export interface NetworkEntry {
@@ -200,8 +205,6 @@ export interface StrategyItem {
   fullScan: boolean
   /** Tanım kalemi kendi verisini kurup siliyor, başka kalemin sonucunu kullanmıyor: paralel yürüyebilir. */
   independent: boolean
-  /** Yeniden doğrulanan kayıtlı vakanın sorun anahtarı. */
-  caseKey?: string
 }
 
 /**
@@ -370,9 +373,19 @@ export interface CatalogPage {
   name: string
 }
 
-export interface PageGroup {
-  key: string
-  pages: CatalogPage[]
+/**
+ * Bulgunun belge alanları (çekmecede sadeden teknik olana): ne oldu, sonucu, nerede, kanıtın türü, kök neden, önerilen
+ * düzeltme ve kabul ölçütleri. Bulguyu bildiren model doldurur (`memory/brain/roles/temel.md` → Bulgu raporu); boş alan
+ * çekmecede gösterilmez. Bu alanlardan önce kaydedilen bulgularda yoktur.
+ */
+export interface FindingReport {
+  summary: string
+  impact: string
+  location: string
+  proof: string
+  rootCause: string
+  fix: string
+  acceptance: string[]
 }
 
 export interface Occurrence {
@@ -391,6 +404,7 @@ export interface Occurrence {
   box: Box | null
   reason: string | null
   rules: string[]
+  report: FindingReport | null
   at: string
 }
 
@@ -550,15 +564,4 @@ export const KIND_LABELS: Record<FindingKind, string> = {
 export function moduleOf(slug: string): string {
   const dash = slug.indexOf('-')
   return dash > 0 ? slug.slice(0, dash) : slug
-}
-
-export function groupPages(pages: CatalogPage[]): PageGroup[] {
-  const groups = new Map<string, CatalogPage[]>()
-  for (const page of pages) {
-    const key = page.slug.includes('-') ? moduleOf(page.slug) : '—'
-    groups.set(key, [...(groups.get(key) ?? []), page])
-  }
-  return [...groups.entries()]
-    .map(([key, list]) => ({ key, pages: list.sort((a, b) => a.slug.localeCompare(b.slug, 'tr')) }))
-    .sort((a, b) => (a.key === '—' ? 1 : b.key === '—' ? -1 : a.key.localeCompare(b.key, 'tr')))
 }

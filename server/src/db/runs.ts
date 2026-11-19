@@ -4,6 +4,7 @@ import {
   type RunEventBody,
   type RunCoverage,
   type RunInfo,
+  type RunReview,
   type RunOptions,
   type RunStatus,
   type Usage,
@@ -35,6 +36,8 @@ interface RunRow {
   started_at: string | null
   finished_at: string | null
   coverage: string | null
+  closed_at: string | null
+  closed_by: string | null
 }
 
 function counts(db: Database, runId: string): RunInfo['counts'] {
@@ -49,7 +52,34 @@ function counts(db: Database, runId: string): RunInfo['counts'] {
   }
 }
 
+/** Ana koşunun devam koşuları (yönlendir ve sürdür), eskiden yeniye. */
+function continuationsOf(db: Database, rootId: string): RunInfo['continuations'] {
+  return db
+    .prepare(
+      `select id, code, status from runs where json_extract(options, '$.parentRunId') = ? order by created_at`,
+    )
+    .all(rootId) as RunInfo['continuations']
+}
+
+/**
+ * Koşunun ve devam koşularının (aile) gördüğü sorunların insan kararına göre sayısı: sorun başına bir kez; bastırılan da
+ * reddedilmiş sayılır.
+ */
+function review(db: Database, rootId: string): RunReview {
+  const rows = db
+    .prepare(
+      `select i.status, count(distinct i.id) as n from occurrences o join issues i on i.id = o.issue_id
+       where o.run_id = ? or o.run_id in (select id from runs where json_extract(options, '$.parentRunId') = ?)
+       group by i.status`,
+    )
+    .all(rootId, rootId) as Array<{ status: string; n: number }>
+  const of = (s: string) => rows.find((r) => r.status === s)?.n ?? 0
+  return { pending: of('acik'), accepted: of('duzeltilecek') + of('duzeldi'), rejected: of('bulgu-degil') }
+}
+
 function toInfo(db: Database, row: RunRow): RunInfo {
+  const options = json<RunOptions>(row.options, { ...RUN_CEILINGS })
+  const root = options.parentRunId ?? row.id
   return {
     id: row.id,
     code: row.code,
@@ -57,7 +87,7 @@ function toInfo(db: Database, row: RunRow): RunInfo {
     application: row.application,
     environment: row.environment,
     pages: json<string[]>(row.pages, []),
-    options: json<RunOptions>(row.options, { ...RUN_CEILINGS }),
+    options,
     status: row.status,
     error: row.error,
     usage: json<Usage>(row.usage, EMPTY_USAGE),
@@ -66,7 +96,19 @@ function toInfo(db: Database, row: RunRow): RunInfo {
     finishedAt: row.finished_at,
     counts: counts(db, row.id),
     coverage: json<RunCoverage | null>(row.coverage, null),
+    review: review(db, root),
+    continuations: continuationsOf(db, root),
+    closedAt: row.closed_at ?? null,
+    closedBy: row.closed_by ?? null,
   }
+}
+
+/** Ana koşuyu ve devam koşularını kapatır. */
+export function closeRun(db: Database, rootId: string, by: string): void {
+  db.prepare(
+    `update runs set closed_at = ?, closed_by = ?
+     where (id = ? or json_extract(options, '$.parentRunId') = ?) and closed_at is null`,
+  ).run(now(), by, rootId, rootId)
 }
 
 /**

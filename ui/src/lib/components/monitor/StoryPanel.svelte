@@ -57,8 +57,6 @@
     recent: number | null
   } = $props()
 
-  /** Bundan uzun beklenen metni üç satırda durur, "Tamamını göster" ile açılır (eski koşularda dayanak da içindeydi). */
-  const EXPECTED_SHORT = 180
   /** Bulgunun türü künyede: işaret, renkli tür adı ve önem. Kanıtlı kırmızı, tutarsızlık amber, şüphe gri. */
   const KINDS = ['kesin', 'tutarsizlik', 'not'] as const
   const KIND = {
@@ -68,7 +66,6 @@
   } as const
   const STATUS = { suruyor: 'Sürüyor', bitti: 'Bitti', bekliyor: 'Bekliyor' } as const
 
-  let expectedOpen = $state(new Set<string>())
   let list = $state<HTMLElement | null>(null)
 
   const done = $derived(rows.filter((r) => r.status === 'bitti').length)
@@ -184,21 +181,6 @@
             <span class="text-zinc-400 tabular-nums">{row.at !== null ? clock(row.at) : ''}</span>
           </span>
         </button>
-        {#if row.expected}
-          {@const long = row.expected.length > EXPECTED_SHORT}
-          {@const open = expectedOpen.has(row.key)}
-          <p class="-mt-1 pr-1 pb-2 pl-0.5 text-[12px] leading-[17px] text-zinc-500">
-            <span class={cn(long && !open && 'line-clamp-3')}
-              ><span class="text-zinc-400">Beklenen:</span> {row.expected}</span
-            >
-            {#if long}<button
-                type="button"
-                class="mt-0.5 text-[11.5px] font-medium text-[#1d3fc4] hover:underline"
-                onclick={() => (expectedOpen = toggle(expectedOpen, row.key))}
-                >{open ? 'Kısalt' : 'Tamamını göster'}</button
-              >{/if}
-          </p>
-        {/if}
 
         <ul class={cn('branches', isActive && 'live')}>
           {#if now}

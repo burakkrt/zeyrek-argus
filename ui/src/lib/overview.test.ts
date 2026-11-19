@@ -22,6 +22,10 @@ const run = (over: Partial<RunInfo>): RunInfo => ({
   finishedAt: ago(1, -1 / 12),
   counts: { new: 0, repeated: 0, suppressed: 0 },
   coverage: null,
+  review: { pending: 0, accepted: 0, rejected: 0 },
+  closedAt: null,
+  closedBy: null,
+  continuations: [],
   ...over,
 })
 

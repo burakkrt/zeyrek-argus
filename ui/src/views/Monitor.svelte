@@ -1,8 +1,12 @@
 <script lang="ts">
+  import { errorOf, validateFields } from '$lib/validation'
   import type { IssueDetail, Occurrence, RunEvent, RunInfo, StepTarget } from '@argus/shared'
   import { onDestroy, onMount } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import Page from '$lib/components/layout/Page.svelte'
+  import RunSteps from '$lib/components/run/RunSteps.svelte'
+  import { notify } from '$lib/notify.svelte'
+  import { go } from '$lib/router.svelte'
   import FindingDetail from '$lib/components/monitor/FindingDetail.svelte'
   import PlanDetail from '$lib/components/monitor/PlanDetail.svelte'
   import FindingToast from '$lib/components/monitor/FindingToast.svelte'
@@ -398,6 +402,13 @@
     openFinding(Math.min(Math.max(base < 0 && delta > 0 ? 0 : base + delta, 0), total - 1), true)
   }
 
+  /** Sıradaki adım: biten koşunun değerlendirmesi (devam koşusunda ana koşununki); koşu sürerken nedeni söylenir. */
+  function nextStep() {
+    if (!current || current.status === 'sirada' || current.status === 'calisiyor')
+      return notify.error('Değerlendirme henüz açılmadı', 'Koşu bitince bulgular değerlendirilir.')
+    go(`/onay/${current.options.parentRunId ?? runId}`)
+  }
+
   function togglePlay() {
     if (following) {
       following = false
@@ -449,18 +460,33 @@
     if (event.key === 'f' || event.key === 'F') void toggleFullscreen()
   }
 
+  // Yönlendirme metni zorunludur; boş gönderimde hata alanın altında görünür (bildirim değil).
+  let steerSubmitted = $state(false)
+  const steerErrors = $derived(
+    steerSubmitted
+      ? validateFields([{ id: 'yonlendir', label: 'Yönlendirme', value: message, required: 'Kontrolcüye ne yapacağını yaz.' }])
+      : [],
+  )
   async function steer() {
-    if (!message.trim()) return
+    steerSubmitted = true
+    if (steerErrors.length) return document.getElementById('yonlendir')?.focus()
     try {
       await post(`/kosular/${runId}/yonlendir`, { mesaj: message })
       message = ''
+      steerSubmitted = false
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     }
   }
 
+  // Durdurma süren model çağrısını beklemez; yanıt gelene dek düğme basıldığını gösterir.
+  let stopping = $state(false)
   async function stop() {
-    await post(`/kosular/${runId}/durdur`).catch((e: unknown) => (error = String(e)))
+    stopping = true
+    await post(`/kosular/${runId}/durdur`).catch((e: unknown) => {
+      error = String(e)
+      stopping = false
+    })
   }
 
   let unsubscribe: (() => void) | null = null
@@ -551,7 +577,16 @@
   sağda her zaman açık panel (akış ya da bulgunun ayrıntısı). Kayıt tuvale iki yönde de sığar; zaman çizelgesi laptop
   boyutunda da kaydırmadan görünür.
 -->
-<Page class="h-[calc(100svh-56px)] max-w-none gap-3 px-3 py-3">
+<Page
+  title={current ? `${current.code} · ${running ? 'Koşu sürüyor' : 'Koşu kaydı'}` : 'Koşu'}
+  description={current?.options.brief ?? current?.pages.join(', ') ?? ''}
+  class="h-[calc(100svh-56px-68px-69px)] max-w-none gap-3 px-3 py-3"
+>
+  {#snippet actions()}
+    <Button onclick={nextStep}>Sıradaki: Değerlendirme</Button>
+  {/snippet}
+  {#snippet subheader()}<RunSteps run={current} current="kosu" />{/snippet}
+
   <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_clamp(300px,24vw,380px)] gap-3">
     <div
       bind:this={player}
@@ -579,7 +614,9 @@
           >
           <RunStatusBadge status={current.status} />
         {/if}
-        {#if running}<Button size="sm" variant="outline" onclick={stop}>Durdur</Button>{/if}
+        {#if running}<Button size="sm" variant="outline" disabled={stopping} onclick={stop}
+            >{stopping ? 'Durduruluyor…' : 'Durdur'}</Button
+          >{/if}
       </div>
 
       <!-- Gri tuval: kayıt bir pencere gibi ortada, iki yönde de sığar. -->
@@ -704,14 +741,25 @@
       />
       {#if running}
         <form
-          class="flex shrink-0 gap-2 border-t p-3"
+          class="flex shrink-0 items-start gap-2 border-t p-3"
           onsubmit={(e) => {
             e.preventDefault()
             void steer()
           }}
         >
-          <Input placeholder="Kontrolcüyü yönlendir: tarih filtresini de dene" bind:value={message} />
-          <Button type="submit" variant="outline" disabled={!message.trim()}>Gönder</Button>
+          <div class="grid min-w-0 flex-1 gap-1" data-field="yonlendir">
+            <Input
+              id="yonlendir"
+              placeholder="Kontrolcüyü yönlendir: tarih filtresini de dene"
+              aria-invalid={steerErrors.length ? true : undefined}
+              aria-describedby={steerErrors.length ? 'yonlendir-hata' : undefined}
+              bind:value={message}
+            />
+            {#if steerErrors.length}<p id="yonlendir-hata" class="text-destructive text-xs">
+                {errorOf(steerErrors, 'yonlendir')}
+              </p>{/if}
+          </div>
+          <Button type="submit" variant="outline">Gönder</Button>
         </form>
       {/if}
     </Card.Root>
@@ -719,7 +767,6 @@
 </Page>
 
 <FindingDetail
-  {runId}
   finding={selected === null ? null : (model.findings[selected] ?? null)}
   {occurrence}
   failed={detailFailed}

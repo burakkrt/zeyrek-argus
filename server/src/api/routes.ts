@@ -2,7 +2,6 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import {
   FINDING_KINDS,
-  groupPages,
   ISSUE_STATUSES,
   MODEL_ROLES,
   RULE_TYPES,
@@ -11,7 +10,6 @@ import {
   type IssueStatus,
   type MemoryBudget,
   type RuleScope,
-  type RunMode,
   type Settings,
   type StreamMessage,
 } from '@argus/shared'
@@ -224,14 +222,6 @@ export function createApi(ctx: AppContext): Hono {
   api.get('/katalog/ortamlar', async (c) =>
     c.json(await ctx.platform.catalog.environments(str(c.req.query('proje'), 'proje'))),
   )
-  api.get('/katalog/sayfalar', async (c) => {
-    const pages = await ctx.platform.catalog.pages(
-      str(c.req.query('proje'), 'proje'),
-      str(c.req.query('uygulama'), 'uygulama'),
-      str(c.req.query('ortam'), 'ortam'),
-    )
-    return c.json(groupPages(pages))
-  })
 
   // --- çalışma alanı ---
 
@@ -275,7 +265,6 @@ export function createApi(ctx: AppContext): Hono {
       user?: string | null
       brief?: string | null
       attachments?: string[]
-      mode?: RunMode
     }
     const run = ctx.runs.create({ ...appOf(body), environment: str(body.ortam, 'ortam'), pages, options })
     return c.json(run)
@@ -291,6 +280,17 @@ export function createApi(ctx: AppContext): Hono {
     return c.json({ id: saveAttachment(ctx.config.dataDir, bytes, upload.name, upload.type) })
   })
 
+  // Sesli yazım: konuşma cümle cümle yerel Whisper'la yazıya çevrilir, bilgisayardan çıkmaz (`speech/whisper.ts`).
+  // ?asama=gecici: süren cümlenin geçici çevirisi (motor meşgulse boş döner); yoksa kesin çeviri.
+  const { speech } = ctx
+  api.get('/ses', (c) => c.json({ hazir: speech.ready() }))
+  api.post('/ses', async (c) => {
+    const bytes = new Uint8Array(await c.req.arrayBuffer())
+    if (!bytes.length) bad('ses gerekli.')
+    if (bytes.length > 2 * 1024 * 1024) bad('Cümle çok uzun; en çok 10 saniyelik parçalar gönderilir.')
+    return c.json({ metin: await speech.transcribe(bytes, c.req.query('asama') === 'gecici') })
+  })
+
   api.get('/kosular/:id', (c) => {
     const run = getRun(ctx.db, c.req.param('id'))
     return run ? c.json(run) : c.json({ hata: 'Koşu bulunamadı.' }, 404)
@@ -301,6 +301,15 @@ export function createApi(ctx: AppContext): Hono {
   api.post('/kosular/:id/durdur', (c) => {
     ctx.runs.stop(c.req.param('id'))
     return c.json({ ok: true })
+  })
+
+  /** Koşuyu kapatır: her bulgusuna karar verilmiş olmalı (yoksa nedeni söylenir). */
+  api.post('/kosular/:id/kapat', (c) => c.json(ctx.runs.close(c.req.param('id'), ctx.author().name)))
+
+  /** Yönlendir ve sürdür: biten koşu notla devam koşusu olarak sürer; yeni koşuyu döner. */
+  api.post('/kosular/:id/surdur', async (c) => {
+    const body = (await c.req.json()) as Record<string, unknown>
+    return c.json(ctx.runs.continueRun(c.req.param('id'), str(body.mesaj, 'mesaj')))
   })
 
   api.post('/kosular/:id/yonlendir', async (c) => {

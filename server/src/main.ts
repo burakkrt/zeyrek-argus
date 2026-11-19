@@ -43,6 +43,7 @@ serve({ fetch: app.fetch, port }, () => {
 })
 
 const shutdown = async () => {
+  ctx.speech.stop()
   await ctx.platform.close()
   ctx.db.close()
   releaseLock()
