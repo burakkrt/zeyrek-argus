@@ -47,6 +47,55 @@ afterAll(async () => {
   await h.close()
 })
 
+describe('değerlendirme kararları', () => {
+  it('"bilerek böyle" yeniden görülünce bastırılır; tanım değişince gözden geçirilmek üzere yeniden açılır', () => {
+    const { issues, db, memory } = h.ctx
+    const first = issues.record(sighting({ key: 'yz:kabul', page: 'egt-kabul', studioPrint: 'k1' }))
+    db.prepare(
+      `insert into page_prints (project, application, environment, page, run_id, ui, api, studio, at)
+       values ('qm', 'web', 'development', 'egt-kabul', ?, 'u', 'a', 'k1', '2999-01-02T00:00:00.000Z')`,
+    ).run(runId)
+    issues.decide(first.issue.id, 'kabul-edildi', 'Ayşe', null)
+    expect(memory.decision(app, 'yz:kabul')?.status).toBe('kabul-edildi')
+    const again = issues.record(sighting({ key: 'yz:kabul', page: 'egt-kabul', studioPrint: 'k1' }))
+    expect(again.outcome).toBe('bastirildi')
+    expect(again.reason).toBe('İnsan kararı: bilerek böyle')
+    expect(issues.record(sighting({ key: 'yz:kabul', page: 'egt-kabul', studioPrint: 'k2' })).outcome).toBe(
+      'yeniden-acildi',
+    )
+  })
+
+  it('"bulgu değil" nedeni saklanır; yanlış gözlem ve kapsam dışı öğrenmeye girmez, davranış doğru nedeniyle girer', () => {
+    const { issues, memory } = h.ctx
+    const wrong = issues.record(sighting({ key: 'yz:yukleniyordu' }))
+    const right = issues.record(sighting({ key: 'yz:bos-alan-dogru' }))
+    const out = issues.record(sighting({ key: 'yz:kapsam-disi' }))
+    issues.decide(wrong.issue.id, 'bulgu-degil', 'Ayşe', null, 'yanlis-gozlem')
+    issues.decide(right.issue.id, 'bulgu-degil', 'Ayşe', null, 'davranis-dogru')
+    issues.decide(out.issue.id, 'bulgu-degil', 'Ayşe', null, 'kapsam-disi')
+    expect(issues.detail(wrong.issue.id).reason).toBe('yanlis-gozlem')
+    expect(memory.decision(app, 'yz:bos-alan-dogru')?.reason).toBe('davranis-dogru')
+    const learned = issues.decisionsSince(app, null).map((d) => [d.key, d.reason])
+    expect(learned).toContainEqual(['yz:bos-alan-dogru', 'davranis-dogru'])
+    expect(learned.map(([k]) => k)).not.toContain('yz:yukleniyordu')
+    expect(learned.map(([k]) => k)).not.toContain('yz:kapsam-disi')
+    // Başka karara geçince neden silinir.
+    issues.decide(wrong.issue.id, 'duzeltilecek', 'Ayşe', null)
+    expect(issues.detail(wrong.issue.id).reason).toBeNull()
+  })
+
+  it('düzenlenen düzeltme kartın düzeltmesi olur ve karar dosyasına yazılır; boş metin önerilene döner', () => {
+    const { issues, memory } = h.ctx
+    const found = issues.record(sighting({ key: 'yz:cozum' }))
+    const edited = issues.editFix(found.issue.id, 'Toplamı süzülmüş satırlardan hesapla.', 'Ayşe')
+    expect(edited.fix).toBe('Toplamı süzülmüş satırlardan hesapla.')
+    expect(edited.fixEdited).toBe(true)
+    expect(memory.decision(app, 'yz:cozum')?.fixOverride).toBe('Toplamı süzülmüş satırlardan hesapla.')
+    const reverted = issues.editFix(found.issue.id, '  ', 'Ayşe')
+    expect(reverted.fixEdited).toBe(false)
+  })
+})
+
 describe('karar hafızası', () => {
   it('"bulgu değil" kararı tanım izine bağlanır; tanım değişince karar gözden geçirilmek üzere sorun yeniden açılır', () => {
     const { issues, db, memory } = h.ctx

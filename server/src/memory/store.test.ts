@@ -37,6 +37,30 @@ describe('karar dosyası', () => {
     expect(parseDecision(serializeDecision(record), 'test')).toEqual(record)
   })
 
+  it('"bulgu değil" nedeni ve düzenlenmiş düzeltme gidiş-dönüşte korunur; eski dosya bunlarsız okunur', () => {
+    const record: DecisionRecord = {
+      key: 'yz:liste-bos',
+      title: 'Boş liste',
+      kind: 'tutarsizlik',
+      status: 'bulgu-degil',
+      updatedAt: '2026-11-20T21:00:00.000Z',
+      reason: 'davranis-dogru',
+      fixOverride: 'Boş durum metnini sözlükten al.\nTüm listelere uygula.',
+      example: null,
+      history: [{ at: '2026-11-20T21:00:00.000Z', author: 'Burak', from: 'acik', to: 'bulgu-degil', note: null }],
+      comments: [],
+    }
+    const text = serializeDecision(record)
+    expect(text).toContain('neden: davranis-dogru')
+    expect(text).toContain('## Düzeltme')
+    expect(parseDecision(text, 'test')).toEqual(record)
+    const old = serializeDecision({ ...record, reason: null, fixOverride: null, status: 'kabul-edildi' })
+    const parsed = parseDecision(old, 'test')
+    expect(parsed.status).toBe('kabul-edildi')
+    expect(parsed.reason).toBeUndefined()
+    expect(parsed.fixOverride).toBeUndefined()
+  })
+
   it('iki kişinin aynı karar dosyasına eşzamanlı yazdığı değişiklik Git (union) birleştirmesinden sonra kayıpsız okunur', () => {
     const base: DecisionRecord = {
       key: 'yz:a',

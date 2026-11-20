@@ -6,7 +6,7 @@ const run = (over: Partial<RunInfo>) =>
   ({
     id: 'r1',
     status: 'bitti',
-    review: { pending: 0, accepted: 0, rejected: 0, unclear: 0 },
+    review: { pending: 0, accepted: 0, kept: 0, rejected: 0, unclear: 0 },
     closedAt: null,
     options: { maxTasks: 20, maxSteps: 150 },
     ...over,
@@ -32,7 +32,7 @@ describe('koşunun adımları', () => {
   })
 
   it('biten koşuda değerlendirme açılır ve bekleyen kararı söyler; kapanınca bütün adımlar tamam', () => {
-    const open = runSteps(run({ review: { pending: 39, accepted: 0, rejected: 0, unclear: 0 } }), 'degerlendirme')
+    const open = runSteps(run({ review: { pending: 39, accepted: 0, kept: 0, rejected: 0, unclear: 0 } }), 'degerlendirme')
     expect(view(open).slice(1)).toEqual([
       'kosu:done:Bitti',
       'degerlendirme:sel:39 karar bekliyor',
@@ -44,7 +44,11 @@ describe('koşunun adımları', () => {
 
     const closed = runSteps(run({ closedAt: '2026-11-19T10:00:00.000Z' }), 'kapanis')
     expect(view(closed).slice(2)).toEqual(['degerlendirme:done:Tamamlandı', 'kapanis:sel:Kapatıldı'])
+    expect(closed[3]!.href).toBe('#/kapanis/r1')
     expect(doneCount(closed)).toBe(4)
+    const ready = runSteps(run({ review: { pending: 0, accepted: 3, kept: 1, rejected: 2, unclear: 0 } }), 'degerlendirme')
+    expect(view(ready).slice(3)).toEqual(['kapanis:bekle:Kapatılabilir'])
+    expect(ready[3]!.href).toBe('#/kapanis/r1')
     expect(doneCount(open)).toBe(2)
   })
 
@@ -79,7 +83,7 @@ describe('koşunun adımları', () => {
     }
     expect(at({ status: 'sirada' })).toBe('Sırada|#/monitor/r1')
     expect(at({ status: 'calisiyor' })).toBe('Koşu|#/monitor/r1')
-    expect(at({ status: 'bitti', review: { pending: 8, accepted: 0, rejected: 0, unclear: 0 } })).toBe('Değerlendirme|#/onay/r1')
+    expect(at({ status: 'bitti', review: { pending: 8, accepted: 0, kept: 0, rejected: 0, unclear: 0 } })).toBe('Değerlendirme|#/onay/r1')
     expect(at({ status: 'bitti' })).toBe('Değerlendirme|#/onay/r1')
     // Yarıda kalan ve durdurulan koşu da değerlendirme adımındadır.
     expect(at({ status: 'hata' })).toBe('Değerlendirme|#/onay/r1')

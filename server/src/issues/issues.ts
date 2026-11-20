@@ -7,12 +7,13 @@ import type {
   IssueDetail,
   IssueHistoryEntry,
   IssueStatus,
+  DismissReason,
   Occurrence,
   OccurrenceOutcome,
   Severity,
   SharedSighting,
 } from '@argus/shared'
-import { DEFINITION_PAGE } from '@argus/shared'
+import { DEFINITION_PAGE, STATUS_LABELS } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 import { json, newId, now, transaction, type Database } from '../db/database.ts'
 import type { Author } from '../author.ts'
@@ -76,6 +77,8 @@ interface IssueRow {
   seen_count: number
   last_shot: string | null
   unclear_at: string | null
+  dismiss_reason: DismissReason | null
+  fix_override: string | null
 }
 
 /** Netleştirme adımında Argus'un yeniden yazdığı bulgu (son görünümün yerine geçer). */
@@ -145,7 +148,10 @@ export class IssueService {
       pages: this.pages(row.id),
       lastShot: row.last_shot,
       unclear: !!row.unclear_at && row.status === 'acik',
+      fixEdited: !!row.fix_override,
+      reason: row.status === 'bulgu-degil' ? row.dismiss_reason : null,
       fix:
+        row.fix_override ||
         json<FindingReport | null>(
           (
             this.db
@@ -197,8 +203,8 @@ export class IssueService {
           )
         row = this.row(id)
         outcome = 'yeni'
-      } else if (row.status === 'bulgu-degil') {
-        // Karar ancak verildiği tanım için geçerlidir: modülün mantığı değiştiyse yanlış bir "bulgu değil" kalıcı olmasın.
+      } else if (row.status === 'bulgu-degil' || row.status === 'kabul-edildi') {
+        // "Bulgu değil" ve "bilerek böyle" yeniden görülünce bastırılır. Karar ancak verildiği tanım için geçerlidir: modülün mantığı değiştiyse yanlış bir "bulgu değil" kalıcı olmasın.
         const changed = Boolean(
           input.studioPrint &&
           row.decision_print?.startsWith(`${input.page}:`) &&
@@ -208,13 +214,13 @@ export class IssueService {
           outcome = 'tekrar'
           reason = 'Tartışmalı karar: iki kişi ayrışıyor, bastırılmadı'
         } else if (changed) {
-          const note = 'Sayfa tanımı "bulgu değil" kararından sonra değişti; karar gözden geçirilmeli.'
+          const note = `Sayfa tanımı "${STATUS_LABELS[row.status]}" kararından sonra değişti; karar gözden geçirilmeli.`
           this.setStatus(row, 'acik', 'Argus', note, input.app)
           outcome = 'yeniden-acildi'
           reason = note
         } else {
           outcome = 'bastirildi'
-          reason = 'İnsan kararı: bulgu değil'
+          reason = `İnsan kararı: ${STATUS_LABELS[row.status].toLocaleLowerCase('tr')}`
         }
       } else if (row.status === 'duzeldi') {
         this.setStatus(row, 'acik', 'Argus', 'Düzeldi denmişti, yeniden görüldü.', input.app)
@@ -412,6 +418,8 @@ export class IssueService {
       status: row.status,
       updatedAt: now(),
       decisionPrint: row.decision_print,
+      reason: row.status === 'bulgu-degil' ? row.dismiss_reason : null,
+      fixOverride: row.fix_override,
       example: sample
         ? {
             page: sample.page,
@@ -446,7 +454,10 @@ export class IssueService {
       )
       .run(row.id, row.status, status, author, note, now())
     if (author !== 'Argus' && status !== row.status) {
-      if (status === 'bulgu-degil') {
+      if (status === 'kabul-edildi') {
+        // "Bilerek böyle" kuralları yanıltmadı (bulgu gerçek); yalnız tanım izi bağlanır, tanım değişince gözden geçirilir.
+        this.db.prepare('update issues set decision_print = ? where id = ?').run(this.printOf(row), row.id)
+      } else if (status === 'bulgu-degil') {
         // Bulgunun dayandığı kurallar yanılttı; karar, bulgunun son görüldüğü sayfanın o anki tanım izine bağlanır.
         const cited = (
           this.db.prepare('select rules from occurrences where issue_id = ?').all(row.id) as Array<{
@@ -454,16 +465,7 @@ export class IssueService {
           }>
         ).flatMap((r) => json<string[]>(r.rules, []))
         bumpMisled(this.db, [...new Set(cited)])
-        const seen = this.db
-          .prepare(
-            `select o.page, (select p.studio from page_prints p where p.project = ? and p.application = ? and p.page = o.page
-               and p.studio is not null order by p.at desc limit 1) as studio
-             from occurrences o where o.issue_id = ? order by o.at desc limit 1`,
-          )
-          .get(row.project, row.application, row.id) as { page: string; studio: string | null } | undefined
-        this.db
-          .prepare('update issues set decision_print = ? where id = ?')
-          .run(seen?.studio ? `${seen.page}:${seen.studio}` : null, row.id)
+        this.db.prepare('update issues set decision_print = ? where id = ?').run(this.printOf(row), row.id)
       } else if (status === 'duzeltilecek' && row.suppressed_by) {
         // Gerçek olduğu söylenen sorunu bastıran "sorun sayma" kuralı yanılttı.
         bumpMisled(this.db, [row.suppressed_by])
@@ -474,11 +476,23 @@ export class IssueService {
     if (author !== 'Argus') this.writeFile(this.row(row.id))
   }
 
-  decide(id: string, status: IssueStatus, author: string, note: string | null): IssueDetail {
+  /**
+   * İnsan kararı. `reason` yalnız "bulgu değil"de saklanır (öğrenmeye etkisi nedenine göredir); başka kararda silinir.
+   */
+  decide(
+    id: string,
+    status: IssueStatus,
+    author: string,
+    note: string | null,
+    reason: DismissReason | null = null,
+  ): IssueDetail {
     const row = this.row(id)
     transaction(this.db, () => {
       // Karar verilen bulgu belirsiz değildir.
       this.db.prepare('update issues set unclear_at = null where id = ?').run(id)
+      this.db
+        .prepare('update issues set dismiss_reason = ? where id = ?')
+        .run(status === 'bulgu-degil' ? reason : null, id)
       if (note)
         this.db
           .prepare('insert into comments (issue_id, author, text, at) values (?, ?, ?, ?)')
@@ -488,9 +502,38 @@ export class IssueService {
       // Tartışmalı sorunda var olan hükmü seçmek onaydır: kişinin hükmü tarihçeye girer, tartışma çözülebilsin.
       else if (isContested(this.history(id)))
         this.setStatus(row, status, author, note ?? 'Karar onaylandı.', app)
-      else this.writeFile(row)
+      else this.writeFile(this.row(id))
     })
     return this.detail(id)
+  }
+
+  /**
+   * İnsan önerilen düzeltmeyi değiştirdi: kapanıştaki düzeltme istemine bu metin gider; boş metin önerilene döner.
+   * Paylaşılan karar dosyasına yazılır (ekip aynı düzeltmeyi görür).
+   */
+  editFix(id: string, text: string, author: string): IssueDetail {
+    const row = this.row(id)
+    const value = text.trim() || null
+    transaction(this.db, () => {
+      this.db.prepare('update issues set fix_override = ? where id = ?').run(value, id)
+      this.db
+        .prepare('insert into comments (issue_id, author, text, at) values (?, ?, ?, ?)')
+        .run(id, author, value ? `Önerilen düzeltme değiştirildi: ${value}` : 'Düzeltme önerilene döndürüldü.', now())
+      this.writeFile(this.row(row.id))
+    })
+    return this.detail(id)
+  }
+
+  /** Bulgunun son görüldüğü sayfanın o anki tanım izi (`<sayfa>:<iz>`); yoksa null. */
+  private printOf(row: IssueRow): string | null {
+    const seen = this.db
+      .prepare(
+        `select o.page, (select p.studio from page_prints p where p.project = ? and p.application = ? and p.page = o.page
+           and p.studio is not null order by p.at desc limit 1) as studio
+         from occurrences o where o.issue_id = ? order by o.at desc limit 1`,
+      )
+      .get(row.project, row.application, row.id) as { page: string; studio: string | null } | undefined
+    return seen?.studio ? `${seen.page}:${seen.studio}` : null
   }
 
   /** Kontrolcü yanlış bildirdiğini anlayıp geri aldı: bu koşu ve sayfadaki görünümler silinir; sorun yalnız bunlardan ibaretse o da. */
@@ -750,9 +793,17 @@ export class IssueService {
           !local.at || record.updatedAt > local.at ? record.status : (last?.to_status ?? record.status)
         this.db
           .prepare(
-            'update issues set status = ?, title = ?, decision_print = coalesce(?, decision_print) where id = ?',
+            `update issues set status = ?, title = ?, decision_print = coalesce(?, decision_print),
+               dismiss_reason = ?, fix_override = coalesce(?, fix_override) where id = ?`,
           )
-          .run(status, record.title, record.decisionPrint ?? null, row.id)
+          .run(
+            status,
+            record.title,
+            record.decisionPrint ?? null,
+            status === 'bulgu-degil' ? (record.reason ?? null) : null,
+            record.fixOverride ?? null,
+            row.id,
+          )
       }
       this.db
         .prepare(
@@ -881,10 +932,17 @@ export class IssueService {
   decisionsSince(
     app: AppRef,
     since: string | null,
-  ): Array<{ key: string; title: string; status: IssueStatus; note: string; example: string }> {
+  ): Array<{
+    key: string
+    title: string
+    status: IssueStatus
+    reason: DismissReason | null
+    note: string
+    example: string
+  }> {
     const rows = this.db
       .prepare(
-        `select i.id, i.key, i.title, i.status from issues i
+        `select i.id, i.key, i.title, i.status, i.dismiss_reason from issues i
          where i.project = ? and i.application = ? and i.status <> 'acik'
            and exists (select 1 from history h where h.issue_id = i.id and h.author <> 'Argus' and (? is null or h.at > ?))`,
       )
@@ -893,10 +951,16 @@ export class IssueService {
       key: string
       title: string
       status: IssueStatus
+      dismiss_reason: DismissReason | null
     }>
     // Tartışmalı karar öğrenmeye girmez: iki insanın ayrıştığı yerden kural çıkarmak yanlışı kalıcılaştırabilir.
+    // "Yanlış gözlem" ve "kapsam dışı" retleri de girmez: ders bulgunun konusu değil kontrolcünün o anki bakışıdır;
+    // "görmezden gel" kuralına dönüşürse gerçek sorunu gizler.
     return rows
       .filter((r) => !isContested(this.history(r.id)))
+      .filter(
+        (r) => !(r.status === 'bulgu-degil' && (r.dismiss_reason === 'yanlis-gozlem' || r.dismiss_reason === 'kapsam-disi')),
+      )
       .map((r) => {
         const notes = (
           this.db.prepare('select text from comments where issue_id = ? order by at').all(r.id) as Array<{
@@ -912,6 +976,7 @@ export class IssueService {
           key: r.key,
           title: r.title,
           status: r.status,
+          reason: r.status === 'bulgu-degil' ? r.dismiss_reason : null,
           note: notes.join(' | '),
           example: sample ? `${sample.page}: ${sample.observed}` : '',
         }

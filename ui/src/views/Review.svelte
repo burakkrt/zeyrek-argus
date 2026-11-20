@@ -1,9 +1,11 @@
 <script lang="ts">
-  import type { Issue, IssueDetail, RunInfo } from '@argus/shared'
+  import { DISMISS_REASON_LABELS, DISMISS_REASONS, type DismissReason, type Issue, type IssueDetail, type RunInfo } from '@argus/shared'
   import { onDestroy, onMount, untrack } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import Drawer from '$lib/components/layout/Drawer.svelte'
   import FindingReport from '$lib/components/finding/FindingReport.svelte'
+  import FixEditor from '$lib/components/finding/FixEditor.svelte'
+  import Triage from '$lib/components/review/Triage.svelte'
   import Field from '$lib/components/form/Field.svelte'
   import { errorOf, validateFields } from '$lib/validation'
   import Modal from '$lib/components/layout/Modal.svelte'
@@ -11,7 +13,7 @@
   import RunSteps from '$lib/components/run/RunSteps.svelte'
   import { Button } from '$lib/components/ui/button/index.js'
   import { api, post, qs } from '$lib/api'
-  import { formatDate, SEVERITY } from '$lib/format'
+  import { formatDate, SEVERITY, STATUS } from '$lib/format'
   import { notify } from '$lib/notify.svelte'
   import { pageName } from '$lib/page-name.svelte'
   import {
@@ -19,12 +21,20 @@
     canContinue,
     changes,
     closeBlocker,
+    columnOf,
     COLUMNS,
+    DECISIONS,
     family,
     finished,
     KIND,
+    REASON_HINT,
     seenBefore,
+    similarPending,
+    STAMP_STREAK,
+    stampStreak,
     statusOf,
+    suggestionFor,
+    triageQueue,
     type ColumnId,
   } from '$lib/review'
   import { RUN_STATUS } from '$lib/format'
@@ -33,16 +43,20 @@
   import { cn } from '$lib/utils'
 
   /**
-   * Koşu onayı: koşu bitince bulgulara insan karar verir, sonra koşu kapatılır. Kartlar sürüklenip bırakılarak
-   * "İnceleme bekliyor", "Belirsiz", "Onaylandı" ve "Reddedildi" sütunlarına taşınır (karar sorunun durumuna yazılır;
-   * reddedileni Argus öğrenir). Kart başlığın altında önerilen çözümü gösterir: basit bulguya çekmeceyi açmadan karar
-   * verilebilir. Karta tıklayınca ayrıntısı çekmecede açılır, açık kart panoda vurgulanır, diğerleri soluklaşır;
-   * çekmecenin başlığından Onayla / Reddet / Belirsiz denir (isteğe bağlı notla), çekmece kapanır.
+   * Değerlendirme: koşu bitince bulgulara insan karar verir, sonra Kapanış'a geçilir. Sütunlar kararın kendisidir
+   * (`COLUMNS`): İnceleme bekliyor · Düzeltilecek · Bilerek böyle · Bulgu değil · Anlamadım; hepsi aynı gri zeminlidir.
+   * Kart sürüklenip bırakılır ya da çekmeceden karar verilir. "Bulgu değil" nedeni ister (dört seçenek; öğrenmeye
+   * etkisi nedene göredir), neden seçilmeden karar yazılmaz. Her karardan sonra birkaç saniye "Geri al" çıkar.
    *
-   * Belirsiz (değerlendirmenin ikinci turu): insan anlamadığı kartı Belirsiz'e alır ve sorusunu yazar (zorunlu).
-   * "Belirsizleri netleştir" Argus'un bu kartları sorusuna göre yeniden yazmasını sağlar (`server/src/review/clarify.ts`);
-   * kartlar İnceleme bekliyor'a döner, insan yine karar verir. Belirsiz kalmazsa bu tur açılmaz. Belirsiz ya da bekleyen
-   * karar kalırken "Koşuyu kapat" nedenini söyler.
+   * Çekmece: geçmiş karara benzeyen kartta öneri gösterilir (uygulanmaz); benzer bekleyen kartlar varsa karar
+   * isteğe bağlı olarak onlara da uygulanır (liste görünür, kutu işaretlenmeden uygulanmaz). Önerilen çözüm
+   * "Değiştir" ile düzenlenir; kapanış istemine ekibin metni gider. Art arda `STAMP_STREAK` karar öneriyle aynıysa
+   * panoda hatırlatma çıkar. "Tek tek" kipi bekleyen kartları klavyeyle sırayla karara bağlatır (`Triage`).
+   *
+   * Anlamadım (değerlendirmenin ikinci turu): insan anlamadığı kartı Anlamadım'a alır ve sorusunu yazar (zorunlu; not
+   * yoksa soru penceresi açılır). "Anlamadıklarımı netleştir" Argus'un bu kartları sorusuna göre yeniden yazmasını
+   * sağlar (`server/src/review/clarify.ts`); kartlar İnceleme bekliyor'a döner, insan yine karar verir. Anlaşılmayan
+   * ya da bekleyen karar kalırken "Sıradaki: Kapanış" nedenini söyler.
    *
    * "Yönlendir ve sürdür" koşuyu kapatmadan kullanıcının notuyla devam koşusu başlatır; devam koşusunun bulguları bu
    * panoya düşer (pano koşunun ve devam koşularının sorunlarını birlikte gösterir) ve sürerken koşu kapatılamaz. Devam
@@ -57,8 +71,20 @@
   let over = $state<ColumnId | null>(null)
   let openId = $state<string | null>(null)
   let detail = $state<IssueDetail | null>(null)
-  let confirm = $state(false)
   let steering = $state(false)
+  /** Pano ya da tek tek (triyaj) kipi. */
+  let mode = $state<'pano' | 'tek'>('pano')
+  /** Uygulamanın daha önce karar verilmiş sorunları: öneri bunlardan çıkar. */
+  let history = $state<Issue[]>([])
+  /** "Bulgu değil" denmiş ama nedeni seçilmemiş kartlar (neden penceresi). */
+  let reasonFor = $state<{ ids: string[]; note: string | null } | null>(null)
+  let reasonModal = $state(false)
+  /** Çekmecedeki kararı benzer bekleyen kartlara da uygula. */
+  let bulk = $state(false)
+  let undo = $state<{ items: { id: string; status: Issue['status']; reason: DismissReason | null }[]; text: string } | null>(null)
+  let undoTimer: ReturnType<typeof setTimeout> | undefined
+  let streak = 0
+  let stampNotice = $state(false)
   /** Çekmecedeki karar notu (onay ve retle isteğe bağlı, belirsizde zorunlu soru). */
   let decisionNote = $state('')
   let unclearSubmitted = $state(false)
@@ -92,6 +118,12 @@
   const columns = $derived(board(issues))
   const total = $derived(issues.length)
   const blocker = $derived(gate ? closeBlocker(gate) : null)
+  const decidedPool = $derived([...issues, ...history.filter((h) => !issues.some((i) => i.id === h.id))])
+  const openIssue = $derived(issues.find((i) => i.id === openId) ?? null)
+  const openPending = $derived(!!openIssue && columnOf(openIssue) === 'bekliyor')
+  const openSuggestion = $derived(openIssue && openPending ? suggestionFor(openIssue, decidedPool) : null)
+  const openSimilar = $derived(openIssue && openPending ? similarPending(openIssue, issues) : [])
+  const queue = $derived(triageQueue(columns.bekliyor, decidedPool))
   const occurrence = $derived.by(() => {
     const ids = run ? family(run) : [runId]
     return detail?.occurrences.find((o) => ids.includes(o.runId)) ?? detail?.occurrences[0] ?? null
@@ -114,6 +146,9 @@
       ),
     )
     issues = [...new Map(lists.flat().map((i) => [i.id, i])).values()]
+    history = await api<Issue[]>(
+      `/sorunlar${qs({ proje: r.project, uygulama: r.application, durum: 'duzeltilecek,kabul-edildi,bulgu-degil', bastirilan: 1 })}`,
+    ).catch(() => [])
   }
 
   // Sayfadan ayrıldıktan sonra biten yükleme iz ve sekme başlığına eski koşunun kodunu yazmasın.
@@ -139,9 +174,9 @@
       )
   }
 
-  function askClose() {
-    if (blocker) notify.error('Koşu kapatılamaz', blocker)
-    else confirm = true
+  function goClosing() {
+    if (blocker && !run?.closedAt) notify.error('Kapanışa geçilemez', blocker)
+    else location.hash = `#/kapanis/${rootId}`
   }
 
   async function steer() {
@@ -169,13 +204,21 @@
   })
 
   /**
-   * Karar: kart yeni sütuna bırakılınca (ya da çekmeceden) sorunun durumu yazılır; koşunun sayıları sunucudan tazelenir.
-   * Belirsiz'e bırakmak soru ister (pencere açılır). Belirsiz'den İnceleme bekliyor'a almak belirsizliği kaldırır.
+   * Karar: kart yeni sütuna bırakılınca (ya da çekmeceden, triyajdan) sorunların durumu yazılır; koşunun sayıları
+   * sunucudan tazelenir. Anlamadım soru ister (pencere açılır), Bulgu değil neden ister (neden penceresi). Belirsiz'den
+   * İnceleme bekliyor'a almak belirsizliği kaldırır. Karar sonrası "Geri al" sunulur (anlaşılmayan karttan alınan karar
+   * hariç: sorusu geri yazılamaz).
    */
-  async function move(id: string, column: ColumnId, note: string | null = null) {
-    const issue = issues.find((i) => i.id === id)
-    if (!issue || !changes(issue, column) || run?.closedAt) return
+  async function move(
+    ids: string[],
+    column: ColumnId,
+    note: string | null = null,
+    reason: DismissReason | null = null,
+  ) {
+    const targets = ids.map((id) => issues.find((i) => i.id === id)).filter((i): i is Issue => !!i && changes(i, column))
+    if (!targets.length || run?.closedAt) return
     if (column === 'belirsiz') {
+      const id = targets[0]!.id
       if (note) return markUnclear(id, note)
       askingUnclear = id
       decisionNote = ''
@@ -183,15 +226,76 @@
       unclearModal = true
       return
     }
-    const before = { status: issue.status, unclear: issue.unclear }
-    issue.status = statusOf(column)
-    issue.unclear = false
+    if (column === 'ret' && !reason) {
+      reasonFor = { ids: targets.map((i) => i.id), note }
+      reasonModal = true
+      return
+    }
+    const status = statusOf(column)
+    const before = targets.map((i) => ({ issue: i, status: i.status, unclear: i.unclear, reason: i.reason }))
+    for (const i of targets) streak = stampStreak(streak, suggestionFor(i, decidedPool)?.status ?? null, status)
+    for (const i of targets) Object.assign(i, { status, unclear: false, reason: column === 'ret' ? reason : null })
     try {
-      await post(`/sorunlar/${id}/karar`, { durum: issue.status, not: note })
+      await Promise.all(
+        targets.map((i) => post(`/sorunlar/${i.id}/karar`, { durum: status, not: note, ...(reason ? { neden: reason } : {}) })),
+      )
+      loaded = await api<RunInfo>(`/kosular/${rootId}`)
+      const title = COLUMNS.find((c) => c.id === column)!.title
+      offerUndo(
+        before.filter((b) => !b.unclear).map((b) => ({ id: b.issue.id, status: b.status, reason: b.reason })),
+        targets.length > 1 ? `${targets.length} kart: ${title}` : `${title}: ${targets[0]!.title}`,
+      )
+      if (streak >= STAMP_STREAK) {
+        stampNotice = true
+        streak = 0
+      }
+    } catch (e) {
+      for (const b of before) Object.assign(b.issue, { status: b.status, unclear: b.unclear, reason: b.reason })
+      notify.error('Karar kaydedilemedi', e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  function offerUndo(items: NonNullable<typeof undo>['items'], text: string) {
+    clearTimeout(undoTimer)
+    undo = items.length ? { items, text } : null
+    if (undo) undoTimer = setTimeout(() => (undo = null), 6000)
+  }
+
+  async function undoLast() {
+    const last = undo
+    if (!last) return
+    clearTimeout(undoTimer)
+    undo = null
+    try {
+      await Promise.all(
+        last.items.map((b) => post(`/sorunlar/${b.id}/karar`, { durum: b.status, not: null, ...(b.reason ? { neden: b.reason } : {}) })),
+      )
+      for (const b of last.items) {
+        const issue = issues.find((i) => i.id === b.id)
+        if (issue) Object.assign(issue, { status: b.status, reason: b.reason })
+      }
       loaded = await api<RunInfo>(`/kosular/${rootId}`)
     } catch (e) {
-      Object.assign(issue, before)
-      notify.error('Karar kaydedilemedi', e instanceof Error ? e.message : String(e))
+      notify.error('Geri alınamadı', e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  async function pickReason(reason: DismissReason) {
+    const pending = reasonFor
+    reasonModal = false
+    reasonFor = null
+    if (pending) await move(pending.ids, 'ret', pending.note, reason)
+  }
+
+  async function editFix(id: string, text: string) {
+    try {
+      const updated = await post<IssueDetail>(`/sorunlar/${id}/duzeltme`, { metin: text })
+      const issue = issues.find((i) => i.id === id)
+      if (issue) Object.assign(issue, { fix: updated.fix, fixEdited: updated.fixEdited })
+      if (detail?.id === id) detail = { ...detail, fix: updated.fix, fixEdited: updated.fixEdited }
+    } catch (e) {
+      notify.error('Düzeltme kaydedilemedi', e instanceof Error ? e.message : String(e))
+      throw e
     }
   }
 
@@ -202,23 +306,28 @@
       if (issue) Object.assign(issue, { status: updated.status, unclear: updated.unclear })
       loaded = await api<RunInfo>(`/kosular/${rootId}`)
     } catch (e) {
-      notify.error('Belirsiz olarak kaydedilemedi', e instanceof Error ? e.message : String(e))
+      notify.error('Kaydedilemedi', e instanceof Error ? e.message : String(e))
     }
   }
 
-  /** Çekmecenin başlığındaki karar: kaydedilir, çekmece kapanır. Belirsiz için not (soru) zorunludur. */
+  /**
+   * Çekmecenin başlığındaki karar: kaydedilir, çekmece kapanır. Anlamadım için soru zorunludur: not yazılmamışsa panodaki
+   * soru penceresi açılır (önceden çekmecenin dibindeki alana odaklanıp ekran dışında kalıyordu; düğme "çalışmıyor"du).
+   */
   async function decideFromDrawer(column: ColumnId) {
     if (!openId) return
     if (column === 'belirsiz' && !decisionNote.trim()) {
-      unclearSubmitted = true
-      return document.getElementById('karar-not')?.focus()
+      askingUnclear = openId
+      unclearSubmitted = false
+      unclearModal = true
+      return
     }
-    const id = openId
+    const ids = [openId, ...(bulk && column !== 'belirsiz' ? openSimilar.map((i) => i.id) : [])]
     const note = decisionNote.trim() || null
     openId = null
     decisionNote = ''
     unclearSubmitted = false
-    await move(id, column, note)
+    await move(ids, column, note)
   }
 
   /** Pano penceresinden belirsiz: soru zorunlu. */
@@ -227,6 +336,7 @@
     if (!askingUnclear || !decisionNote.trim()) return document.getElementById('belirsiz-soru')?.focus()
     const id = askingUnclear
     const question = decisionNote.trim()
+    if (openId === id) openId = null
     unclearModal = false
     askingUnclear = null
     decisionNote = ''
@@ -237,7 +347,7 @@
   /** Netleştirme: Argus belirsiz kartları sorularına göre yeniden yazar; kartlar yeniden karar bekler. */
   async function clarify() {
     if (!run?.review.unclear)
-      return notify.error('Netleştirilecek bulgu yok', 'Anlamadığın kartı Belirsiz sütununa sürükleyip sorunu yaz.')
+      return notify.error('Netleştirilecek bulgu yok', 'Anlamadığın kartı Anlamadım sütununa sürükleyip sorunu yaz.')
     clarifying = true
     try {
       const result = await post<{ revised: number; failed: number }>(`/kosular/${rootId}/netlestir`, {})
@@ -247,7 +357,7 @@
           'Bir kısmı netleştirilemedi',
           `${result.revised} bulgu yeniden yazıldı, ${result.failed} bulgu yazılamadı; yeniden deneyebilirsin.`,
         )
-      else notify.success('Belirsizler netleştirildi', `${result.revised} bulgu yeniden yazıldı; yeniden değerlendir.`)
+      else notify.success('Netleştirildi', `${result.revised} bulgu yeniden yazıldı; yeniden değerlendir.`)
     } catch (e) {
       notify.error('Netleştirilemedi', e instanceof Error ? e.message : String(e))
     } finally {
@@ -257,20 +367,11 @@
 
   async function open(id: string) {
     openId = id
+    bulk = false
     decisionNote = ''
     unclearSubmitted = false
     detail = null
     detail = await api<IssueDetail>(`/sorunlar/${id}`).catch(() => null)
-  }
-
-  async function close() {
-    try {
-      loaded = await post<RunInfo>(`/kosular/${rootId}/kapat`, {})
-      confirm = false
-      notify.success('Koşu kapatıldı')
-    } catch (e) {
-      notify.error('Koşu kapatılamadı', e instanceof Error ? e.message : String(e))
-    }
   }
 
   const MARK = {
@@ -296,10 +397,10 @@
     <Button variant="outline" onclick={askSteer}>Yönlendir ve sürdür</Button>
     {#if run?.review.unclear}
       <Button variant="outline" disabled={clarifying} onclick={clarify}>
-        {clarifying ? 'Netleştiriliyor…' : `Belirsizleri netleştir (${run.review.unclear})`}
+        {clarifying ? 'Netleştiriliyor…' : `Anlamadıklarımı netleştir (${run.review.unclear})`}
       </Button>
     {/if}
-    <Button onclick={askClose}>{run?.closedAt ? 'Kapatıldı' : 'Koşuyu kapat'}</Button>
+    <Button onclick={goClosing}>{run?.closedAt ? 'Kapanış' : 'Sıradaki: Kapanış'}</Button>
   {/snippet}
   {#snippet subheader()}<RunSteps {run} current={run?.closedAt ? 'kapanis' : 'degerlendirme'} />{/snippet}
   {#if run}
@@ -338,21 +439,63 @@
               style={`width:${total ? (run.review.accepted / total) * 100 : 0}%`}
             ></i>
             <i
+              class="block bg-[#6e5dc6] transition-[width]"
+              style={`width:${total ? (run.review.kept / total) * 100 : 0}%`}
+            ></i>
+            <i
               class="block bg-[#8590a2] transition-[width]"
               style={`width:${total ? (run.review.rejected / total) * 100 : 0}%`}
             ></i>
           </div>
-          <p class="text-[12.5px] text-[#44546f] tabular-nums">
-            <b class="font-semibold text-[#172b4d]">{total - run.review.pending}/{total}</b> karar verildi ·
-            {run.review.accepted} onaylandı · {run.review.rejected} reddedildi{#if run.review.unclear}
-              · {run.review.unclear} belirsiz{/if}{#if run.closedAt}
-              · {run.closedBy ?? ''} kapattı{/if}
-          </p>
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <p class="text-[12.5px] text-[#44546f] tabular-nums">
+              <b class="font-semibold text-[#172b4d]">{total - run.review.pending}/{total}</b> karar verildi ·
+              {run.review.accepted} düzeltilecek · {run.review.kept} bilerek böyle · {run.review.rejected} bulgu
+              değil{#if run.review.unclear}
+                · {run.review.unclear} anlaşılmadı{/if}{#if run.closedAt}
+                · {run.closedBy ?? ''} kapattı{/if}
+            </p>
+            <div class="ml-auto inline-flex rounded-lg bg-[#f1f2f4] p-0.5 text-[12.5px] font-medium" role="group" aria-label="Görünüm">
+              {#each [['pano', 'Pano'], ['tek', 'Tek tek']] as const as [id, label] (id)}
+                <button
+                  type="button"
+                  aria-pressed={mode === id}
+                  class={cn('rounded-md px-3 py-1', mode === id ? 'bg-white text-[#172b4d] shadow-sm' : 'text-[#44546f]')}
+                  onclick={() => {
+                    mode = id
+                    openId = null
+                  }}>{label}{#if id === 'tek' && columns.bekliyor.length}
+                    <span class="ml-1 tabular-nums text-[#626f86]">{columns.bekliyor.length}</span>{/if}</button
+                >
+              {/each}
+            </div>
+          </div>
         </div>
       </div>
 
+      {#if stampNotice}
+        <p class="flex items-start gap-3 rounded-lg bg-[#fff7d6] px-3.5 py-2.5 text-[13px] leading-5 text-[#533f04]">
+          <span class="flex-1"
+            >Son {STAMP_STREAK} kararın hepsi Argus'un önerisiyle aynıydı. Öneri yanılabilir; kartları okuyarak karar
+            verdiğinden emin ol.</span
+          >
+          <button type="button" class="font-semibold underline" onclick={() => (stampNotice = false)}>Tamam</button>
+        </p>
+      {/if}
+
+      {#if mode === 'tek'}
+        <Triage
+          {queue}
+          decided={decidedPool}
+          readonly={!!run.closedAt}
+          ondecide={(issue, column, reason) => void move([issue.id], column, null, reason)}
+          onundo={() => void undoLast()}
+          oneditfix={editFix}
+        />
+      {:else}
+
       <!-- Sütunlar her zaman aynı, tam yükseklikte (boş sütun da); kartlar sütunun içinde kayar. -->
-      <div class="grid gap-3 md:h-[calc(100svh-350px)] md:min-h-[420px] md:grid-cols-4">
+      <div class="grid gap-2.5 md:h-[calc(100svh-350px)] md:min-h-[420px] md:grid-cols-5">
         {#each COLUMNS as column (column.id)}
           <section
             aria-label={column.title}
@@ -372,19 +515,22 @@
             ondrop={(e) => {
               e.preventDefault()
               over = null
-              if (dragging) void move(dragging, column.id)
+              if (dragging) void move([dragging], column.id)
               dragging = null
             }}
           >
-            <header class="flex shrink-0 items-center gap-2 px-3 pt-3 pb-2">
-              <h2 class="text-[12px] font-semibold tracking-[.04em] text-[#44546f] uppercase">
-                {column.title}
-              </h2>
-              <span
-                class="rounded-full bg-[#dcdfe4] px-2 text-[11.5px] leading-5 font-semibold text-[#44546f] tabular-nums"
-                >{columns[column.id].length}</span
-              >
-              <span class="ml-auto truncate text-[11.5px] text-[#626f86]">{column.hint}</span>
+            <!-- Beş sütun dar: ad ve sayı tek satır, açıklama altında (sığmazsa kısalır, tamamı ipucunda). -->
+            <header class="grid shrink-0 gap-0.5 px-2.5 pt-3 pb-2">
+              <div class="flex min-w-0 items-center gap-1.5">
+                <h2 class="truncate text-[12px] font-semibold whitespace-nowrap text-[#44546f] uppercase">
+                  {column.title}
+                </h2>
+                <span
+                  class="shrink-0 rounded-full bg-[#dcdfe4] px-2 text-[11.5px] leading-5 font-semibold text-[#44546f] tabular-nums"
+                  >{columns[column.id].length}</span
+                >
+              </div>
+              <span class="truncate text-[11.5px] text-[#626f86]" title={column.hint}>{column.hint}</span>
             </header>
             <!-- Üstte 4 px boşluk: ilk kartın kenarı ve gölgesi (açık kartın mavi çerçevesi) başlığın altında kesilmesin;
                  yatay kayma yok, kart sütuna sığar. -->
@@ -411,8 +557,12 @@
                   <span class="text-[13.5px] leading-5 font-medium text-[#172b4d]">{issue.title}</span>
                   {#if issue.fix}
                     <span class="line-clamp-2 text-[12.5px] leading-[18px] text-[#44546f]"
-                      ><b class="font-semibold text-[#172b4d]">Çözüm:</b> {issue.fix}</span
+                      ><b class="font-semibold text-[#172b4d]">Çözüm{issue.fixEdited ? ' (ekip)' : ''}:</b>
+                      {issue.fix}</span
                     >
+                  {/if}
+                  {#if issue.reason}
+                    <span class="text-[11.5px] text-[#626f86]">Neden: {DISMISS_REASON_LABELS[issue.reason]}</span>
                   {/if}
                   <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-[11.5px] text-[#626f86]">
                     <span class={cn('size-[8px] shrink-0', MARK[issue.kind])}></span>
@@ -452,6 +602,7 @@
           </section>
         {/each}
       </div>
+      {/if}
     </section>
   {:else if !loading}
     <p class="text-muted-foreground text-sm">Koşu bulunamadı.</p>
@@ -480,12 +631,32 @@
   {#snippet toolbar()}
     {#if detail && !run?.closedAt}
       <span class="text-muted-foreground mr-auto text-[12.5px]">Karar</span>
-      <Button size="sm" variant="outline" onclick={() => decideFromDrawer('belirsiz')}>Belirsiz</Button>
-      <Button size="sm" variant="outline" onclick={() => decideFromDrawer('ret')}>Reddet</Button>
-      <Button size="sm" onclick={() => decideFromDrawer('onay')}>Onayla</Button>
+      {#each DECISIONS as d (d.key)}
+        <Button size="sm" variant={d.column === 'onay' ? 'default' : 'outline'} onclick={() => decideFromDrawer(d.column)}
+          >{d.label}</Button
+        >
+      {/each}
     {/if}
   {/snippet}
   {#if detail}
+    {#if openSuggestion && !run?.closedAt}
+      <p class="mb-4 rounded-lg bg-[#f3f0ff] px-3.5 py-2.5 text-[13px] leading-5 text-[#44337a]">
+        Benzer bir bulguya daha önce <b class="font-semibold">“{STATUS[openSuggestion.status].label}”</b> denmişti:
+        {openSuggestion.title}. Öneri kendiliğinden uygulanmaz.
+      </p>
+    {/if}
+    {#if openSimilar.length && !run?.closedAt}
+      <label class="mb-4 grid cursor-pointer gap-1.5 rounded-lg border px-3.5 py-2.5 text-[13px] leading-5">
+        <span class="flex items-center gap-2 font-semibold text-[#172b4d]">
+          <input type="checkbox" bind:checked={bulk} class="size-4 accent-[#0c66e4]" />
+          Kararı benzer {openSimilar.length} bekleyen karta da uygula
+        </span>
+        <ul class="ml-6 list-disc text-[12.5px] text-[#44546f]">
+          {#each openSimilar as other (other.id)}<li>{other.title}</li>{/each}
+        </ul>
+        <span class="ml-6 text-[12px] text-[#626f86]">Anlamadım kararı yalnız bu karta uygulanır.</span>
+      </label>
+    {/if}
     {#if occurrence}
       {#if detail.comments.length}
         <section class="mb-5 grid gap-2 rounded-lg bg-[#f9fafb] px-3.5 py-3 text-[13px] leading-5">
@@ -511,12 +682,22 @@
     {:else}
       <p class="text-muted-foreground text-[13px]">Bu bulgunun görünümü okunamadı.</p>
     {/if}
+    {#if openIssue}
+      <div class="mt-5">
+        <FixEditor
+          fix={openIssue.fix}
+          edited={openIssue.fixEdited}
+          readonly={!!run?.closedAt}
+          onsave={(text) => editFix(openIssue.id, text)}
+        />
+      </div>
+    {/if}
     {#if !run?.closedAt}
       <div class="mt-6 border-t pt-4">
         <Field
           label="Not"
           for="karar-not"
-          description="Onaylarken ya da reddederken isteğe bağlı; Belirsiz derken neyi anlamadığını yaz."
+          description="Karar verirken isteğe bağlı; Anlamadım derken neyi anlamadığını yaz."
           error={noteMissing ? 'Neyi anlamadığını yaz; Argus buna göre netleştirir.' : null}
         >
           <textarea
@@ -539,7 +720,7 @@
 <Modal
   bind:open={unclearModal}
   title="Neyi anlamadın?"
-  description="Kart Belirsiz sütununa geçer. Belirsizleri netleştir dediğinde Argus kartı sorusuna göre yeniden yazar."
+  description="Kart Anlamadım sütununa geçer. Netleştir dediğinde Argus kartı sorunu yanıtlayarak yeniden yazar."
 >
   <Field label="Soru" for="belirsiz-soru" required error={noteMissing ? 'Neyi anlamadığını yaz.' : null}>
     <textarea
@@ -554,7 +735,7 @@
   </Field>
   {#snippet footer()}
     <Button variant="outline" onclick={() => (unclearModal = false)}>Vazgeç</Button>
-    <Button onclick={confirmUnclear}>Belirsiz olarak işaretle</Button>
+    <Button onclick={confirmUnclear}>Anlamadım olarak işaretle</Button>
   {/snippet}
 </Modal>
 
@@ -580,30 +761,36 @@
   {/snippet}
 </Modal>
 
-{#if run}
-  <Modal
-    bind:open={confirm}
-    title="Koşuyu kapat"
-    description="Kararlar kaydedildi. Reddedilenlerden Argus ders çıkarır; kapatılan koşunun sonuç ekranı sonraki adımda hazırlanacak."
-    size="sm"
+<Modal
+  bind:open={reasonModal}
+  title="Neden bulgu değil?"
+  description="Neden, Argus'un bu karardan ne öğreneceğini belirler."
+>
+  <div class="grid gap-2">
+    {#each DISMISS_REASONS as reason (reason)}
+      <button
+        type="button"
+        class="hover:bg-secondary grid gap-0.5 rounded-lg border px-3.5 py-2.5 text-left"
+        onclick={() => pickReason(reason)}
+      >
+        <span class="text-[13.5px] font-semibold text-[#172b4d]">{DISMISS_REASON_LABELS[reason]}</span>
+        <span class="text-[12.5px] leading-[18px] text-[#626f86]">{REASON_HINT[reason]}</span>
+      </button>
+    {/each}
+  </div>
+  {#snippet footer()}
+    <Button variant="outline" onclick={() => (reasonModal = false)}>Vazgeç</Button>
+  {/snippet}
+</Modal>
+
+{#if undo}
+  <div
+    role="status"
+    class="fixed bottom-5 left-1/2 z-50 flex max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 items-center gap-4 rounded-lg bg-[#172b4d] px-4 py-2.5 text-[13px] text-white shadow-lg"
   >
-    <div class="grid grid-cols-2 gap-2">
-      <div class="bg-surface-alt grid rounded-lg px-3 py-2">
-        <b class="text-lg tabular-nums">{run.review.accepted}</b><span class="text-muted-foreground text-xs"
-          >Onaylandı</span
-        >
-      </div>
-      <div class="bg-surface-alt grid rounded-lg px-3 py-2">
-        <b class="text-lg tabular-nums">{run.review.rejected}</b><span class="text-muted-foreground text-xs"
-          >Reddedildi</span
-        >
-      </div>
-    </div>
-    {#snippet footer()}
-      <Button variant="outline" onclick={() => (confirm = false)}>Vazgeç</Button>
-      <Button onclick={close}>Kapat</Button>
-    {/snippet}
-  </Modal>
+    <span class="min-w-0 truncate">{undo.text}</span>
+    <button type="button" class="shrink-0 font-semibold text-[#85b8ff] hover:underline" onclick={undoLast}>Geri al</button>
+  </div>
 {/if}
 
 <style>

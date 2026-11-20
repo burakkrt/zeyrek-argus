@@ -91,6 +91,7 @@ function review(db: Database, rootId: string): RunReview {
   return {
     pending: of('acik'),
     accepted: of('duzeltilecek') + of('duzeldi'),
+    kept: of('kabul-edildi'),
     rejected: of('bulgu-degil'),
     unclear,
   }

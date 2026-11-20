@@ -67,6 +67,7 @@ const OTHER: Record<string, { label: string; module: string }> = {
   plan: { label: 'Plan', module: 'Koşular' },
   monitor: { label: 'Koşu izleme', module: 'Koşular' },
   onay: { label: 'Değerlendirme', module: 'Koşular' },
+  kapanis: { label: 'Kapanış', module: 'Koşular' },
 }
 
 /** Sayfanın menüdeki yeri: modülü (varsa) ve adı. Bilinmeyen sayfa ana sayfadır. */

@@ -13,8 +13,26 @@ export const SEVERITIES = ['S1', 'S2', 'S3', 'S4'] as const
 export type Severity = (typeof SEVERITIES)[number]
 
 /** Sorunun durumu: insan kararıyla değişir; "düzeldi" kontrolcü doğrulamasıyla da gelebilir. */
-export const ISSUE_STATUSES = ['acik', 'duzeltilecek', 'bulgu-degil', 'duzeldi'] as const
+/**
+ * İnsan kararları: açık · düzeltilecek (gerçek, düzeltilsin) · kabul-edildi ("bilerek böyle": gerçek ama bu uygulamada
+ * kabul edildi, bir daha bulgu sayılmaz) · bulgu-degil (yanlış tespit; nedeni `DISMISS_REASONS`) · düzeldi.
+ */
+export const ISSUE_STATUSES = ['acik', 'duzeltilecek', 'kabul-edildi', 'bulgu-degil', 'duzeldi'] as const
 export type IssueStatus = (typeof ISSUE_STATUSES)[number]
+
+/**
+ * "Bulgu değil" kararının nedeni (değerlendirmede tek tık). Öğrenmeye etkisi farklıdır: davranış doğru → "bulgu sayma"
+ * kural adayı (insan onayı ister); kural yanlış → dayandığı kuralın gözden geçirilmesi; yanlış gözlem ve kapsam dışı →
+ * kural ÜRETMEZ (yanlış gözlemden "görmezden gel" dersi gerçek sorunu gizlerdi).
+ */
+export const DISMISS_REASONS = ['davranis-dogru', 'yanlis-gozlem', 'kural-yanlis', 'kapsam-disi'] as const
+export type DismissReason = (typeof DISMISS_REASONS)[number]
+export const DISMISS_REASON_LABELS: Record<DismissReason, string> = {
+  'davranis-dogru': 'Davranış doğru',
+  'yanlis-gozlem': 'Yanlış gözlem',
+  'kural-yanlis': 'Kural yanlış',
+  'kapsam-disi': 'Kapsam dışı',
+}
 
 export const RULE_TYPES = ['sorun', 'sorun-degil', 'bilgi'] as const
 export type RuleType = (typeof RULE_TYPES)[number]
@@ -211,6 +229,8 @@ export interface RunReview {
   /** Karar bekleyen (belirsizler dahil). */
   pending: number
   accepted: number
+  /** "Bilerek böyle" (gerçek ama kabul edildi). */
+  kept: number
   rejected: number
   /** İnsanın anlamadığı, netleştirilmeyi bekleyen bulgular (bekleyenlerin içinde). */
   unclear: number
@@ -486,8 +506,12 @@ export interface Issue {
   lastShot: string | null
   /** İnsan anlamadı, sorusunu yazdı; netleştirme adımında Argus kartı yeniden yazar (karar bekler). */
   unclear: boolean
-  /** Son görünümün önerilen düzeltmesi (kartta başlığın altında); yoksa null. */
+  /** Önerilen düzeltme (kartta başlığın altında): insan düzenlediyse onunki, yoksa son görünümün; yoksa null. */
   fix: string | null
+  /** Düzeltme insan tarafından düzenlendi (kapanıştaki isteme bu metin gider). */
+  fixEdited: boolean
+  /** "Bulgu değil" kararının nedeni; başka kararda null. */
+  reason: DismissReason | null
 }
 
 /** Takım arkadaşının makinesinde görülen (Git'teki `findings/<yazar>.md`'den okunan) son görünüm; görüntüsü yoktur. */
@@ -598,6 +622,7 @@ export interface ProbeLine {
 export const STATUS_LABELS: Record<IssueStatus, string> = {
   acik: 'Açık',
   duzeltilecek: 'Düzeltilecek',
+  'kabul-edildi': 'Bilerek böyle',
   'bulgu-degil': 'Bulgu değil',
   duzeldi: 'Düzeldi',
 }

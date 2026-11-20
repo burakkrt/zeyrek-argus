@@ -1,5 +1,6 @@
 import type { RunStrategy, StrategyItem } from '@argus/shared'
 import { scenarioParts } from './plan'
+import { similar } from './similar'
 
 /**
  * İki plan sürümünün farkı. Plan sayfası iki yerde kullanır: düzenletmeden sonra Argus'un neyi değiştirdiğini işaretler
@@ -36,24 +37,6 @@ export interface PlanDiff {
 }
 
 const norm = (text: string) => text.trim().replace(/\s+/g, ' ')
-const words = (text: string) =>
-  new Set(
-    norm(text)
-      .toLocaleLowerCase('tr')
-      .replace(/[.,;:!?()"'“”]/g, '')
-      .split(' ')
-      .filter(Boolean),
-  )
-
-function similar(a: string, b: string): boolean {
-  const x = words(a)
-  const y = words(b)
-  if (!x.size || !y.size) return false
-  let common = 0
-  for (const w of x) if (y.has(w)) common += 1
-  // Kısa olanın kelimelerinin çoğu (≥ %60) ötekinde de varsa aynı öğenin yeniden yazılmışıdır.
-  return common / Math.min(x.size, y.size) >= 0.6
-}
 
 const NEW = { kind: 'yeni', before: null, from: null } as const
 

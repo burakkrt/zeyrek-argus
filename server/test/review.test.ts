@@ -63,7 +63,7 @@ describe('koşu onayı', () => {
     expect(found.map((i) => i.key)).toEqual(
       expect.arrayContaining(['yz:toplam-tutmuyor', 'yz:baslik-farkli']),
     )
-    expect(getRun(h.ctx.db, run.id)!.review).toEqual({ pending: found.length, accepted: 0, rejected: 0, unclear: 0 })
+    expect(getRun(h.ctx.db, run.id)!.review).toEqual({ pending: found.length, accepted: 0, kept: 0, rejected: 0, unclear: 0 })
     expect(() => h.ctx.runs.close(run.id, 'Burak')).toThrow(`${found.length} bulguya karar`)
     expect(getRun(h.ctx.db, run.id)!.closedAt).toBeNull()
 
@@ -72,7 +72,7 @@ describe('koşu onayı', () => {
     for (const issue of rest) h.ctx.issues.decide(issue.id, 'duzeltilecek', 'Burak', null)
     expect(() => h.ctx.runs.close(run.id, 'Burak')).toThrow('1 bulguya karar')
     h.ctx.issues.decide(last!.id, 'bulgu-degil', 'Burak', 'Tasarım gereği.')
-    expect(getRun(h.ctx.db, run.id)!.review).toEqual({ pending: 0, accepted: rest.length, rejected: 1, unclear: 0 })
+    expect(getRun(h.ctx.db, run.id)!.review).toEqual({ pending: 0, accepted: rest.length, kept: 0, rejected: 1, unclear: 0 })
 
     const closed = h.ctx.runs.close(run.id, 'Burak')
     expect(closed.closedAt).not.toBeNull()

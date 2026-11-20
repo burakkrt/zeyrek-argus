@@ -19,6 +19,7 @@
   import Memory from './views/Memory.svelte'
   import Monitor from './views/Monitor.svelte'
   import Review from './views/Review.svelte'
+  import Closing from './views/Closing.svelte'
   import Plan from './views/Plan.svelte'
   import Overview from './views/Overview.svelte'
   import Runs from './views/Runs.svelte'
@@ -173,6 +174,8 @@
         {#key route.parts[1]}<Plan runId={route.parts[1]} />{/key}
       {:else if route.parts[0] === 'onay' && route.parts[1]}
         {#key route.parts[1]}<Review runId={route.parts[1]} />{/key}
+      {:else if route.parts[0] === 'kapanis' && route.parts[1]}
+        {#key route.parts[1]}<Closing runId={route.parts[1]} />{/key}
       {:else if route.parts[0] === 'ayarlar'}
         <Settings />
       {:else if route.parts[0] === 'yapay-zeka'}

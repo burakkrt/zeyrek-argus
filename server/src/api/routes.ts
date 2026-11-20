@@ -8,6 +8,8 @@ import {
   type AppRef,
   type FindingKind,
   type IssueStatus,
+  type DismissReason,
+  DISMISS_REASONS,
   type MemoryBudget,
   type RuleScope,
   type RunStrategy,
@@ -438,7 +440,16 @@ export function createApi(ctx: AppContext): Hono {
     const status = str(body.durum, 'durum') as IssueStatus
     if (!ISSUE_STATUSES.includes(status)) bad('durum geçersiz.')
     const note = typeof body.not === 'string' && body.not.trim() ? body.not.trim() : null
-    return c.json(ctx.issues.decide(c.req.param('id'), status, ctx.author().name, note))
+    const reason = DISMISS_REASONS.includes(body.neden as DismissReason) ? (body.neden as DismissReason) : null
+    if (status === 'bulgu-degil' && body.neden !== undefined && !reason) bad('neden geçersiz.')
+    return c.json(ctx.issues.decide(c.req.param('id'), status, ctx.author().name, note, reason))
+  })
+
+  /** Değerlendirmede önerilen düzeltmeyi değiştirmek (boş metin önerilene döner). */
+  api.post('/sorunlar/:id/duzeltme', async (c) => {
+    const body = (await c.req.json()) as Record<string, unknown>
+    const text = typeof body.metin === 'string' ? body.metin : ''
+    return c.json(ctx.issues.editFix(c.req.param('id'), text, ctx.author().name))
   })
 
   /** Değerlendirmede "belirsiz": insan bulguyu anlamadı; sorusu zorunludur (netleştirmede Argus yanıtlar). */
@@ -466,7 +477,7 @@ export function createApi(ctx: AppContext): Hono {
         ),
       ),
     ]
-    if (!ids.length) bad('Belirsiz bulgu yok.')
+    if (!ids.length) bad('Anlaşılmayan bulgu yok.')
     const result = await clarifyIssues({
       ids,
       issues: ctx.issues,

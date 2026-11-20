@@ -98,6 +98,7 @@ export const SEVERITY: Record<Severity, { label: string; tone: string; hint: str
 export const STATUS: Record<IssueStatus, { label: string; tone: string }> = {
   acik: { label: 'Açık', tone: 'accent' },
   duzeltilecek: { label: 'Düzeltilecek', tone: 'fail' },
+  'kabul-edildi': { label: 'Bilerek böyle', tone: '' },
   'bulgu-degil': { label: 'Bulgu değil', tone: '' },
   duzeldi: { label: 'Düzeldi', tone: 'ok' },
 }

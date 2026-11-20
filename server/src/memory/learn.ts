@@ -25,6 +25,8 @@ Kurallar:
 - kapsam: doğru olan en dar kapsam: "sayfa:<slug>", "modul:<önek>" (slug'ın ilk tireye kadar olan kısmı), "uygulama" ya da yalnız bütün Zeyrek uygulamalarında geçerli genel bir ilkeyse "platform".
 - desen: yalnız ekrandaki metinde basit ve güvenilir bir düzenli ifadeyle yakalanabiliyorsa (ör. şapkalı harf için [âîûÂÎÛ]); değilse boş bırak.
 - Tek bir "bulgu değil" kararından genel "sorun-degil" kuralı çıkarma; insanın yorumu genel bir ilke söylüyorsa çıkar.
+- "bilerek böyle" kararı: bulgu gerçektir ama bu uygulamada kabul edilmiştir; gerekiyorsa "sorun-degil" kuralı en dar kapsamla (önce sayfa) çıkar, genelleme.
+- "neden: dayandığı kural yanlış" ise o kuralı "guncelle" ya da "emekli" et; yeni kural ekleme.
 - Var olan bir kuralı tekrar etme. Var olan kural yanlış ya da eksikse islem "guncelle" (aynı id). İki kural aynı şeyi söylüyorsa "birlestir" (id: kalacak olan, ilgili: emekliye ayrılacaklar). Karar bir kuralın yanlış olduğunu gösteriyorsa "emekli".
 - kaynak: dayandığın karar anahtarları ya da müşteri satır kaynakları.
 - Çıkarılacak ders yoksa boş liste döndür. Az ama doğru kural, çok ama gürültülü kuraldan iyidir.`
@@ -88,7 +90,17 @@ export interface LearnDeps {
   settings: () => Settings
 }
 
-const STATUS_TEXT: Record<string, string> = { duzeltilecek: 'düzeltilecek (gerçek sorun)', 'bulgu-degil': 'bulgu değil', duzeldi: 'düzeldi' }
+const STATUS_TEXT: Record<string, string> = {
+  duzeltilecek: 'düzeltilecek (gerçek sorun)',
+  'kabul-edildi': 'bilerek böyle (gerçek ama bu uygulamada kabul edildi; bulgu sayılmasın)',
+  'bulgu-degil': 'bulgu değil',
+  duzeldi: 'düzeldi',
+}
+/** "Bulgu değil" nedeninin öğretmene anlamı (yanlış gözlem ve kapsam dışı öğrenmeye hiç girmez: `decisionsSince`). */
+const REASON_TEXT: Record<string, string> = {
+  'davranis-dogru': 'neden: davranış doğru (beklenen davranış)',
+  'kural-yanlis': 'neden: dayandığı kural bu uygulamada yanlış',
+}
 
 export class Learner {
   constructor(private readonly deps: LearnDeps) {}
@@ -143,7 +155,10 @@ export class Learner {
       `Uygulama: ${app.project}/${app.application}`,
       `Var olan kurallar (id | kapsam | tür | durum | metin):\n${this.rulesText(app)}`,
       `Yeni kararlar:\n${decisions
-        .map((d) => `- [${d.key}] ${d.title} → ${STATUS_TEXT[d.status] ?? d.status}${d.note ? ` · insanın yorumu: ${d.note}` : ''}${d.example ? ` · örnek: ${d.example}` : ''}`)
+        .map(
+          (d) =>
+            `- [${d.key}] ${d.title} → ${STATUS_TEXT[d.status] ?? d.status}${d.reason && REASON_TEXT[d.reason] ? ` · ${REASON_TEXT[d.reason]}` : ''}${d.note ? ` · insanın yorumu: ${d.note}` : ''}${d.example ? ` · örnek: ${d.example}` : ''}`,
+        )
         .join('\n')}`,
     ].join('\n\n')
     const result = await this.ask<{ oneriler: RawProposal[] }>(prompt, LEARN_SCHEMA, meter)

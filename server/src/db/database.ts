@@ -241,6 +241,11 @@ const MIGRATIONS: string[] = [
   alter table runs add column plan_base text;
   alter table runs add column plan_previous text;
   `,
+  // Değerlendirme: "bulgu değil" kararının nedeni ve insanın düzenlediği düzeltme (kapanıştaki isteme gider).
+  `
+  alter table issues add column dismiss_reason text;
+  alter table issues add column fix_override text;
+  `,
 ]
 
 export function openDatabase(file: string): Database {

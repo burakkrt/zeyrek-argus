@@ -11,6 +11,8 @@ import {
   type IssueComment,
   type IssueHistoryEntry,
   type IssueStatus,
+  type DismissReason,
+  DISMISS_REASONS,
   type Rule,
   type RuleScope,
   type RuleState,
@@ -51,6 +53,10 @@ export interface DecisionRecord {
   updatedAt: string
   /** "Bulgu değil" kararının verildiği tanım izi (`<sayfa>:<Studio izi>`); tanım değişince karar gözden geçirilir. */
   decisionPrint?: string | null
+  /** "Bulgu değil" kararının nedeni (`neden:`); eski dosyalarda yok. */
+  reason?: DismissReason | null
+  /** İnsanın düzenlediği düzeltme (`## Düzeltme` bölümü); eski dosyalarda yok. */
+  fixOverride?: string | null
   example: { page: string; scenario: string; expected: string; observed: string } | null
   history: IssueHistoryEntry[]
   comments: IssueComment[]
@@ -467,6 +473,12 @@ export function parseDecision(text: string, source: string): DecisionRecord {
     status,
     updatedAt: values('guncelleme').sort().at(-1) ?? '',
     ...(values('karar_izi').at(-1) ? { decisionPrint: values('karar_izi').at(-1)! } : {}),
+    ...(DISMISS_REASONS.includes(values('neden').at(-1) as DismissReason)
+      ? { reason: values('neden').at(-1) as DismissReason }
+      : {}),
+    ...((sections.get('düzeltme') ?? []).join('\n').trim()
+      ? { fixOverride: (sections.get('düzeltme') ?? []).join('\n').trim() }
+      : {}),
     example,
     history,
     comments,
@@ -486,6 +498,7 @@ export function serializeDecision(record: DecisionRecord): string {
       ].join('\n'),
     )
   }
+  if (record.fixOverride) sections.push(['## Düzeltme', record.fixOverride.trim()].join('\n'))
   sections.push(
     ['## Tarihçe', ...record.history.map((h) => `- ${h.at} · ${oneLine(h.author)} · ${h.from ?? '—'} → ${h.to}${h.note ? ` · ${oneLine(h.note)}` : ''}`)].join('\n'),
   )
@@ -500,6 +513,7 @@ export function serializeDecision(record: DecisionRecord): string {
       durum: record.status,
       guncelleme: record.updatedAt,
       ...(record.decisionPrint ? { karar_izi: record.decisionPrint } : {}),
+      ...(record.reason ? { neden: record.reason } : {}),
     },
     body: sections.join('\n\n'),
   })

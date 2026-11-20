@@ -44,6 +44,9 @@ export function runSteps(run: StepRun | null, current: StepId): RunStep[] {
   const closed = !!run?.closedAt
   // Devam koşusunun değerlendirmesi ana koşununkidir.
   const review = run ? `#/onay/${run.options.parentRunId ?? run.id}` : null
+  const closing = run ? `#/kapanis/${run.options.parentRunId ?? run.id}` : null
+  // Kapanış kararlar bitince açılır: bekleyen ve anlaşılmayan bulgu kalmamış olmalı.
+  const ready = finished && !closed && !run!.review.pending && !run!.review.unclear
   const steps: Array<Omit<RunStep, 'state'> & { base: StepState }> = [
     {
       id: 'plan',
@@ -68,16 +71,16 @@ export function runSteps(run: StepRun | null, current: StepId): RunStep[] {
           ? 'Tamamlandı'
           : run!.review.pending
             ? `${run!.review.pending} karar bekliyor`
-            : 'Kapatılabilir',
+            : 'Kararlar verildi',
       base: !finished ? 'lock' : closed ? 'done' : 'bekle',
       href: finished ? review : null,
     },
     {
       id: 'kapanis',
       title: 'Kapanış',
-      sub: closed ? 'Kapatıldı' : 'Kararlar bitince',
-      base: closed ? 'done' : 'lock',
-      href: closed ? review : null,
+      sub: closed ? 'Kapatıldı' : ready ? 'Kapatılabilir' : 'Kararlar bitince',
+      base: closed ? 'done' : ready ? 'bekle' : 'lock',
+      href: closed || ready ? closing : null,
     },
   ]
   return steps.map(({ base, ...step }) => ({
