@@ -1,6 +1,6 @@
 import type { RunStrategy } from '@argus/shared'
 import { describe, expect, it } from 'vitest'
-import { revisionBrief, sanitizePlan } from './plan-brief.ts'
+import { approvedPlan, revisionBrief, sanitizePlan } from './plan-brief.ts'
 
 const plan: RunStrategy = {
   kind: 'akis',
@@ -27,6 +27,11 @@ describe('plan düzenleme isteği', () => {
     expect(text).toContain('KULLANICININ DÜZENLEME İSTEĞİ: Kalibrasyon adımını da ekle')
   })
 
+  it('kullanıcının koşudan çıkardığı vaka taslakta işaretli gider', () => {
+    const text = revisionBrief('x', { ...plan, items: [{ ...plan.items[0]!, excluded: true }] }, 'Vakaları gözden geçir')
+    expect(text).toContain('1. Form doğrulaması (ekran, pf-donem): Zorunlu alanları dene [kullanıcı koşudan çıkardı]')
+  })
+
   it('istek ya da önceki plan yoksa asıl istek olduğu gibi kalır', () => {
     expect(revisionBrief('Dönem akışını test et', null, 'x')).toBe('Dönem akışını test et')
     expect(revisionBrief('Dönem akışını test et', plan, null)).toBe('Dönem akışını test et')
@@ -34,11 +39,13 @@ describe('plan düzenleme isteği', () => {
 })
 
 describe('elle düzenlenen plan', () => {
-  it('boş vaka atılır, metinler kırpılır, bilinmeyen kaynak "ikisi" olur, tanım vakasının sayfası boşalır', () => {
+  it('boş vaka, senaryo ve not atılır, metinler kırpılır, bilinmeyen kaynak "ikisi" olur, tanım vakasının sayfası boşalır', () => {
     const clean = sanitizePlan({
       ...plan,
       understood: '  Dönem akışı  ',
       scenarios: [' A ', '', 'B'],
+      known: [' Kural ', ''],
+      infeasible: ['', 'E-posta gönderilmez'],
       items: [
         { ...plan.items[0]!, title: '  Yeni vaka ', goal: ' Amaç ' },
         { ...plan.items[0]!, title: '   ', goal: '' },
@@ -48,10 +55,29 @@ describe('elle düzenlenen plan', () => {
     })
     expect(clean.understood).toBe('Dönem akışı')
     expect(clean.scenarios).toEqual(['A', 'B'])
+    expect(clean.known).toEqual(['Kural'])
+    expect(clean.infeasible).toEqual(['E-posta gönderilmez'])
     expect(clean.items.map((i) => [i.title, i.goal, i.source, i.page])).toEqual([
       ['Yeni vaka', 'Amaç', 'ekran', 'pf-donem'],
       ['Tanım', 'Zorunlu alanları dene', 'tanim', null],
       ['Garip', 'Zorunlu alanları dene', 'ikisi', 'pf-donem'],
     ])
+  })
+
+  it('koşudan çıkarılan vaka taslakta işaretini korur, onaylanan plana girmez', () => {
+    const clean = sanitizePlan({
+      ...plan,
+      items: [
+        { ...plan.items[0]!, title: 'Dahil' },
+        { ...plan.items[0]!, title: 'Çıkarılan', excluded: true },
+        { ...plan.items[0]!, title: 'Yanlış işaret', excluded: 'evet' as never },
+      ],
+    })
+    expect(clean.items.map((i) => [i.title, i.excluded])).toEqual([
+      ['Dahil', undefined],
+      ['Çıkarılan', true],
+      ['Yanlış işaret', undefined],
+    ])
+    expect(approvedPlan(clean).items.map((i) => i.title)).toEqual(['Dahil', 'Yanlış işaret'])
   })
 })

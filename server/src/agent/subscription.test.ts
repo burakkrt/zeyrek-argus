@@ -2,6 +2,7 @@ import type { SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it } from 'vitest'
 import { UsageMeter, type Message, type MessageParams } from './model.ts'
 import {
+  planLimitsOf,
   callSchema,
   messageOf,
   subscriptionError,
@@ -117,6 +118,35 @@ describe('Claude hesabıyla çağrı', () => {
   })
 })
 
+describe('abonelik limitleri', () => {
+  it("SDK'nın limit mesajından haftalık ve 5 saatlik yüzde ile sıfırlanma anı okunur", () => {
+    // Gerçek mesajdan (2026-11-20, kimlik alanları yok).
+    const info = {
+      status: 'allowed_warning',
+      resetsAt: 1795204800,
+      rateLimitType: 'seven_day',
+      utilization: 0.87,
+      unifiedWindows: {
+        five_hour: { utilization: 0.42, resetsAt: 1795179000, status: 'allowed' },
+        seven_day: { utilization: 0.87, resetsAt: 1795204800, status: 'allowed_warning' },
+      },
+    }
+    expect(planLimitsOf(info, new Date('2026-11-20T12:00:00Z'))).toEqual({
+      fiveHour: { percent: 42, resetsAt: new Date(1795179000 * 1000).toISOString() },
+      week: { percent: 87, resetsAt: new Date(1795204800 * 1000).toISOString() },
+      at: '2026-11-20T12:00:00.000Z',
+    })
+  })
+
+  it('pencere listesi yoksa mesajın kendi penceresi kullanılır; tanınmayan biçim yok sayılır', () => {
+    expect(planLimitsOf({ rateLimitType: 'seven_day', utilization: 0.5 })?.week?.percent).toBe(50)
+    expect(planLimitsOf({ rateLimitType: 'seven_day', utilization: 0.5 })?.fiveHour).toBeNull()
+    expect(planLimitsOf({ status: 'allowed' })).toBeNull()
+    expect(planLimitsOf({ rateLimitType: 'seven_day', utilization: 87 })).toBeNull()
+    expect(planLimitsOf(null)).toBeNull()
+  })
+})
+
 describe('kullanım sayacı', () => {
   it('API anahtarıyla dolar yazılır; Claude hesabıyla token sayılır, dolar 0 ve sağlayıcı abonelik', () => {
     const reply = {
@@ -134,6 +164,17 @@ describe('kullanım sayacı', () => {
     plan.add('claude-sonnet-5-5', reply, 'explorer')
     expect(plan.usage).toMatchObject({ input: 1_000_000, costUsd: 0, provider: 'abonelik' })
     expect(plan.usage.roles?.explorer).toMatchObject({ requests: 1, costUsd: 0 })
+  })
+
+  it('her yanıttan sonra haber verir (koşu yöneticisi kullanımı canlı yayar)', () => {
+    const reply = {
+      usage: { input_tokens: 10, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    } as never
+    let calls = 0
+    const meter = new UsageMeter('api', undefined, () => (calls += 1))
+    meter.add('claude-sonnet-5-5', reply)
+    meter.add('claude-sonnet-5-5', reply)
+    expect(calls).toBe(2)
   })
 })
 
@@ -158,6 +199,22 @@ describe('önbellek işaretleri', () => {
       { type: 'text', text: 'Ekran' },
       { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } },
     ])
+  })
+
+  it('mesajda en çok iki işaret kalır, en sondakiler korunur (API sınırı 4)', () => {
+    const mark = { type: 'ephemeral' }
+    const content = transcriptOf(
+      params({
+        messages: [
+          {
+            role: 'user',
+            content: ['A', 'B', 'C', 'D', 'E'].map((text) => ({ type: 'text', text, cache_control: mark })),
+          },
+        ],
+      } as never),
+    ) as Array<{ text: string; cache_control?: unknown }>
+    expect(content.filter((b) => b.cache_control).map((b) => b.text)).toEqual(['D', 'E'])
+    expect(content.map((b) => b.text)).toEqual(['A', 'B', 'C', 'D', 'E'])
   })
 })
 

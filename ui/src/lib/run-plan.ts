@@ -1,3 +1,4 @@
+import type { RunInfo } from '@argus/shared'
 import type { MonitorModel, Status } from './monitor'
 
 /**
@@ -15,6 +16,8 @@ export interface PlanRow {
   status: Status
   /** Vakanın başladığı an (atlamak için); başlamadıysa null. */
   at: number | null
+  /** Vakanın bittiği an; bitmediyse null. */
+  doneAt: number | null
   /** Vakada çıkan bulguların `model.findings` içindeki sırası. */
   findings: number[]
 }
@@ -36,6 +39,7 @@ export function planRows(model: Pick<MonitorModel, 'pages' | 'steps' | 'findings
       expected: expectedOf(goals.get(task.title) ?? ''),
       status: task.status,
       at: task.at,
+      doneAt: task.doneAt,
       findings: [],
     })),
   )
@@ -46,4 +50,15 @@ export function planRows(model: Pick<MonitorModel, 'pages' | 'steps' | 'findings
     row?.findings.push(i)
   })
   return rows
+}
+
+/**
+ * Vakanın oynatılan andaki durumu (sağ panel): o anda başlamamışsa bekliyor, bitmişse bitti; başlamış ve bitmemişse koşu
+ * o anda duruyorsa (durduruldu, hata) yarıda, yoksa sürüyor. Geri sarınca akış o anki hâliyle görünür; durmuş koşunun
+ * sonunda "sürüyor" kalmaz.
+ */
+export function statusAt(row: Pick<PlanRow, 'at' | 'doneAt'>, at: number, halt: RunInfo['status'] | null): Status {
+  if (row.at === null || row.at > at) return 'bekliyor'
+  if (row.doneAt !== null && row.doneAt <= at) return 'bitti'
+  return halt && halt !== 'bitti' ? 'yarida' : halt === 'bitti' ? 'bitti' : 'suruyor'
 }

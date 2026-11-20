@@ -139,7 +139,7 @@
     {#if !created}
       <Button disabled={starting} onclick={start}>
         <Icon name="mediaPlay" />
-        {starting ? 'Başlatılıyor…' : 'Koşuyu başlat'}
+        {starting ? 'Hazırlanıyor…' : 'Planı hazırla'}
       </Button>
     {/if}
   {/snippet}
@@ -211,7 +211,7 @@
               rows="6"
               aria-label="Ne test edilsin?"
               placeholder="Hangi modülü, akışı ya da kuralı test edelim; nelere dikkat edilsin? Ekran görüntüsü yapıştırabilir, bağlantı ya da dosya ekleyebilirsin."
-              class="placeholder:text-placeholder relative block max-h-96 min-h-36 w-full resize-none bg-transparent px-3 py-2.5 text-sm leading-6 break-words text-transparent caret-[#101828] outline-none [field-sizing:content] [scrollbar-gutter:stable] selection:bg-[#0c66e4]/25"
+              class="placeholder:text-placeholder relative block max-h-[40svh] min-h-36 w-full resize-none bg-transparent px-3 py-2.5 text-sm leading-6 break-words text-transparent caret-[#101828] outline-none [field-sizing:content] [scrollbar-gutter:stable] selection:bg-[#0c66e4]/25"
             ></textarea>
           </div>
           <div class="flex items-center justify-between px-2 pb-2">
@@ -255,12 +255,14 @@
     </div>
     {/if}
 
-    <RunSummary
-      run={createdRun}
-      code={createdRun?.code ?? nextCode}
-      project={target.project}
-      application={target.application}
-      environment={target.environment}
-    />
+    <aside class="lg:sticky lg:top-[212px]">
+      <RunSummary
+        run={createdRun}
+        code={createdRun?.code ?? nextCode}
+        project={target.project}
+        application={target.application}
+        environment={target.environment}
+      />
+    </aside>
   </div>
 </Page>

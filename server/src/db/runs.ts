@@ -120,6 +120,7 @@ function toInfo(db: Database, row: RunRow): RunInfo {
     closedAt: row.closed_at ?? null,
     closedBy: row.closed_by ?? null,
     planState: row.plan_state ?? null,
+    planRequest: row.plan_state === 'duzenleniyor' ? (row.plan_feedback ?? null) : null,
   }
 }
 
@@ -209,12 +210,46 @@ export function nextQueuedRun(db: Database): RunInfo | null {
   return row ? toInfo(db, row) : null
 }
 
-/** Koşunun planı ve Argus'tan istenen son düzenleme. */
-export function getPlan(db: Database, id: string): { plan: RunStrategy | null; feedback: string | null } {
-  const row = db.prepare('select plan, plan_feedback from runs where id = ?').get(id) as
-    | { plan: string | null; plan_feedback: string | null }
+export interface PlanVersions {
+  /** Üzerinde çalışılan plan (insanın elle düzenlemeleri dahil). */
+  plan: RunStrategy | null
+  /** Argus'un son yazdığı plan; elle düzenleme bunu değiştirmez. Eski koşularda null. */
+  base: RunStrategy | null
+  /** Son düzenletmeden önce Argus'un yazdığı plan; hiç düzenletilmediyse null. */
+  previous: RunStrategy | null
+  feedback: string | null
+}
+
+/** Koşunun planı, sürümleri ve Argus'tan istenen son düzenleme. */
+export function getPlan(db: Database, id: string): PlanVersions {
+  const row = db.prepare('select plan, plan_base, plan_previous, plan_feedback from runs where id = ?').get(id) as
+    | { plan: string | null; plan_base: string | null; plan_previous: string | null; plan_feedback: string | null }
     | undefined
-  return { plan: json<RunStrategy | null>(row?.plan ?? null, null), feedback: row?.plan_feedback ?? null }
+  return {
+    plan: json<RunStrategy | null>(row?.plan ?? null, null),
+    base: json<RunStrategy | null>(row?.plan_base ?? null, null),
+    previous: json<RunStrategy | null>(row?.plan_previous ?? null, null),
+    feedback: row?.plan_feedback ?? null,
+  }
+}
+
+/** Argus planı yazdı: taslak olur; yazdığı hâl ayrıca saklanır (elle düzenlemeler bunun üstüne yapılır). */
+export function savePlanDraft(db: Database, id: string, plan: RunStrategy): void {
+  const text = JSON.stringify(plan)
+  db.prepare(
+    `update runs set plan_state = 'taslak', plan_feedback = null, plan = ?, plan_base = ?, status = 'sirada' where id = ?`,
+  ).run(text, text, id)
+}
+
+/**
+ * Düzenletme başlar: elle düzenlemeler bırakılır, plan Argus'un son yazdığı hâle döner; o hâl "önceki sürüm" olur
+ * (yeni taslakta neyin değiştiği ona göre işaretlenir).
+ */
+export function startPlanRevision(db: Database, id: string, feedback: string): void {
+  db.prepare(
+    `update runs set plan_state = 'duzenleniyor', plan_feedback = ?, plan = coalesce(plan_base, plan),
+       plan_previous = coalesce(plan_base, plan), status = 'sirada' where id = ?`,
+  ).run(feedback, id)
 }
 
 /**
@@ -243,8 +278,16 @@ export function setRunPages(db: Database, id: string, pages: string[]): void {
   db.prepare('update runs set pages = ? where id = ?').run(JSON.stringify(pages), id)
 }
 
-export function startRun(db: Database, id: string): void {
-  db.prepare(`update runs set status = 'calisiyor', started_at = ? where id = ?`).run(now(), id)
+/** Koşu yürümeye başladı; devamda ilk başlangıç anı korunur (geçen süre baştan sayılmaz). */
+export function startRun(db: Database, id: string, resumed = false): void {
+  db.prepare(
+    `update runs set status = 'calisiyor', started_at = case when ? then coalesce(started_at, ?) else ? end where id = ?`,
+  ).run(resumed ? 1 : 0, now(), now(), id)
+}
+
+/** Durdurulan ya da yarıda kalan koşu kaldığı yerden sürmek için yeniden sıraya girer. */
+export function requeueRun(db: Database, id: string): void {
+  db.prepare(`update runs set status = 'sirada', error = null, finished_at = null where id = ?`).run(id)
 }
 
 export function finishRun(

@@ -262,6 +262,28 @@ export class BrowserSession {
     await this.page.waitForTimeout(400)
   }
 
+  /**
+   * Ekranın yüklenmesinin bitmesini bekler: ağ susar ve görünür yükleme göstergesi kalmaz. Gösterge standart ARIA
+   * işaretiyle tanınır (`aria-busy="true"`, `role="progressbar"`); Zeyrek bileşenleri yüklenirken `aria-busy` taşır,
+   * sayfaya özel seçici yoktur. En çok `timeout` bekler; hâlâ yükleniyorsa false.
+   */
+  async waitUntilIdle(timeout = 4_000): Promise<boolean> {
+    await this.settle(timeout)
+    return this.page
+      .waitForFunction(
+        () =>
+          ![...document.querySelectorAll('[aria-busy="true"], [role="progressbar"]')].some((el) => {
+            const box = el.getBoundingClientRect()
+            const style = getComputedStyle(el)
+            return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'
+          }),
+        undefined,
+        { timeout },
+      )
+      .then(() => true)
+      .catch(() => false)
+  }
+
   drainNetwork(): NetworkEntry[] {
     const out = this.network
     this.network = []

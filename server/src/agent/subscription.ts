@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { query, type SDKResultMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { ModelRole } from '@argus/shared'
+import type { ModelRole, PlanLimits, PlanWindow } from '@argus/shared'
 import { ArgusError } from '../errors.ts'
 import type { ContentBlock, CreateMessage, Message, MessageParams } from './model.ts'
 
@@ -82,6 +82,19 @@ export function transcriptOf(params: Params): ContentBlock[] {
     }
     return []
   })
+  // API bir istekte en çok 4 önbellek işareti kabul eder; Claude Code kendi işaretlerini de ekler. Mesajda en çok
+  // TAIL_CACHE_MARKS işaret kalır, en sondakiler (önbellek için en değerli ön ek) korunur: gözün çağrısı 5 işaretle
+  // reddediliyordu ("A maximum of 4 blocks with cache_control", KOS-2026-0061).
+  let marks = 0
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    const block = tail[i] as unknown as Record<string, unknown>
+    if (!block.cache_control) continue
+    marks += 1
+    if (marks > TAIL_CACHE_MARKS) {
+      const { cache_control: _dropped, ...rest } = block
+      tail[i] = rest as unknown as ContentBlock
+    }
+  }
   return [
     ...(history.length
       ? [{ type: 'text' as const, text: `ÖNCEKİ KONUŞMA:\n\n${history.join('\n\n')}\n\nŞİMDİKİ MESAJ:` }]
@@ -89,6 +102,9 @@ export function transcriptOf(params: Params): ContentBlock[] {
     ...tail,
   ]
 }
+
+/** Abonelik mesajında kalan en çok önbellek işareti (API sınırı 4; geri kalanı Claude Code'undur). */
+const TAIL_CACHE_MARKS = 2
 
 /** Araçlı çağrının yapılandırılmış çıktı şeması: çağrılacak araçlar ve girdileri. */
 export function callSchema(params: Params): Record<string, unknown> {
@@ -121,6 +137,35 @@ export function subscriptionError(message: string): ArgusError {
     )
   return new ArgusError('SUBSCRIPTION', `Claude hesabıyla çağrı başarısız: ${message.slice(0, 400)}`)
 }
+
+/**
+ * Abonelik limitleri: SDK'nın `rate_limit_event` mesajındaki pencereler (`unifiedWindows`, yoksa mesajın kendi penceresi).
+ * Kullanım 0–1 kesirdir (ölçüldü 2026-11-20: haftalık 0.87 = profilde %87); yüzdeye çevrilir. Tanınmayan biçim null.
+ */
+export function planLimitsOf(info: unknown, at = new Date()): PlanLimits | null {
+  if (!info || typeof info !== 'object') return null
+  const record = info as {
+    rateLimitType?: string
+    utilization?: number
+    resetsAt?: number
+    unifiedWindows?: Record<string, { utilization?: number; resetsAt?: number } | undefined>
+  }
+  const windowOf = (raw: { utilization?: number; resetsAt?: number } | undefined): PlanWindow | null =>
+    raw && typeof raw.utilization === 'number' && raw.utilization >= 0 && raw.utilization <= 1
+      ? {
+          percent: Math.round(raw.utilization * 1000) / 10,
+          resetsAt: typeof raw.resetsAt === 'number' ? new Date(raw.resetsAt * 1000).toISOString() : null,
+        }
+      : null
+  const own = { utilization: record.utilization, resetsAt: record.resetsAt }
+  const fiveHour = windowOf(record.unifiedWindows?.five_hour ?? (record.rateLimitType === 'five_hour' ? own : undefined))
+  const week = windowOf(record.unifiedWindows?.seven_day ?? (record.rateLimitType === 'seven_day' ? own : undefined))
+  return fiveHour || week ? { fiveHour, week, at: at.toISOString() } : null
+}
+
+/** Son bilinen abonelik limitleri (bütün oturumlarda ortak; koşu yöneticisi koşunun kullanımına yazar). */
+let latestLimits: PlanLimits | null = null
+export const currentPlanLimits = (): PlanLimits | null => latestLimits
 
 export interface TurnUsage {
   input_tokens: number
@@ -245,7 +290,9 @@ class Session {
     for (;;) {
       const next = await this.events.next()
       if (next.done) throw new ArgusError('SUBSCRIPTION', 'Claude Code oturumu yanıt vermeden kapandı.')
-      if ((next.value as { type?: string }).type === 'result') return next.value as SDKResultMessage
+      const value = next.value as { type?: string; rate_limit_info?: unknown }
+      if (value.type === 'rate_limit_event') latestLimits = planLimitsOf(value.rate_limit_info) ?? latestLimits
+      if (value.type === 'result') return next.value as SDKResultMessage
     }
   }
 

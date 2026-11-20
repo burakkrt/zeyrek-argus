@@ -16,7 +16,7 @@ import {
   type Settings,
 } from '@argus/shared'
 import { findingReport } from '../issues/report.ts'
-import { revisionBrief, sanitizePlan } from '../agent/plan-brief.ts'
+import { approvedPlan, revisionBrief, sanitizePlan } from '../agent/plan-brief.ts'
 import { severityOf } from '../issues/severity.ts'
 import { PageController } from '../agent/page-controller.ts'
 import type { Author } from '../author.ts'
@@ -29,6 +29,7 @@ import {
 import { inspectsScreens, normalizeItems, pageWork, planRun, scanStrategy } from '../agent/strategist.ts'
 import { supervise, SUPERVISE_ROUNDS } from '../agent/supervisor.ts'
 import { describeModelError, UsageMeter, type CreateMessage, type MessageParams } from '../agent/model.ts'
+import { currentPlanLimits } from '../agent/subscription.ts'
 import { appBlock } from '../agent/prompts.ts'
 import { BrowserSession } from '../browser/session.ts'
 import type { Database } from '../db/database.ts'
@@ -37,14 +38,18 @@ import {
   failInterruptedRuns,
   finishRun,
   getRun,
+  listEvents,
   nextQueuedRun,
+  requeueRun,
   saveUsage,
   setRunCoverage,
   setRunPages,
   startRun,
   closeRun,
   getPlan,
+  savePlanDraft,
   setPlan,
+  startPlanRevision,
 } from '../db/runs.ts'
 import { appSessionFile, getAppUser, getSettings, listAppUsers } from '../db/settings.ts'
 import { planIdentity } from '../identity/plan.ts'
@@ -54,6 +59,7 @@ import { ArgusError, errorMessage } from '../errors.ts'
 import { loadAttachments, validAttachments } from './attachments.ts'
 import { renderKnowledge } from '../agent/knowledge.ts'
 import { RunTrace } from './trace.ts'
+import { runProgress } from './progress.ts'
 import { PlatformReader, readStep } from '../platform/reader.ts'
 import type { IssueService } from '../issues/issues.ts'
 import { chooseGuides, guideIndex, guidesText } from '../memory/guides.ts'
@@ -93,6 +99,8 @@ interface ActiveRun {
 }
 
 const STOPPED = 'Koşu durduruldu.'
+/** Koşunun oluşturduğu test kayıtlarının dosyası (koşu klasöründe; devam ve kapanış temizliği okur). */
+const LEDGER_FILE = 'test-kayitlari.json'
 
 /** Koşuları sırayla yürütür (aynı anda tek koşu). Sunucu açılırken yarım kalanlar "hata" ile kapanır. */
 /**
@@ -157,6 +165,23 @@ export class RunManager {
     return run
   }
 
+  /**
+   * Devam et: durdurulan ya da yarıda kalan (hata, sunucu kapandı) koşu aynı koşu olarak kaldığı yerden sürer. Biten
+   * vakalar yeniden yürümez, özetleri geri gelir; yarıda kalan vaka baştan yürür; bulgular, kayıt ve test kayıtları
+   * yerinde kalır (`execute` → `runProgress`). Plan aşamasında durdurulan koşu planını yeniden yazar.
+   */
+  resume(runId: string): RunInfo {
+    const run = getRun(this.deps.db, runId)
+    if (!run) throw new ArgusError('RUN_NOT_FOUND', 'Koşu bulunamadı.')
+    if (run.status !== 'durduruldu' && run.status !== 'hata')
+      throw new ArgusError('DEVAM', 'Yalnız durdurulan ya da yarıda kalan koşu devam ettirilebilir.')
+    if (run.closedAt) throw new ArgusError('DEVAM', 'Kapatılmış koşu devam ettirilemez.')
+    requeueRun(this.deps.db, run.id)
+    const updated = this.notify(run.id)
+    void this.kick()
+    return updated
+  }
+
   /** Plan adımında insanın elle düzenlediği taslak (vakalar, senaryolar, kapsam). */
   updatePlan(runId: string, plan: RunStrategy): RunInfo {
     const run = this.planRun(runId, 'taslak')
@@ -164,11 +189,14 @@ export class RunManager {
     return this.notify(run.id)
   }
 
-  /** "Argus'a düzenlet": taslak (varsa elle düzenlenmiş hâli) ve istek planlayıcıya gider, plan yeniden yazılır. */
-  revisePlan(runId: string, feedback: string, plan?: RunStrategy): RunInfo {
+  /**
+   * "Planı düzenlet": Argus'un son yazdığı plan ve istek planlayıcıya gider, plan yeniden yazılır. İnsanın elle
+   * düzenlemeleri bırakılır (arayüz düzenletmeden önce bunu listeleyip onay ister).
+   */
+  revisePlan(runId: string, feedback: string): RunInfo {
     const run = this.planRun(runId, 'taslak')
     if (!feedback.trim()) throw new ArgusError('PLAN_ISTEK', "Argus'tan ne istediğini yaz.")
-    setPlan(this.deps.db, run.id, 'duzenleniyor', plan ? sanitizePlan(plan) : null, feedback.trim().slice(0, BRIEF_LIMIT))
+    startPlanRevision(this.deps.db, run.id, feedback.trim().slice(0, BRIEF_LIMIT))
     const updated = this.notify(run.id)
     void this.kick()
     return updated
@@ -177,7 +205,8 @@ export class RunManager {
   /** Planı onayla: koşu kayıtlı planla başlar (planlayıcı yeniden çağrılmaz). */
   approvePlan(runId: string, plan?: RunStrategy): RunInfo {
     const run = this.planRun(runId, 'taslak')
-    const current = plan ? sanitizePlan(plan) : getPlan(this.deps.db, run.id).plan
+    const draft = plan ? sanitizePlan(plan) : getPlan(this.deps.db, run.id).plan
+    const current = draft ? approvedPlan(draft) : null
     if (!current?.items.length) throw new ArgusError('PLAN_BOS', 'Planda en az bir vaka olmalı.')
     setPlan(this.deps.db, run.id, 'onaylandi', current)
     const updated = this.notify(run.id)
@@ -234,9 +263,47 @@ export class RunManager {
         `Koşuyu kapatmak için ${run.review.pending} bulguya karar verilmeli (onayla ya da reddet).`,
       )
     closeRun(this.deps.db, run.id, author)
-    for (const id of [run.id, ...run.continuations.map((c) => c.id)])
+    for (const id of [run.id, ...run.continuations.map((c) => c.id)]) {
       this.deps.bus.runUpdated(getRun(this.deps.db, id)!)
+      void this.discardTestData(getRun(this.deps.db, id)!)
+    }
     return getRun(this.deps.db, runId)!
+  }
+
+  /**
+   * Durdurulup devam ettirilmeden kapatılan koşunun bıraktığı test kayıtları (devam için tutulmuştu) kapanışta silinir.
+   * Hata kapanışı düşürmez; bildirim koşunun akışına yazılır.
+   */
+  private async discardTestData(run: RunInfo): Promise<void> {
+    const ledger = join(this.deps.dataDir, 'runs', run.id, LEDGER_FILE)
+    if (!existsSync(ledger)) return
+    try {
+      const { platform } = this.deps
+      const reader = new PlatformReader(
+        await platform.mcp(),
+        {
+          project: run.project,
+          application: run.application,
+          environment: run.environment,
+          projectId: await platform.catalog.projectId(run.project),
+          applicationId: await platform.catalog.applicationId(run.project, run.application),
+        },
+        null,
+        ledger,
+      )
+      if (!reader.pending) return
+      const removed = await reader.cleanup()
+      if (removed)
+        this.deps.bus.publish(run.id, null, {
+          type: 'bilgi',
+          message: `Koşu kapatıldı; devam için tutulan ${removed} test kaydı silindi.`,
+        })
+    } catch (error) {
+      this.deps.bus.publish(run.id, null, {
+        type: 'hata',
+        message: `Test kayıtları silinemedi: ${describeModelError(error)}`,
+      })
+    }
   }
 
   /**
@@ -301,8 +368,29 @@ export class RunManager {
     const { db, bus, platform, memory, issues } = this.deps
     const app: AppRef = { project: run.project, application: run.application }
     const settings: Settings = getSettings(db)
-    // Onaylanan planla süren koşu planlamanın maliyetini taşır.
-    const meter = new UsageMeter(settings.provider, run.planState === 'onaylandi' ? run.usage : undefined)
+    // Kaldığı yerden devam: koşu daha önce yürüdüyse biten vakalar olay kaydından okunur (`runs/progress.ts`).
+    const progress = runProgress(listEvents(db, run.id))
+    // Onaylanan planla süren koşu planlamanın, devam eden koşu önceki yürütmenin maliyetini taşır.
+    // Kullanım her model yanıtından sonra kaydedilip yayılır (en sık 1,5 sn'de bir): maliyet ekranda canlı ilerler
+    // (tanım vakalarında da; önceden yalnız sayfa vakaları yayıyordu). Abonelikte planın limitleri de yazılır (Claude'un
+    // kendi verisi; koşu başındaki haftalık yüzde saklanır, devamda korunur).
+    let usageSavedAt = 0
+    const meter: UsageMeter = new UsageMeter(
+      settings.provider,
+      run.planState === 'onaylandi' || progress.resumed ? run.usage : undefined,
+      () => {
+        if (settings.provider === 'abonelik') {
+          const limits = currentPlanLimits()
+          if (limits)
+            meter.usage.plan = { ...limits, weekAtStart: meter.usage.plan?.weekAtStart ?? limits.week?.percent ?? null }
+        }
+        const at = Date.now()
+        if (at - usageSavedAt < 1_500) return
+        usageSavedAt = at
+        saveUsage(db, run.id, meter.usage)
+        bus.runUpdated(getRun(db, run.id)!)
+      },
+    )
     const active = this.active!
     const runDir = join(this.deps.dataDir, 'runs', run.id)
     mkdirSync(runDir, { recursive: true })
@@ -320,7 +408,7 @@ export class RunManager {
     let superLogin: SuperLoginSpec | null = null
     // Platform kapısı (okuma ve yazma); koşu sonunda bıraktığı test kayıtları silinir (hata olsa da).
     let cleanupReader: PlatformReader | null = null
-    startRun(db, run.id)
+    startRun(db, run.id, progress.resumed)
     bus.runUpdated(getRun(db, run.id)!)
     bus.publish(run.id, null, { type: 'kosu-basladi', pages: run.pages })
     let status: RunInfo['status'] = 'bitti'
@@ -347,6 +435,7 @@ export class RunManager {
           applicationId: await platform.catalog.applicationId(run.project, run.application),
         },
         trace,
+        join(runDir, LEDGER_FILE),
       )
       cleanupReader = reader
       const urlOf = (page: string) =>
@@ -386,7 +475,8 @@ export class RunManager {
       // Plan onayı: onaylanan plan kayıtlıdır, planlayıcı yeniden çağrılmaz; düzenleme isteğinde önceki taslak ve istek
       // planlayıcıya gider.
       const saved = run.planState ? getPlan(db, run.id) : { plan: null, feedback: null }
-      const approved = run.planState === 'onaylandi' ? saved.plan : null
+      // Plan onayı olmayan eski koşu devam ederken önceki yürütmenin stratejisiyle sürer (planlayıcı yeniden çağrılmaz).
+      const approved = run.planState === 'onaylandi' ? saved.plan : progress.resumed ? progress.strategy : null
       const strategy = approved
         ? approved
         : briefed
@@ -414,17 +504,27 @@ export class RunManager {
         // Taslak hazır: koşu tarayıcı açılmadan durur, insan Plan adımında düzenler ya da onaylar.
         // Erken dönüş: bitiş yazılmaz (finally yalnız platform kapısını ve oturumu toplar). Plan sayfası canlı akıştan
         // güncellenir, bildirim burada gider (dönüşten sonraki satırlar çalışmaz).
-        setPlan(db, run.id, 'taslak', strategy)
+        savePlanDraft(db, run.id, strategy)
         saveUsage(db, run.id, meter.usage)
         bus.publish(run.id, null, { type: 'bilgi', message: 'Plan hazır; onayını bekliyor.' })
         bus.runUpdated(getRun(db, run.id)!)
         return
       }
-      bus.publish(run.id, null, { type: 'strateji', strategy })
-      bus.publish(run.id, null, {
-        type: 'bilgi',
-        message: `Kapsam: ${SCOPE_LABELS[strategy.scope]}; ${strategy.items.length} kalem.`,
-      })
+      // Devamda strateji yeniden yayımlanmaz (izleme ekranında zaten var); ne kaldığı söylenir.
+      if (progress.resumed)
+        bus.publish(run.id, null, {
+          type: 'bilgi',
+          message:
+            `Koşu kaldığı yerden sürüyor: ${progress.definitions.size + progress.pages.size} vaka ya da sayfa önceden bitti, yeniden yürümeyecek` +
+            (progress.interrupted.length ? `; yarıda kalan ${progress.interrupted.length} vaka baştan yürüyecek.` : '.'),
+        })
+      else {
+        bus.publish(run.id, null, { type: 'strateji', strategy })
+        bus.publish(run.id, null, {
+          type: 'bilgi',
+          message: `Kapsam: ${SCOPE_LABELS[strategy.scope]}; ${strategy.items.length} kalem.`,
+        })
+      }
       const chosen = chooseGuides(guides, strategy.guides)
       const methods = guidesText(chosen)
       bus.publish(run.id, null, {
@@ -442,6 +542,20 @@ export class RunManager {
       // sayfa sonuçlarını görür.
       const notes = [...strategy.known]
       const results: string[] = []
+      // Devam: biten vakaların özetleri ilk yürütmedeki gibi "Bu koşuda bilinenler"e ve gözetmenin sonuçlarına girer;
+      // önce devam olduğu söylenir (yarıda kalan vakanın önceki denemesinin kayıtları sistemde durabilir; davranış
+      // `memory/brain/roles/temel.md` § Devam ettirilen koşu).
+      if (progress.resumed) {
+        notes.push(
+          `Devam: bu koşu durdurulup kaldığı yerden sürdürüldü. Biten vakalar yeniden yürümüyor; aşağıdaki özetleri ve ` +
+            `özetlerdeki test kayıtları geçerli. Yarıda kalan vakalar baştan yürüyor: ${progress.interrupted.join('; ') || 'yok'}.`,
+        )
+        for (const [title, summary] of progress.definitions) {
+          notes.push(`${title}: ${summary}`)
+          results.push(`Tanım — ${title}: ${summary}`)
+        }
+        for (const [page, summary] of progress.pages) results.push(`Ekran — ${page}: ${summary}`)
+      }
       const tested = new Set<string>()
       const definitions: StrategyItem[] = []
       const writer = this.deps.author()
@@ -563,6 +677,8 @@ export class RunManager {
         })
         const runOne = async (item: StrategyItem, i: number) => {
           if (active.stop) return
+          // Devam: önceki yürütmede biten vaka yeniden yürümez (özeti zaten "bilinenler"de).
+          if (progress.definitions.has(item.title)) return
           bus.publish(run.id, DEFINITION_PAGE, {
             type: 'gorev-basladi',
             index: offset + i,
@@ -752,6 +868,8 @@ export class RunManager {
         for (const page of new Set(items.flatMap((i) => (i.page ? [i.page] : [])))) {
           if (active.stop) break
           tested.add(page)
+          // Devam: yarıda kalmadan biten sayfa yeniden açılmaz.
+          if (progress.pages.has(page)) continue
           if ([...tested].join() !== getRun(db, run.id)!.pages.join()) {
             setRunPages(db, run.id, [...tested])
             bus.runUpdated(getRun(db, run.id)!)
@@ -842,12 +960,20 @@ export class RunManager {
         bus.publish(run.id, null, { type: 'hata', message: failure })
       }
     } finally {
+      // Test kayıtları koşu bitince silinir; durdurulan ya da yarıda kalan koşuda devam için tutulur (dosyada), koşu
+      // kapatılınca silinir (`discardTestData`).
       const cleaner = cleanupReader as PlatformReader | null
-      const removed = cleaner ? await cleaner.cleanup() : 0
-      if (removed)
+      if (cleaner && status === 'bitti') {
+        const removed = await cleaner.cleanup()
+        if (removed)
+          bus.publish(run.id, null, {
+            type: 'bilgi',
+            message: `Koşunun oluşturup silmediği ${removed} test kaydı silindi.`,
+          })
+      } else if (cleaner?.pending)
         bus.publish(run.id, null, {
           type: 'bilgi',
-          message: `Koşunun oluşturup silmediği ${removed} test kaydı silindi.`,
+          message: `${cleaner.pending} test kaydı devam için tutuldu; koşu devam etmeden kapatılırsa silinir.`,
         })
       // Oturum ve süper giriş tarayıcı açılırken (ilk ekran kaleminde, kapanış içinde) atanır; TS bunu izleyemez.
       const opened = session as BrowserSession | null

@@ -235,6 +235,12 @@ const MIGRATIONS: string[] = [
   alter table runs add column plan_state text;
   alter table runs add column plan_feedback text;
   `,
+  // Plan sürümleri: Argus'un son yazdığı plan (elle düzenlemeden ayrı; düzenletmede ona dönülür) ve düzenletmeden önceki
+  // sürümü (plan sayfası neyin değiştiğini buna göre işaretler).
+  `
+  alter table runs add column plan_base text;
+  alter table runs add column plan_previous text;
+  `,
 ]
 
 export function openDatabase(file: string): Database {

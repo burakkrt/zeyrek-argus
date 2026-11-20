@@ -13,7 +13,7 @@
    * kurallar yüklendi, platform tanımları inceleniyor, plan yazılıyor); tamamlanan yeşil onaylı, süren mavi göstergeli,
    * bekleyen gri. Süren aşamanın altında son dört okuma (tek satır neden; çizelge tek ekrana sığsın): saat, ne yapıldığı,
    * hedefi ve nedeni; en yenisi üstte ve koyu. İçerik kartla hizalı, sola yaslıdır.
-   * Sağ üstte geçen süre; çizelgenin üstünde kullanıcının test isteği (uzunsa ilk dört satır, sesle yazıldıysa işaretli)
+   * Sağ üstte geçen süre; çizelgenin üstünde kullanıcının test isteği (plan yeniden yazılırken son düzenleme isteği) (uzunsa ilk dört satır, sesle yazıldıysa işaretli)
    * ve ekleri. Yeni koşu'da girdi alanının yerine, Plan sayfasında plan hazır olana kadar gösterilir. Okumalar
    * koşunun olay akışından gelir (açılışta geçmiş, sonra canlı).
    */
@@ -23,11 +23,15 @@
   let activity = $state<Read[]>([])
   /** Test isteği uzunsa ilk satırları görünür; "Tamamını göster" açar. */
   let briefOpen = $state(false)
-  const brief = $derived(stripVoiceNote(run?.options.brief ?? ''))
-  const spoken = $derived((run?.options.brief ?? '').includes(VOICE_NOTE))
+  // Argus planı yeniden yazarken "İsteğin" kullanıcının son düzenleme isteğidir; ilk hazırlıkta koşunun test isteği.
+  const source = $derived(run?.planRequest ?? run?.options.brief ?? '')
+  const brief = $derived(stripVoiceNote(source))
+  const spoken = $derived(source.includes(VOICE_NOTE))
   const longBrief = $derived(brief.length > 260 || brief.split('\n').length > 4)
   // Ek kimliği `<kimlik>_<dosya adı>` biçimindedir; ad sunucuya sormadan gösterilir.
-  const files = $derived((run?.options.attachments ?? []).map((id) => id.replace(/^[0-9a-f-]{36}_/i, '')))
+  const files = $derived(
+    run?.planRequest ? [] : (run?.options.attachments ?? []).map((id) => id.replace(/^[0-9a-f-]{36}_/i, '')),
+  )
   let now = $state(Date.now())
 
   const revising = $derived(run?.planState === 'duzenleniyor')
@@ -105,7 +109,7 @@
       <!-- Kullanıcının test isteği: Argus neyi planladığını bilerek beklensin. -->
       <section class="grid gap-2 rounded-[10px] border bg-[#f9fafb] px-4 py-3">
         <div class="flex items-center gap-2">
-          <h3 class="text-[13px] font-semibold text-[#101828]">İsteğin</h3>
+          <h3 class="text-[13px] font-semibold text-[#101828]">{run?.planRequest ? 'Düzenleme isteğin' : 'İsteğin'}</h3>
           {#if spoken}<span class="rounded-md border bg-white px-1.5 text-[11.5px] leading-5 text-[#475467]"
               >Konuşarak yazıldı</span
             >{/if}

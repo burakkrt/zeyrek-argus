@@ -289,8 +289,9 @@ export function createApi(ctx: AppContext): Hono {
   })
   api.post('/kosular/:id/plan/duzenle', async (c) => {
     const body = (await c.req.json()) as Record<string, unknown>
-    return c.json(ctx.runs.revisePlan(c.req.param('id'), str(body.mesaj, 'mesaj'), planOf(body)))
+    return c.json(ctx.runs.revisePlan(c.req.param('id'), str(body.mesaj, 'mesaj')))
   })
+  api.post('/kosular/:id/devam', (c) => c.json(ctx.runs.resume(c.req.param('id'))))
   api.post('/kosular/:id/plan/onayla', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
     return c.json(ctx.runs.approvePlan(c.req.param('id'), planOf(body)))

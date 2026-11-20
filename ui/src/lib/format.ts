@@ -39,9 +39,35 @@ export function formatBytes(bytes: number): string {
   return `${value.toLocaleString('tr-TR', { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${units[unit]}`
 }
 
-/** Koşunun maliyeti; Claude hesabıyla (abonelik) koşuda dolar yoktur, planın kullanım hakkından düşer. */
-export const formatCost = (usage: Usage | null | undefined) =>
-  usage?.provider === 'abonelik' ? 'Abonelik' : formatMoney(usage?.costUsd)
+/**
+ * Koşunun maliyeti. API anahtarında dolar. Claude hesabıyla (abonelik) dolar ödenmez: koşunun haftalık limitten
+ * tükettiği yüzde gösterilir ("Haftalık limitten %3"); veri yoksa (eski koşu) "Abonelik". Toplam doluluk açıklamadadır.
+ */
+export const formatCost = (usage: Usage | null | undefined) => {
+  if (usage?.provider !== 'abonelik') return formatMoney(usage?.costUsd)
+  const week = usage.plan?.week
+  const start = usage.plan?.weekAtStart
+  if (!week || start === null || start === undefined) return 'Abonelik'
+  return `Haftalık limitten %${Math.max(0, Math.round(week.percent - start))}`
+}
+
+const whenOf = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString('tr-TR', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
+
+/** Maliyetin açıklaması (üzerine gelince). */
+export const costHint = (usage: Usage | null | undefined) => {
+  if (usage?.provider !== 'abonelik') return 'API anahtarıyla koşunun maliyeti (liste fiyatı).'
+  const plan = usage.plan
+  if (!plan?.week) return 'Claude aboneliğiyle koşuldu; limit verisi henüz gelmedi.'
+  return [
+    "Claude aboneliğinin kullanım limitleri (Claude'un kendi verisi, profildeki değerle aynı).",
+    `Haftalık: %${Math.round(plan.week.percent)}, sıfırlanma ${whenOf(plan.week.resetsAt)}.`,
+    plan.fiveHour ? `5 saatlik: %${Math.round(plan.fiveHour.percent)}, sıfırlanma ${whenOf(plan.fiveHour.resetsAt)}.` : '',
+    'Koşunun tükettiği, koşu başından beri haftalık artıştır; aynı hesabın o sıradaki bütün kullanımını içerir.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
 
 export const RUN_STATUS: Record<RunStatus, { label: string; tone: string }> = {
   sirada: { label: 'Sırada', tone: 'info' },

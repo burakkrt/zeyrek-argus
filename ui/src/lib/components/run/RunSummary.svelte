@@ -4,7 +4,7 @@
   import { cn } from '$lib/utils'
 
   /**
-   * Koşunun özeti (Yeni koşu ve Plan sayfasının sağındaki yapışkan kart): kod, durum, uygulama, dal, oluşturulma zamanı
+   * Koşunun özeti (Yeni koşu ve Plan sayfasının sağ sütunundaki kart; yapışkanlığı sütun verir): kod, durum, uygulama, dal, oluşturulma zamanı
    * ve ek sayısı. Test kullanıcısı burada yoktur (Ayarlar'da belirlenir). Koşu başlatılmadan kod
    * önizlemedir; plan yazılırken ve sayfa yenilendikten sonra da kart durur.
    */
@@ -35,7 +35,7 @@
   const files = $derived(run?.options.attachments?.length ?? 0)
 </script>
 
-<aside class="bg-card text-card-foreground rounded-xl border lg:sticky lg:top-[148px]">
+<section class="bg-card text-card-foreground rounded-xl border">
   <header class="flex items-center justify-between gap-3 border-b px-5 py-4">
     <h2 class="text-base leading-[22px] font-semibold">Koşu</h2>
     <span class="font-mono text-[12.5px] text-[#344054]" title={run ? undefined : 'Koşu başlatılınca atanır'}
@@ -58,4 +58,4 @@
     <dt class="text-muted-foreground">Ek</dt>
     <dd class="text-right tabular-nums">{run ? (files ? `${files} dosya` : 'Yok') : '—'}</dd>
   </dl>
-</aside>
+</section>

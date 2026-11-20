@@ -57,6 +57,9 @@ import { eyeFindingsText, pageFacts, type PageFacts } from './prompts.ts'
 import { INSPECT_SCHEMA, JUDGE_SCHEMA, PLAN_SCHEMA, platformTools, TASK_TOOLS } from './tools.ts'
 import { readStep, type PlatformReader } from '../platform/reader.ts'
 
+/** Bulgu bildirilince ekranın yüklenmesi için en çok beklenen süre (ms). */
+const BUSY_WAIT_MS = 4_000
+
 export interface FindingDraft {
   key: string
   title: string
@@ -850,12 +853,16 @@ export class PageController {
         await this.input.session.open(this.input.url)
         this.trail = []
       }
+      let failed = false
       const result = await this.runTask(task, notebook, facts).catch((error: unknown) => {
-        hooks.emit({ type: 'hata', message: `Görev yarım kaldı: ${describeModelError(error)}` })
+        failed = true
+        if (!hooks.stopped()) hooks.emit({ type: 'hata', message: `Görev yarım kaldı: ${describeModelError(error)}` })
         return `Yarım kaldı: ${describeModelError(error)}`
       })
       notebook.push(`${index + 1}. ${task.baslik}: ${result}`)
-      hooks.emit({ type: 'gorev-bitti', index, summary: result })
+      // Yarıda kalan görevin özeti sonuç değildir: işaretlenir, koşu devam ettirilince görev baştan yürür.
+      const interrupted = failed || hooks.stopped()
+      hooks.emit({ type: 'gorev-bitti', index, summary: result, ...(interrupted ? { interrupted } : {}) })
     }
     // Gözün süren incelemeleri beklenir; sonra kanıt sekmesi kapanır.
     await Promise.allSettled(this.pending)
@@ -883,7 +890,7 @@ export class PageController {
           hooks.emit({ type: 'hata', message: `Sayfa bilgisi yazılamadı: ${describeModelError(error)}` })
         })
     }
-    hooks.emit({ type: 'sayfa-bitti', summary: pageSummary })
+    hooks.emit({ type: 'sayfa-bitti', summary: pageSummary, ...(hooks.stopped() ? { interrupted: true } : {}) })
     return pageSummary
   }
 
@@ -1437,10 +1444,23 @@ export class PageController {
     }
   }
 
-  /** Bildirilen bulgu: alıntı doğrulanır, öğe kutuyla işaretlenip kanıt alınır, sorun kaydına işlenir. */
+  /** Yükleme sürerken bildirilip geri çevrilen adayların anahtarları (ikinci bildirim yargıca gider). */
+  private readonly busyRefused = new Set<string>()
+
+  /**
+   * Bildirilen bulgu: önce ekranın yüklenmesi beklenir; alıntı doğrulanır, öğe kutuyla işaretlenip kanıt alınır, sorun
+   * kaydına işlenir. Ekran beklemeye rağmen yükleniyorsa aday bir kez geri çevrilir (yargıç çağrılmaz): yargıç
+   * reddinin üçte biri "sayfa hâlâ yükleniyordu" idi (KOS-2026-0061). Aynı aday yeniden bildirilirse yargıca gider
+   * (bitmeyen yükleme gerçek bir bulgu olabilir).
+   */
   private async report(input: unknown): Promise<string> {
     const { hooks } = this.input
     const key = this.normalizeKey(field(input, 'anahtar'))
+    const idle = await this.input.session.waitUntilIdle(BUSY_WAIT_MS)
+    if (!idle && !this.busyRefused.has(key)) {
+      this.busyRefused.add(key)
+      return 'Ekran hâlâ yükleniyor (yükleme göstergesi görünüyor); bulgu kaydedilmedi. Yüklenince yeniden bak; sorun sürüyorsa yeniden bildir.'
+    }
     const quote = field(input, 'alinti').trim()
     let verified = true
     if (quote) {

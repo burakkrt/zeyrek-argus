@@ -1,15 +1,16 @@
 <script lang="ts">
-  import type { RunCoverage, RunStrategy } from '@argus/shared'
-  import { SCOPE_LABELS } from '@argus/shared'
+  import type { RunInfo } from '@argus/shared'
   import { tick } from 'svelte'
   import Icon from '$lib/components/Icon.svelte'
   import { SEVERITY } from '$lib/format'
-  import { actionOf, COVERAGE_STATUS, pageLabel, type MonitorFinding, type MonitorStep } from '$lib/monitor'
+  import { actionOf, pageLabel, type MonitorFinding, type MonitorStep } from '$lib/monitor'
   import type { PlanRow } from '$lib/run-plan'
   import { cn } from '$lib/utils'
 
   /**
-   * Sağ panel: koşunun tek ağacı (kutu yok). Üstte sabit plan özeti; "Plan nasıl kuruldu" çekmecede açılır (PlanDetail).
+   * Sağ panel: yalnız vakalar (plan bir önceki adımda, Plan sayfasında okunur). Üstte sabit kısa sayım: biten vaka ve
+   * bulgu türleri. Vaka durumu oynatılan andadır (Monitor verir); durmuş koşuda bitmeyen vaka "Durduruldu" ya da "Yarıda
+   * kaldı" yazar. Tıklanabilen vaka (başlamış olan) üzerine gelince açık gri zemin alır.
    * Ağaç tektir: gövde Vaka 1'den başlar ve vakaları sırayla bağlayarak son vakaya iner; her vaka gövdeden çıkan bir dal
    * (numara, başlık, beklenen sonuç), altındaki dallar çalışan adım ("şu an") ve bulgulardır (şüpheler dahil, tek liste,
    * hepsi her zaman açık). Bulgu iki satırdır: üstte işaret, renkli tür ve önem, altında başlığın tamamı; türlere göre
@@ -22,16 +23,14 @@
     numbers,
     findings,
     steps,
-    strategy,
-    coverage,
     running,
+    halt,
     active,
     currentStep,
     offset,
     onjump,
     onstep,
     onfinding,
-    onplan,
     recent,
   }: {
     rows: PlanRow[]
@@ -39,9 +38,9 @@
     numbers: Map<string, number>
     findings: MonitorFinding[]
     steps: MonitorStep[]
-    strategy: RunStrategy | null
-    coverage: RunCoverage | null
     running: boolean
+    /** Oynatılan anda koşu duruyorsa nedeni (durduruldu, hata, bitti); sürüyorsa null. */
+    halt: RunInfo['status'] | null
     /** O an koşan vakaların anahtarları (paralelde birden çok; ilki en önce başlayan). */
     active: string[]
     /** O anki adımın sırası. */
@@ -51,8 +50,6 @@
     onjump: (at: number) => void
     onstep: (at: number) => void
     onfinding: (index: number) => void
-    /** "Plan nasıl kuruldu": planın ayrıntısı çekmecede açılır. */
-    onplan: () => void
     /** Az önce bulunan bulgu: satırı kısa bir vurguyla parlar. */
     recent: number | null
   } = $props()
@@ -64,7 +61,8 @@
     tutarsizlik: { label: 'Tutarsızlık', text: 'text-[#b7700c]', mark: 'rotate-45 scale-[.85] bg-[#d68a14]' },
     not: { label: 'Şüphe', text: 'text-[#667085]', mark: 'rounded-full border-[1.5px] border-[#667085]' },
   } as const
-  const STATUS = { suruyor: 'Sürüyor', bitti: 'Bitti', bekliyor: 'Bekliyor' } as const
+  const status = (s: PlanRow['status']) =>
+    s === 'yarida' ? (halt === 'durduruldu' ? 'Durduruldu' : 'Yarıda kaldı') : { suruyor: 'Sürüyor', bitti: 'Bitti', bekliyor: 'Bekliyor' }[s]
 
   let list = $state<HTMLElement | null>(null)
 
@@ -107,25 +105,11 @@
 </script>
 
 <div bind:this={list} class="min-h-0 flex-1 overflow-y-auto">
-  <!-- Plan: üstte sabit, kısa; ayrıntı pencerede -->
-  <section class="sticky top-0 z-10 border-b bg-white px-3 py-2.5">
-    <div class="flex items-center gap-2">
-      <span class="text-[11px] font-bold tracking-[.08em] text-zinc-500 uppercase">Plan</span>
-      {#if strategy}<span class="text-[11.5px] text-zinc-500">{SCOPE_LABELS[strategy.scope]}</span>{/if}
-      {#if coverage}<span class="text-[11.5px] text-zinc-400"
-          >· kapsam {COVERAGE_STATUS[coverage.status].label.toLocaleLowerCase('tr')}</span
-        >{/if}
-      <button
-        type="button"
-        class="ml-auto text-[12px] font-medium text-[#1d3fc4] hover:underline"
-        onclick={onplan}>Plan nasıl kuruldu</button
-      >
-    </div>
-    {#if strategy}<p class="mt-1 line-clamp-2 text-[13px] leading-[18px] text-zinc-900">
-        {strategy.understood}
-      </p>{/if}
-    <p class="mt-1 text-[12px] text-zinc-500 tabular-nums">
-      <b class="font-semibold text-zinc-800">{done}/{rows.length}</b> vaka bitti{#each totals as [kind, n] (kind)}{#if n}
+  <!-- Üstte sabit kısa sayım: biten vaka ve bulgu türleri. -->
+  <section class="sticky top-0 z-10 flex items-baseline gap-2 border-b bg-white px-3 py-2.5">
+    <span class="text-[11px] font-bold tracking-[.08em] text-zinc-500 uppercase">Vakalar</span>
+    <p class="text-[12px] text-zinc-500 tabular-nums">
+      <b class="font-semibold text-zinc-800">{done}/{rows.length}</b> bitti{#each totals as [kind, n] (kind)}{#if n}
           · <b class={cn('font-semibold', KIND[kind].text)}>{n}</b>
           {KIND[kind].label.toLocaleLowerCase('tr')}{/if}{/each}
     </p>
@@ -144,7 +128,7 @@
       <li data-case={row.key} class={cn('case', isActive && 'live')}>
         <button
           type="button"
-          class="head grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-1.5 text-left"
+          class="head -mx-1.5 grid w-[calc(100%+12px)] grid-cols-[minmax(0,1fr)_auto] gap-x-3 rounded-md px-1.5 py-1.5 text-left transition-colors enabled:cursor-pointer enabled:hover:bg-[#f2f4f7] disabled:cursor-default"
           disabled={row.at === null}
           onclick={() => row.at !== null && onjump(row.at)}
         >
@@ -174,8 +158,12 @@
                 ><Icon name="check" class="size-3.5" />Sorunsuz</span
               >
             {:else}
-              <span class={row.status === 'suruyor' ? 'font-medium text-[#2b59ff]' : 'text-zinc-400'}
-                >{STATUS[row.status]}</span
+              <span
+                class={row.status === 'suruyor'
+                  ? 'font-medium text-[#2b59ff]'
+                  : row.status === 'yarida'
+                    ? 'font-medium text-[#b54708]'
+                    : 'text-zinc-400'}>{status(row.status)}</span
               >
             {/if}
             <span class="text-zinc-400 tabular-nums">{row.at !== null ? clock(row.at) : ''}</span>

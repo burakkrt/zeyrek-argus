@@ -45,10 +45,14 @@ export const KNOWN_MODELS = Object.keys(PRICES)
 export class UsageMeter {
   readonly usage: Usage
 
-  /** `initial`: koşunun önceki aşamasının kullanımı (plan onayından sonra planlamanın maliyeti eklenerek sürer). */
+  /**
+   * `initial`: koşunun önceki aşamasının kullanımı (plan onayından ya da devamdan sonra eklenerek sürer).
+   * `onAdd`: her model yanıtından sonra (koşu yöneticisi kullanımı kaydedip ekrana yayar; canlı maliyet).
+   */
   constructor(
     private readonly provider: ModelProvider = 'api',
     initial?: Usage,
+    private readonly onAdd?: () => void,
   ) {
     this.usage =
       initial && initial.provider === provider
@@ -84,11 +88,9 @@ export class UsageMeter {
       entry.costUsd =
         cost === null || entry.costUsd === null ? null : Math.round((entry.costUsd + cost) * 10_000) / 10_000
     }
-    if (cost === null || this.usage.costUsd === null) {
-      this.usage.costUsd = null
-      return
-    }
-    this.usage.costUsd = Math.round((this.usage.costUsd + cost) * 10_000) / 10_000
+    if (cost === null || this.usage.costUsd === null) this.usage.costUsd = null
+    else this.usage.costUsd = Math.round((this.usage.costUsd + cost) * 10_000) / 10_000
+    this.onAdd?.()
   }
 }
 

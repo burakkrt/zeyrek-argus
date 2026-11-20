@@ -70,17 +70,41 @@ describe('plan adımı', () => {
     // Taslakta koşu sırada bekler, tarayıcı açılmaz, bitmez.
     expect(getRun(h.ctx.db, run.id)!.status).toBe('sirada')
     expect(getPlan(h.ctx.db, run.id).plan!.items.map((i) => i.title)).toEqual(['Liste toplamı'])
+    expect(getPlan(h.ctx.db, run.id).base!.items.map((i) => i.title)).toEqual(['Liste toplamı'])
+    expect(getPlan(h.ctx.db, run.id).previous).toBeNull()
 
+    // Elle düzenleme Argus'un yazdığı hâli değiştirmez; düzenletmede bırakılır, planlayıcıya Argus'un hâli gider.
+    const first = getPlan(h.ctx.db, run.id).plan!
+    h.ctx.runs.updatePlan(run.id, { ...first, items: first.items.map((i) => ({ ...i, title: 'Elle değiştirilen' })) })
+    expect(getPlan(h.ctx.db, run.id).plan!.items.map((i) => i.title)).toEqual(['Elle değiştirilen'])
+    expect(getPlan(h.ctx.db, run.id).base!.items.map((i) => i.title)).toEqual(['Liste toplamı'])
     h.ctx.runs.revisePlan(run.id, 'Arama kutusunu da dene')
+    expect(getPlan(h.ctx.db, run.id).plan!.items.map((i) => i.title)).toEqual(['Liste toplamı'])
+    expect(getPlan(h.ctx.db, run.id).previous!.items.map((i) => i.title)).toEqual(['Liste toplamı'])
+    // Plan hazırlığında "İsteğin" son düzenleme isteğini gösterir; plan yeniden taslak olunca istek düşer.
+    expect(getRun(h.ctx.db, run.id)!.planRequest).toBe('Arama kutusunu da dene')
     await new Promise((r) => setTimeout(r, 50))
     await planned(run.id)
+    expect(getRun(h.ctx.db, run.id)!.planRequest).toBeNull()
     expect(revisions).toBe(1)
     const draft = getPlan(h.ctx.db, run.id).plan as RunStrategy
     expect(draft.items.map((i) => i.title)).toEqual(['Liste toplamı ve arama'])
+    expect(getPlan(h.ctx.db, run.id).base!.items.map((i) => i.title)).toEqual(['Liste toplamı ve arama'])
+    expect(getPlan(h.ctx.db, run.id).previous!.items.map((i) => i.title)).toEqual(['Liste toplamı'])
+    const revisionCalls = h.calls.map((c) => JSON.stringify(c.messages)).filter((m) => m.includes('KULLANICININ DÜZENLEME İSTEĞİ'))
+    expect(revisionCalls.length).toBeGreaterThan(0)
+    expect(revisionCalls.some((m) => m.includes('Elle değiştirilen'))).toBe(false)
 
     // Elle düzenlenip onaylanan plan koşar; planlayıcı yeniden çağrılmaz.
     const before = strategyCalls()
-    const edited = { ...draft, items: draft.items.map((i) => ({ ...i, title: 'Elle düzeltilmiş vaka' })) }
+    // İşareti kaldırılan vaka koşmaz.
+    const edited = {
+      ...draft,
+      items: [
+        ...draft.items.map((i) => ({ ...i, title: 'Elle düzeltilmiş vaka' })),
+        { ...draft.items[0]!, title: 'Koşudan çıkarılan vaka', excluded: true },
+      ],
+    }
     h.ctx.runs.approvePlan(run.id, edited)
     const done = await h.waitFor(run.id)
     expect(done.status).toBe('bitti')
@@ -101,6 +125,8 @@ describe('plan adımı', () => {
     await planned(run.id)
     const draft = getPlan(h.ctx.db, run.id).plan!
     expect(() => h.ctx.runs.approvePlan(run.id, { ...draft, items: [] })).toThrow('Planda en az bir vaka olmalı.')
+    const allExcluded = { ...draft, items: draft.items.map((i) => ({ ...i, excluded: true })) }
+    expect(() => h.ctx.runs.approvePlan(run.id, allExcluded)).toThrow('Planda en az bir vaka olmalı.')
     h.ctx.runs.stop(run.id)
     expect(getRun(h.ctx.db, run.id)!.status).toBe('durduruldu')
   }, 60_000)

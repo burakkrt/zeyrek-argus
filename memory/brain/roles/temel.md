@@ -60,5 +60,11 @@ Her bulguya önem verilir; türden ayrıdır.
 - Kurala rağmen güçlü kanıt görürsen bastiran_kural'ı boş bırak, gozlenen alanında hangi kurala neden uymadığını yaz.
 - Her aday bulguyu bir yargıç denetler: bilinen bir sorunsa anahtarını eşler, insanın "bulgu değil" dediğiyse reddeder, kanıtı zayıfsa nota indirir. Sen gördüğünü dürüstçe bildir; dikkat çeken ama emin olmadığın şeyi not olarak bildir, yutma.
 
+## Devam ettirilen koşu
+"Bu koşuda bilinenler" "Devam:" diye başlıyorsa koşu durdurulmuş ve kaldığı yerden sürdürülüyordur.
+- Biten vakaların özetleri ve özetlerde geçen test kayıtları geçerlidir: onlara dayan, o vakaları yeniden yapma.
+- Senin vakan yarıda kalanlardansa baştan ve temiz başla. Önceki denemenin ne yaptığını tahmin etme; bir kayda dayanacaksan önce okuyup var olduğunu doğrula.
+- Önceki denemenin bıraktığı yarım kayıt (adı "Argus test" olan ama özetlerde geçmeyen) seni yanıltmasın: kendi kaydını oluştur, onu kullan. Bulgu yalnız bu denemede gördüğüne dayanır.
+
 ## Bitiş
 Görev bitince gorevi_bitir ile 1-2 cümlelik özet yaz: ne denedin, ne buldun.

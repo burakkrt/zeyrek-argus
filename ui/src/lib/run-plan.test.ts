@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MonitorModel } from './monitor'
-import { planRows } from './run-plan'
+import { planRows, statusAt } from './run-plan'
 
 const finding = (
   page: string,
@@ -27,9 +27,9 @@ const model = {
       page: '@tanimlar',
       status: 'suruyor' as const,
       tasks: [
-        { index: 0, title: 'Ana akış', status: 'bitti' as const, at: 10 },
-        { index: 1, title: 'Yetki', status: 'suruyor' as const, at: 12 },
-        { index: 2, title: 'Temizlik', status: 'bekliyor' as const, at: null },
+        { index: 0, title: 'Ana akış', status: 'bitti' as const, at: 10, doneAt: 11 },
+        { index: 1, title: 'Yetki', status: 'suruyor' as const, at: 12, doneAt: null },
+        { index: 2, title: 'Temizlik', status: 'bekliyor' as const, at: null, doneAt: null },
       ],
     },
   ],
@@ -66,5 +66,20 @@ describe('planRows', () => {
       } as unknown as MonitorModel['strategy'],
     })
     expect(rows[1]!.expected).toBe('403 dönmeli')
+  })
+})
+
+describe('vakanın oynatılan andaki durumu', () => {
+  const row = { at: 100, doneAt: 200 }
+  it('başlamadan bekliyor, başladıktan sonra sürüyor, bittikten sonra bitti', () => {
+    expect(statusAt(row, 50, null)).toBe('bekliyor')
+    expect(statusAt(row, 150, null)).toBe('suruyor')
+    expect(statusAt(row, 250, null)).toBe('bitti')
+  })
+  it('koşu o anda durmuşsa bitmeyen vaka sürüyor değil yarıda; geri sarınca yine sürüyor görünür', () => {
+    const open = { at: 100, doneAt: null }
+    expect(statusAt(open, 300, 'durduruldu')).toBe('yarida')
+    expect(statusAt(open, 300, 'hata')).toBe('yarida')
+    expect(statusAt(open, 150, null)).toBe('suruyor')
   })
 })

@@ -26,6 +26,7 @@ const run = (over: Partial<RunInfo>): RunInfo => ({
   closedAt: null,
   closedBy: null,
   planState: null,
+  planRequest: null,
   continuations: [],
   ...over,
 })

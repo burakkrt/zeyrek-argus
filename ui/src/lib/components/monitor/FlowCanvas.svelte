@@ -576,9 +576,10 @@
         title="Kamerayı yeniden akışın ucuna bağla"
         class="flex h-8 items-center gap-1.5 rounded-lg bg-[#0c66e4] px-3 text-[12.5px] font-semibold text-white shadow-[0_4px_14px_rgb(12_102_228/0.45)] transition-colors hover:bg-[#0055cc]"
       >
-        <Icon name="mediaZoom" class="size-4" />Akışa dön
+        <Icon name="lastPage" class="size-4" />Akışa dön
       </button>
     {/if}
+    <!-- Yakınlık: yüzde hep tek ve günceldir; %100'den farklıysa artı düğmesinin yanında simgeli sıfırla düğmesi çıkar. -->
     <div
       class="flex h-8 items-center overflow-hidden rounded-lg bg-[#1c2230] text-[#aab3c2] shadow-[0_4px_14px_rgb(0_0_0/0.35)] ring-1 ring-[#3a4456]"
     >
@@ -590,15 +591,9 @@
       >
         <Icon name="remove" class="size-4" />
       </button>
-      <span class="w-11 text-center text-[11px] tabular-nums">{Math.round(cam.s * 100)}%</span>
-      {#if Math.abs(cam.s - FOCUS) > 0.01}
-        <button
-          type="button"
-          class="border-l border-[#262d3a] px-2.5 py-1.5 text-[12px] hover:bg-white/5"
-          onclick={resetZoom}
-          title="Yakınlığı %100'e döndür">%100</button
-        >
-      {/if}
+      <span class="w-12 text-center text-[12px] text-[#d5dbe5] tabular-nums" aria-label="Yakınlık" aria-live="polite"
+        >%{Math.round(cam.s * 100)}</span
+      >
       <button
         type="button"
         class="px-2.5 py-1.5 hover:bg-white/5"
@@ -607,6 +602,17 @@
       >
         <Icon name="add" class="size-4" />
       </button>
+      {#if Math.abs(cam.s - FOCUS) > 0.01}
+        <button
+          type="button"
+          class="border-l border-[#262d3a] px-2.5 py-1.5 hover:bg-white/5"
+          onclick={resetZoom}
+          aria-label="Yakınlığı sıfırla"
+          title="Yakınlığı %100'e döndür"
+        >
+          <Icon name="refresh" class="size-4" />
+        </button>
+      {/if}
     </div>
   </div>
 </div>

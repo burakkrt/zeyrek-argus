@@ -8,10 +8,9 @@
   import { notify } from '$lib/notify.svelte'
   import { go } from '$lib/router.svelte'
   import FindingDetail from '$lib/components/monitor/FindingDetail.svelte'
-  import PlanDetail from '$lib/components/monitor/PlanDetail.svelte'
   import FindingToast from '$lib/components/monitor/FindingToast.svelte'
   import StoryPanel from '$lib/components/monitor/StoryPanel.svelte'
-  import { planRows } from '$lib/run-plan'
+  import { planRows, statusAt } from '$lib/run-plan'
   import PlayerBar from '$lib/components/monitor/PlayerBar.svelte'
   import FlowCanvas from '$lib/components/monitor/FlowCanvas.svelte'
   import { cn } from '$lib/utils'
@@ -22,7 +21,7 @@
   import * as Card from '$lib/components/ui/card/index.js'
   import { Input } from '$lib/components/ui/input/index.js'
   import { api, fileUrl, post } from '$lib/api'
-  import { formatCost, formatDuration, KIND } from '$lib/format'
+  import { costHint, formatCost, formatDuration, KIND } from '$lib/format'
   import {
     ACTION_ICON,
     actionOf,
@@ -32,6 +31,7 @@
     findingIndexAt,
     formatClock,
     frameIndexAt,
+    haltAt,
     pointerAt,
     stepIndexAt,
     TRAVEL_MS,
@@ -73,7 +73,6 @@
   let autoZoom = $state(false)
   let pauseAt: number | null = null
   let selected = $state<number | null>(null)
-  let planOpen = $state(false)
   let detail = $state<IssueDetail | null>(null)
   let detailFailed = $state(false)
   let now = $state(Date.now())
@@ -307,7 +306,11 @@
   }
 
   // Sağ panel: koşunun anlatısı (plan özeti + hep açık vakalar). Vaka numarası koşu genelindedir; tuvaldeki etiketle aynı.
-  const plan = $derived(planRows(model))
+  // Sağ paneldeki vakaların durumu oynatılan andadır: geri sarınca akış o anki hâliyle görünür, durmuş koşunun sonunda
+  // bitmeyen vaka "sürüyor" değil "yarıda" yazar.
+  const playedAt = $derived(clock.toWall(position))
+  const halt = $derived(haltAt(model, playedAt, current?.status ?? null))
+  const plan = $derived(planRows(model).map((row) => ({ ...row, status: statusAt(row, playedAt, halt) })))
   const caseNumbers = $derived(new Map(plan.map((row, i) => [row.key, i + 1])))
   /**
    * Bulgunun anı: oynatma bir bulgunun anına gelince (canlıda ya da kayıtta) TOAST_MS boyunca duyuru kartı çıkar, sağ
@@ -334,6 +337,7 @@
   const activeCase = $derived(step && step.task !== null ? `${step.page}#${step.task}` : null)
   // Koşan vakalar: platform akışında bitmemiş bütün hatlar (paralel vakalar birlikte), yoksa o anki adımın vakası.
   const activeCases = $derived.by(() => {
+    if (halt) return []
     const open = platformFlow?.lanes.filter((l) => !l.done).map((l) => `${step!.page}#${l.key}`) ?? []
     return open.length ? open : activeCase ? [activeCase] : []
   })
@@ -384,7 +388,6 @@
   function openFinding(index: number, seek = false) {
     const finding = model.findings[index]
     if (!finding) return
-    planOpen = false
     if (selected !== index) {
       detail = null
       detailFailed = false
@@ -408,10 +411,14 @@
     openFinding(Math.min(Math.max(base < 0 && delta > 0 ? 0 : base + delta, 0), total - 1), true)
   }
 
-  /** Sıradaki adım: biten koşunun değerlendirmesi (devam koşusunda ana koşununki); koşu sürerken nedeni söylenir. */
+  /**
+   * Sıradaki adım: biten ya da durdurulan koşunun değerlendirmesi (devam koşusunda ana koşununki); koşu sürerken nedeni
+   * söylenir. Bulgu yoksa değerlendirilecek bir şey yoktur: sıradaki adım kapanıştır.
+   */
+  const nextLabel = $derived(model.findings.length || running ? 'Sıradaki: Değerlendirme' : 'Sıradaki: Kapanış')
   function nextStep() {
     if (!current || current.status === 'sirada' || current.status === 'calisiyor')
-      return notify.error('Değerlendirme henüz açılmadı', 'Koşu bitince bulgular değerlendirilir.')
+      return notify.error('Değerlendirme henüz açılmadı', 'Koşu bitince ya da durdurulunca bulgular değerlendirilir.')
     go(`/onay/${current.options.parentRunId ?? runId}`)
   }
 
@@ -485,6 +492,25 @@
     }
   }
 
+  // Devam et: durdurulan ya da yarıda kalan koşu aynı koşu olarak kaldığı yerden sürer (biten vakalar yeniden yürümez).
+  const canResume = $derived(
+    !!current && !running && (current.status === 'hata' || current.status === 'durduruldu') && !current.closedAt,
+  )
+  let resuming = $state(false)
+  /** Üst şeritteki Durdur / Devam et: yanındaki durum etiketiyle aynı ölçekte (24 px, 12 px yazı). */
+  const STRIP_BUTTON = 'h-6 gap-1 rounded-md px-2.5 text-[12px]'
+  async function resume() {
+    resuming = true
+    try {
+      await post<RunInfo>(`/kosular/${runId}/devam`)
+      goLive()
+    } catch (e) {
+      notify.error('Koşu devam ettirilemedi', e instanceof Error ? e.message : String(e))
+    } finally {
+      resuming = false
+    }
+  }
+
   // Durdurma süren model çağrısını beklemez; yanıt gelene dek düğme basıldığını gösterir.
   let stopping = $state(false)
   async function stop() {
@@ -534,6 +560,8 @@
       // Planı onaylanmamış koşu henüz koşmuyor: izleme yerine Plan adımı açılır.
       if (info.planState && info.planState !== 'onaylandi') return go(`/plan/${runId}`)
       run = info
+      // Canlı akıştaki kopya eskiyse (kopukken kaçan güncelleme) sunucudan gelen güncel hâl geçerlidir.
+      live.runs[runId] = info
       pageName.current = info.code
       events = list
       frames = times.frames
@@ -570,6 +598,21 @@
     raf = requestAnimationFrame(tick)
   })
 
+  // Canlı akış yeniden bağlandı: kopukken kaçan olaylar sunucudan okunup eklenir (sıra numarasıyla, tekrarsız).
+  let seenEpoch = live.epoch
+  $effect(() => {
+    const epoch = live.epoch
+    if (epoch === seenEpoch || !ready) return
+    seenEpoch = epoch
+    void api<RunEvent[]>(`/kosular/${runId}/olaylar`)
+      .then((list) => {
+        const known = new Set(events.map((e) => e.seq))
+        const missed = list.filter((e) => !known.has(e.seq))
+        if (missed.length) events = [...events, ...missed].sort((a, b) => a.seq - b.seq)
+      })
+      .catch(() => undefined)
+  })
+
   onDestroy(() => {
     unsubscribe?.()
     cancelAnimationFrame(raf)
@@ -590,7 +633,7 @@
 <Page class="h-[calc(100svh-56px-69px)] gap-3 py-3">
   {#snippet subheader()}
     <RunSteps run={current} current="kosu">
-      {#snippet actions()}<Button onclick={nextStep}>Sıradaki: Değerlendirme</Button>{/snippet}
+      {#snippet actions()}<Button onclick={nextStep}>{nextLabel}</Button>{/snippet}
     </RunSteps>
   {/snippet}
 
@@ -616,13 +659,23 @@
           >{/if}
         <span class="text-muted-foreground/80 hidden shrink-0 font-mono text-[11px] xl:inline">1280×800</span>
         {#if current}
-          <span class="text-muted-foreground tabular hidden shrink-0 text-[12.5px] lg:inline"
-            >{elapsed} · {formatCost(current.usage)}</span
+          <span
+            class="text-muted-foreground tabular hidden shrink-0 text-[12.5px] lg:inline"
+            title={costHint(current.usage)}>{elapsed} · {formatCost(current.usage)}</span
           >
           <RunStatusBadge status={current.status} />
         {/if}
-        {#if running}<Button size="sm" variant="outline" disabled={stopping} onclick={stop}
-            >{stopping ? 'Durduruluyor…' : 'Durdur'}</Button
+        <!-- Durdur belirgin (kırmızı çerçeve); durunca yerinde "Devam et" (kaldığı yerden). -->
+        {#if running}<Button
+            size="xs"
+            variant="outline"
+            disabled={stopping}
+            onclick={stop}
+            class={cn(STRIP_BUTTON, 'border-[#fda29b] text-[#b42318] hover:bg-[#fef3f2] hover:text-[#912018]')}
+            ><Icon name="mediaPause" class="size-3.5" />{stopping ? 'Durduruluyor…' : 'Durdur'}</Button
+          >{/if}
+        {#if canResume}<Button size="xs" disabled={resuming} onclick={resume} class={STRIP_BUTTON}
+            ><Icon name="mediaPlay" class="size-3.5" />{resuming ? 'Başlatılıyor…' : 'Devam et'}</Button
           >{/if}
       </div>
 
@@ -727,19 +780,14 @@
         numbers={caseNumbers}
         findings={model.findings}
         steps={model.steps}
-        strategy={model.strategy}
-        coverage={model.coverage}
         {running}
+        {halt}
         active={activeCases}
         currentStep={step?.seq ?? null}
         offset={(at) => clock.toPlay(at)}
         onjump={onFlowTask}
         onstep={onFlowStep}
         onfinding={openFinding}
-        onplan={() => {
-          selected = null
-          planOpen = true
-        }}
         recent={recentFinding}
       />
       {#if running}
@@ -775,12 +823,4 @@
   failed={detailFailed}
   caseLabel={selectedCase}
   onclose={() => (selected = null)}
-/>
-<PlanDetail
-  open={planOpen}
-  rows={plan}
-  numbers={caseNumbers}
-  strategy={model.strategy}
-  coverage={model.coverage}
-  onclose={() => (planOpen = false)}
 />

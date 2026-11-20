@@ -32,6 +32,18 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
    geliştirebilmek.
 6. **Konuşma geçmişi düzenlenmez.** Görev konuşmaları yalnız eklenerek büyür; bağlamı sınırlamanın yolu görevleri
    kısa tutmaktır (önbellek ve düşünme blokları korunur).
+7. **`memory/` ve mimari değişikliği en kritik karardır.** `memory/brain/` (rol talimatları, test yöntemleri), modelin
+   bağlamına giren her bilgi, araç döngüsü ve koşunun yapısı değişmeden önce olası senaryolar tek tek düşünülür ve en
+   güvenli yol seçilir; kolay görünen yama seçilmez. Her önerinin değerlendirmesi şunları açıkça tartar:
+   - **Dayanıklılık:** platform ya da MCP araçları değişince de çalışır mı (sabit adlara, sürüme, yanıt biçimine
+     bağlanmaz; bilgi çalışma anında araçtan okunur).
+   - **Bağlam:** bağlama ne kadar girer, dolunca ne olur, sıkıştırmada (özet, kesme) ne kaybolur, model sapabilir mi.
+   - **Maliyet ve süre:** token maliyeti, önbellek isabeti, koşu süresi; iyileştirme bunlarla birlikte ölçülür.
+   - **Öğrenme:** Argus'un kendi kendine öğrenmesi buna göre nasıl gelişir; insan onayı gereken yerde onaysız
+     öğrenme yoktur (ilke 3).
+   Gerekirse güncel kaynaklar araştırılır (model bağlamı, uzun konuşma, araç kullanımı). Karar, gerekçesi ve elenen
+   seçeneklerle README'ye ya da ilgili modülün açıklamasına yazılır; kanıtı test ya da koşu ölçümüdür. Kullanıcı kararı
+   2026-11-20.
 
 ## Yapı
 
@@ -74,6 +86,11 @@ Bu depoda çalışan yapay zekâ ve geliştirici için bağlayıcı kurallar. Ne
   (`agent/page-controller.ts`) → gözetmen (`agent/supervisor.ts`); ortak araç döngüsü `agent/tool-loop.ts`. Sınır
   kapsamı daraltmak için konmaz; yalnız kaçağı (aynı işlemin tekrarı, ilerlemesizlik) durdurur.
 - `pnpm check` ve `pnpm test:e2e` yeşil olmadan iş bitmiş sayılmaz.
+- **Koşu sürerken `server/` ve `shared/` altında hiçbir dosya oluşturulmaz, değiştirilmez, silinmez.** `pnpm dev`
+  sunucuyu `node --watch` ile çalıştırır; Windows'ta bu klasörlerdeki her dosya değişikliği (geçici betik dahil) sunucuyu
+  yeniden başlatır ve süren koşu "Sunucu koşu sırasında kapandı" ile biter (KOS-2026-0061, 2026-11-20: silinen deneme
+  betiği). Geçici betik scratchpad'e yazılır; sunucu değişikliği koşu bitince uygulanır. Arayüz (`ui/`) değişikliği
+  koşuyu etkilemez. Uzun koşuda sunucu `pnpm start` ile (izlemesiz) çalıştırılabilir.
 - Sürümler tam sabitlenir; kullanılmayan bağımlılık eklenmez.
 - Commit'i insan atar.
 

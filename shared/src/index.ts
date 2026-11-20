@@ -89,6 +89,31 @@ export interface Usage {
   roles?: Partial<Record<ModelRole, { requests: number; costUsd: number | null; model: string }>>
   /** Koşunun model sağlayıcısı; abonelikte `costUsd` 0'dır (planın kullanım hakkından düşer). */
   provider?: ModelProvider
+  /** Abonelikte planın kullanım limitleri (koşu sürerken güncellenir); API anahtarında ve eski koşularda yok. */
+  plan?: RunPlanUsage | null
+}
+
+/** Abonelik limit penceresi: kullanılan yüzde (0–100) ve sıfırlanma anı. */
+export interface PlanWindow {
+  percent: number
+  resetsAt: string | null
+}
+
+/**
+ * Claude aboneliğinin kullanım limitleri, Claude'un kendi verisi (Agent SDK'nın her istekten sonra gönderdiği
+ * `rate_limit_event`; profildeki değerle aynı kaynak). Argus hesap bilgisine dokunmaz, hesaplamaz; limit değişirse veri
+ * de değişir.
+ */
+export interface PlanLimits {
+  fiveHour: PlanWindow | null
+  week: PlanWindow | null
+  /** Verinin alındığı an. */
+  at: string
+}
+
+/** Koşunun abonelik kullanımı: güncel limitler ve koşu başındaki haftalık yüzde (artış hesaptaki bütün kullanımı içerir). */
+export interface RunPlanUsage extends PlanLimits {
+  weekAtStart: number | null
 }
 
 /**
@@ -176,6 +201,8 @@ export interface RunInfo {
   closedBy: string | null
   /** Plan onayı istenen koşuda planın durumu; istenmeyende null. */
   planState: PlanState | null
+  /** Argus planı yeniden yazarken kullanıcının son düzenleme isteği (plan hazırlığında "İsteğin" bunu gösterir); başka durumda null. */
+  planRequest: string | null
   /** Ana koşunun devam koşuları (yönlendir ve sürdür), eskiden yeniye; devam koşusunda da ana koşununkiler. */
   continuations: Array<{ id: string; code: string; status: RunStatus }>
 }
@@ -218,6 +245,8 @@ export interface StrategyItem {
   fullScan: boolean
   /** Tanım kalemi kendi verisini kurup siliyor, başka kalemin sonucunu kullanmıyor: paralel yürüyebilir. */
   independent: boolean
+  /** İnsan Plan adımında vakanın işaretini kaldırdı: taslakta durur, onaylanan plana girmez. */
+  excluded?: boolean
 }
 
 /**
@@ -287,7 +316,8 @@ export type RunEventBody =
   | { type: 'kapsam'; coverage: RunCoverage }
   | { type: 'kosu-bitti'; status: RunStatus; usage: Usage; error?: string }
   | { type: 'sayfa-basladi'; url: string }
-  | { type: 'sayfa-bitti'; summary: string }
+  /** `interrupted`: sayfa durdurma ya da hatayla yarıda kaldı; koşu devam ettirilince yeniden yürür. */
+  | { type: 'sayfa-bitti'; summary: string; interrupted?: boolean }
   | {
       type: 'arastirma'
       tooltips: number
@@ -298,7 +328,8 @@ export type RunEventBody =
     }
   | { type: 'plan'; summary: string; tasks: Array<{ title: string; goal: string }> }
   | { type: 'gorev-basladi'; index: number; title: string }
-  | { type: 'gorev-bitti'; index: number; summary: string }
+  /** `interrupted`: görev durdurma ya da hatayla yarıda kaldı (özeti sonuç değildir); devamda baştan yürür. */
+  | { type: 'gorev-bitti'; index: number; summary: string; interrupted?: boolean }
   | {
       type: 'adim'
       /** Adımın görevi (paralel tanım kalemlerinde); yoksa sayfanın son başlayan görevi. */

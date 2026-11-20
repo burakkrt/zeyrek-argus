@@ -38,3 +38,19 @@ describe('biçim', () => {
     expect(formatDuration(null, null)).toBe('—')
   })
 })
+
+describe('koşunun maliyeti', () => {
+  const base = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, requests: 1 }
+  const plan = (percent: number, weekAtStart: number | null) => ({
+    ...base,
+    costUsd: 0,
+    provider: 'abonelik' as const,
+    plan: { week: { percent, resetsAt: null }, fiveHour: null, at: '2026-11-20T12:00:00Z', weekAtStart },
+  })
+  it('API anahtarında dolar; abonelikte koşunun haftalık limitten tükettiği; veri yoksa Abonelik', () => {
+    expect(formatCost({ ...base, costUsd: 1.5, provider: 'api' })).toBe(formatMoney(1.5))
+    expect(formatCost(plan(87.4, 84))).toBe('Haftalık limitten %3')
+    expect(formatCost(plan(87, null))).toBe('Abonelik')
+    expect(formatCost({ ...base, costUsd: 0, provider: 'abonelik' })).toBe('Abonelik')
+  })
+})

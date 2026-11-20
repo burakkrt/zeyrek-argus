@@ -8,9 +8,9 @@
 
   /**
    * Bildirimler: sayfa başlığının hemen altında, sağda (eylem düğmelerinin altı) üst üste en çok üç kart.
-   * - Görünüm: simgesiz kart; ton yalnız zeminin çok hafif renginde ve onunla uyumlu kenarda (başarı yeşil, bilgi
-   *   mavi, uyarı amber, hata kırmızı; açık sayfa zemininden ayrılsın diye beyaz değil). Başlık 14/600 koyu (#101828),
-   *   açıklama 13/19 ikincil (#475467); sağda kapat. Alttaki geri sayım çizgisi nötr gridir.
+   * - Görünüm: beyaz, nötr kenarlı, belirgin gölgeli kurumsal kart; simge yok. Ton yalnız başlığın önündeki küçük
+   *   noktada ve başlığın üstündeki ton etiketinde (Başarılı · Bilgi · Uyarı · Hata; yeşil, mavi, amber, kırmızı).
+   *   Başlık 14/600 koyu (#101828), açıklama 13/20 ikincil (#475467); sağda kapat. Alttaki geri sayım çizgisi nötr gridir.
    * - Sayfa değişince hepsi kapanır (`App.svelte` → `notify.clear()`).
    * - Hareket: sağ kenardan kayarak girer, sağa kayarak çıkar; diğer kartlar yerlerine yumuşakça kayar (flip).
    *   Aynı bildirim tekrar gelirse kart yerinde kalır (yeniden çizilmez, sıçramaz): "×n" artar, kısa bir vurgu yapar,
@@ -18,11 +18,11 @@
    * - Üzerine gelince sayaç durur, ayrılınca kalan süreden sürer. Hata ve uyarı ekran okuyucuya hemen (`alert`),
    *   diğerleri sırası gelince (`status`) okunur.
    */
-  const TONES: Record<NoticeTone, { label: string; bg: string; border: string }> = {
-    success: { label: 'Başarılı', bg: '#F3FAF6', border: '#C9E7D6' },
-    info: { label: 'Bilgi', bg: '#F3F7FD', border: '#CCDDF5' },
-    warning: { label: 'Uyarı', bg: '#FFFAF0', border: '#F4DDB0' },
-    error: { label: 'Hata', bg: '#FEF6F5', border: '#F5CFCB' },
+  const TONES: Record<NoticeTone, { label: string; dot: string; text: string }> = {
+    success: { label: 'Başarılı', dot: '#17B26A', text: '#067647' },
+    info: { label: 'Bilgi', dot: '#2E90FA', text: '#175CD3' },
+    warning: { label: 'Uyarı', dot: '#F79009', text: '#B54708' },
+    error: { label: 'Hata', dot: '#F04438', text: '#B42318' },
   }
 
   /** Kartın sayacı: başlar, üzerine gelince durur, kalan süreden sürer; aynı bildirim tekrar gelince baştan başlar. */
@@ -69,8 +69,7 @@
     <div
       role={notice.tone === 'error' || notice.tone === 'warning' ? 'alert' : 'status'}
       aria-label={tone.label}
-      class="group pointer-events-auto relative grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 overflow-hidden rounded-[10px] border py-3 pr-3 pl-4 shadow-[0_12px_32px_-12px_rgba(16,24,40,0.28),0_2px_6px_rgba(16,24,40,0.06)]"
-      style="background: {tone.bg}; border-color: {tone.border}"
+      class="group pointer-events-auto relative grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 overflow-hidden rounded-xl border border-[#e4e7ec] bg-white py-3.5 pr-3 pl-4 shadow-[0_16px_40px_-14px_rgba(16,24,40,0.30),0_4px_10px_-4px_rgba(16,24,40,0.08)]"
       in:fly={{ x: 40, duration: 260, easing: cubicOut }}
       out:fly={{ x: 40, duration: 200, easing: cubicOut }}
       animate:flip={{ duration: 220, easing: cubicOut }}
@@ -79,10 +78,13 @@
       {#key notice.key}
         {#if notice.count > 1}<span
             class="notice-bump absolute inset-0 rounded-[inherit]"
-            style="--bump: {tone.border}"
+            style="--bump: {tone.dot}"
           ></span>{/if}
       {/key}
-      <div class="relative flex min-w-0 flex-col gap-0.5 text-left">
+      <div class="relative flex min-w-0 flex-col gap-1 text-left">
+        <p class="flex items-center gap-1.5 text-[11.5px] leading-4 font-semibold tracking-[0.02em]" style="color: {tone.text}">
+          <span class="size-1.5 shrink-0 rounded-full" style="background: {tone.dot}"></span>{tone.label}
+        </p>
         <p class="flex items-baseline gap-2 text-sm leading-5 font-semibold text-[#101828]">
           {notice.title}
           {#if notice.count > 1}
@@ -90,7 +92,7 @@
           {/if}
         </p>
         {#if notice.message}
-          <p class="text-[13px] leading-[19px] break-words text-[#475467]">{notice.message}</p>
+          <p class="text-[13px] leading-5 break-words text-[#475467]">{notice.message}</p>
         {/if}
       </div>
       <button

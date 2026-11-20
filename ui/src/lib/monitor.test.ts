@@ -11,6 +11,7 @@ import {
   buildMonitor,
   formatClock,
   frameIndexAt,
+  haltAt,
   pageLabel,
   prettyJson,
   pointerAt,
@@ -199,6 +200,44 @@ describe('monitör modeli', () => {
       { title: 'Temizlik', status: 'bekliyor', at: null },
     ])
     expect(model.pages[0]!.tasks[0]!.at).not.toBeNull()
+  })
+})
+
+describe('durdurma ve devam', () => {
+  it('durdurulan koşuda bitmeyen vaka yarıda kalır; devamda yeniden sürer ve biter; duruş anı oynatmada bilinir', () => {
+    const D = DEFINITION_PAGE
+    const events = [
+      ev(null, { type: 'kosu-basladi', pages: [] }),
+      ev(D, { type: 'plan', summary: '', tasks: [{ title: 'A', goal: '' }, { title: 'B', goal: '' }] }),
+      ev(D, { type: 'gorev-basladi', index: 0, title: 'A' }),
+      ev(D, { type: 'gorev-bitti', index: 0, summary: 'A tamam' }),
+      ev(D, { type: 'gorev-basladi', index: 1, title: 'B' }),
+      ev(null, { type: 'kosu-bitti', status: 'durduruldu', usage: {} as never }),
+    ]
+    const stopped = buildMonitor(events)
+    expect(stopped.pages[0]!.tasks.map((t) => t.status)).toEqual(['bitti', 'yarida'])
+    const stopAt = Date.parse(events.at(-1)!.at)
+    expect(haltAt(stopped, stopAt + 10, 'durduruldu')).toBe('durduruldu')
+    expect(haltAt(stopped, stopAt - 10, 'durduruldu')).toBeNull()
+    const resumed = buildMonitor([
+      ...events,
+      ev(null, { type: 'kosu-basladi', pages: [] }),
+      ev(D, { type: 'plan', summary: '', tasks: [{ title: 'A', goal: '' }, { title: 'B', goal: '' }] }),
+      ev(D, { type: 'gorev-basladi', index: 1, title: 'B' }),
+    ])
+    expect(resumed.pages[0]!.tasks.map((t) => t.status)).toEqual(['bitti', 'suruyor'])
+    expect(haltAt(resumed, Date.parse(new Date(clock).toISOString()), 'calisiyor')).toBeNull()
+    // Yarıda işaretli görev bitişi vakayı bitirmez.
+    const cut = buildMonitor([...events.slice(0, 5), ev(D, { type: 'gorev-bitti', index: 1, summary: 'Yarım', interrupted: true })])
+    expect(cut.pages[0]!.tasks[1]!.status).toBe('yarida')
+    expect(cut.pages[0]!.tasks[1]!.doneAt).toBeNull()
+  })
+
+  it('sunucu kapanınca duruş olayı yoktur: koşu bitmişse son olaydan sonrası duruş sayılır', () => {
+    const events = [ev(null, { type: 'kosu-basladi', pages: [] }), ev(DEFINITION_PAGE, { type: 'gorev-basladi', index: 0, title: 'A' })]
+    const model = buildMonitor(events)
+    expect(haltAt(model, model.end!, 'hata')).toBe('hata')
+    expect(haltAt(model, model.end!, 'calisiyor')).toBeNull()
   })
 })
 

@@ -4,6 +4,7 @@ import {
   type PlatformRead,
   type RunCoverage,
   type RunEvent,
+  type RunInfo,
   type RunStrategy,
   type StepTarget,
 } from '@argus/shared'
@@ -18,7 +19,8 @@ import { plainCall } from './platform-steps'
  */
 
 export type FindingEvent = Extract<RunEvent, { type: 'bulgu' }>
-export type Status = 'bekliyor' | 'suruyor' | 'bitti'
+/** `yarida`: koşu durdurulunca ya da hatayla kesilince bitmeden kalan vaka (devam ettirilince yeniden "sürüyor" olur). */
+export type Status = 'bekliyor' | 'suruyor' | 'bitti' | 'yarida'
 
 export interface MonitorStep {
   seq: number
@@ -40,8 +42,10 @@ export interface MonitorTask {
   index: number
   title: string
   status: Status
-  /** Görevin başladığı an (zaman çizelgesinde bant ve atlama için). */
+  /** Görevin başladığı an (zaman çizelgesinde bant ve atlama için); devamda yeniden başladıysa son başlangıç. */
   at: number | null
+  /** Görevin bittiği an (oynatırken o andaki durumu bulmak için); bitmediyse null. */
+  doneAt: number | null
 }
 
 export interface MonitorPage {
@@ -79,6 +83,9 @@ export interface MonitorModel {
   /** İlk ve son olayın anı (oynatma aralığı; kareler bunu genişletebilir). */
   start: number | null
   end: number | null
+  /** Koşunun durduğu anlar (durdurma, hata, bitiş) ve yeniden başladığı anlar (devam): oynatırken o an koşu duruyor mu. */
+  halts: Array<{ at: number; status: RunInfo['status'] }>
+  starts: number[]
 }
 
 /** Adım araçlarının ekrandaki adı. */
@@ -127,6 +134,8 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
   let judge: string | null = null
   let strategy: RunStrategy | null = null
   let coverage: RunCoverage | null = null
+  const halts: MonitorModel['halts'] = []
+  const starts: number[] = []
   const pageOf = (name: string) => {
     let page = pages.get(name)
     if (!page) pages.set(name, (page = { page: name, status: 'bekliyor', tasks: [] }))
@@ -138,7 +147,18 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
     const at = Date.parse(event.at)
     const key = String(event.seq)
     const note = (tone: NoteTone, text: string) => flow.push({ kind: 'not', key, at, tone, text })
-    if (event.type === 'kosu-basladi') event.pages.forEach(pageOf)
+    if (event.type === 'kosu-basladi') {
+      event.pages.forEach(pageOf)
+      starts.push(at)
+    }
+    if (event.type === 'kosu-bitti') {
+      halts.push({ at, status: event.status })
+      // Durdurulan ya da yarıda kalan koşuda bitmemiş vakalar "yarıda" kalır; devamda yeniden başlar.
+      if (event.status !== 'bitti')
+        for (const page of pages.values())
+          for (const task of page.tasks) if (task.status === 'suruyor') task.status = 'yarida'
+      continue
+    }
     if (event.type === 'strateji') {
       // Test yöntemlerinden önceki koşuların stratejisinde yöntem listesi yoktur (2026-11-16).
       // Kapsamdan önceki koşuların stratejisinde kapsam yoktur; tam test sayılır (2026-11-16).
@@ -175,15 +195,23 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
         page.status = 'suruyor'
         flow.push({ kind: 'sayfa', key, at, page: event.page, status: 'suruyor' })
         break
-      case 'sayfa-bitti':
-        page.status = 'bitti'
-        for (const task of page.tasks) if (task.status === 'suruyor') task.status = 'bitti'
+      case 'sayfa-bitti': {
+        const outcome = event.interrupted ? 'yarida' : 'bitti'
+        page.status = outcome
+        for (const task of page.tasks)
+          if (task.status === 'suruyor') {
+            task.status = outcome
+            if (outcome === 'bitti') task.doneAt = at
+          }
         break
+      }
       case 'plan':
-        // Plan yeniden gönderilebilir (sonradan eklenen kalem, ör. koşu sonu temizliği): önceki görevlerin durumu korunur.
-        page.tasks = event.tasks.map(
-          (t, index) => page.tasks[index] ?? { index, title: t.title, status: 'bekliyor', at: null },
-        )
+        // Plan yeniden gönderilebilir (sonradan eklenen kalem, koşu sonu temizliği, devam): aynı sıradaki aynı görevin
+        // durumu korunur; sırası aynı ama başlığı farklıysa (devamda başka ek kalem) yeni görevdir.
+        page.tasks = event.tasks.map((t, index) => {
+          const old = page.tasks[index]
+          return old && old.title === t.title ? old : { index, title: t.title, status: 'bekliyor', at: null, doneAt: null }
+        })
         note('plan', event.summary)
         break
       case 'gorev-basladi': {
@@ -191,6 +219,7 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
         if (task) {
           task.status = 'suruyor'
           task.at = at
+          task.doneAt = null
         }
         currentTask.set(event.page, event.index)
         flow.push({
@@ -206,7 +235,10 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
       }
       case 'gorev-bitti': {
         const task = page.tasks[event.index]
-        if (task) task.status = 'bitti'
+        if (task) {
+          task.status = event.interrupted ? 'yarida' : 'bitti'
+          task.doneAt = event.interrupted ? null : at
+        }
         note('ozet', event.summary)
         break
       }
@@ -258,7 +290,27 @@ export function buildMonitor(events: RunEvent[]): MonitorModel {
     coverage,
     start: times.length ? Math.min(...times) : null,
     end: times.length ? Math.max(...times) : null,
+    halts,
+    starts,
   }
+}
+
+/**
+ * Oynatılan anda koşu duruyor mu: o andan önceki son duruş, ondan sonra yeniden başlamadıysa geçerlidir. Sunucu
+ * kapanınca duruş olayı yazılmaz; koşu bitmiş ama olayı yoksa (`finalStatus`) son olaydan sonrası duruş sayılır.
+ */
+export function haltAt(
+  model: Pick<MonitorModel, 'halts' | 'starts' | 'end'>,
+  at: number,
+  finalStatus: RunInfo['status'] | null,
+): RunInfo['status'] | null {
+  const halt = model.halts.findLast((h) => h.at <= at)
+  if (halt && !model.starts.some((s) => s > halt.at && s <= at)) return halt.status
+  const lastStart = model.starts.at(-1) ?? null
+  const halted = finalStatus === 'durduruldu' || finalStatus === 'hata' || finalStatus === 'bitti'
+  if (halted && model.end !== null && at >= model.end && !model.halts.some((h) => lastStart === null || h.at >= lastStart))
+    return finalStatus
+  return null
 }
 
 /**
